@@ -260,14 +260,20 @@ export class WhatsAppService {
       };
     }
 
+    if (!forceFresh && this.currentQrDataUrl) {
+      return {
+        qrDataUrl: this.currentQrDataUrl,
+        rawCode: this.currentRawQr || '',
+        status: 'SCAN_QR_REQUIRED',
+      };
+    }
+
     if (forceFresh) {
       this.isInitializing = false;
       await this.disconnectSession();
+      this.currentQrDataUrl = null;
+      this.currentRawQr = null;
     }
-
-    // Reset QR state to ensure we get a fresh handshake code
-    this.currentQrDataUrl = null;
-    this.currentRawQr = null;
 
     // Trigger fresh Baileys initialization
     await this.initBaileysSocket();
@@ -281,10 +287,10 @@ export class WhatsAppService {
       };
     }
 
-    // Wait for authentic QR event from official WhatsApp Web socket (up to 12 seconds)
+    // Wait for authentic QR event from official WhatsApp Web socket (up to 15 seconds)
     const qrPromise = new Promise<string>((resolve) => {
       this.qrResolvers.push(resolve);
-      setTimeout(() => resolve(''), 12000);
+      setTimeout(() => resolve(''), 15000);
     });
 
     const qrReceived = await qrPromise;
@@ -312,12 +318,19 @@ export class WhatsAppService {
       this.ensureAuthDir();
       if (!this.sock) {
         await this.initBaileysSocket();
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 2000));
       }
 
-      const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+      let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+      if (cleanPhone.startsWith('0') && cleanPhone.length === 11) {
+        cleanPhone = cleanPhone.substring(1);
+      }
+      if (cleanPhone.length === 10) {
+        cleanPhone = `91${cleanPhone}`;
+      }
+
       if (cleanPhone.length < 10) {
-        return { success: false, error: 'Please enter a valid phone number with country code (e.g. 919876543210).' };
+        return { success: false, error: 'Please enter a valid phone number (e.g. 9876543210 or 919876543210).' };
       }
 
       if (this.sock && typeof (this.sock as any).requestPairingCode === 'function') {
