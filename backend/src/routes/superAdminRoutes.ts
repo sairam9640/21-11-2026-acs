@@ -988,12 +988,66 @@ superAdminRouter.get('/settings', async (req: AuthenticatedRequest, res: Respons
       enabled: Boolean(rawSmtp.enabled),
     };
 
+    const operatorAuth = setting.operatorAuth || {
+      allowOtp: true,
+      allowPassword: true,
+      primaryMethod: 'OTP',
+    };
+
     return res.json({
       success: true,
       settings: {
         smtp: safeSmtp,
         whatsapp: setting.whatsapp,
+        operatorAuth,
       },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Super Admin Settings: Save Operator Authentication Policy
+ */
+superAdminRouter.post('/settings/operator-auth', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { allowOtp = true, allowPassword = true, primaryMethod = 'OTP' } = req.body;
+
+    if (!allowOtp && !allowPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one authentication method (WhatsApp OTP or Password) must remain enabled.',
+      });
+    }
+
+    const updated = await SystemSetting.findOneAndUpdate(
+      { key: 'global_config' },
+      {
+        $set: {
+          'operatorAuth.allowOtp': Boolean(allowOtp),
+          'operatorAuth.allowPassword': Boolean(allowPassword),
+          'operatorAuth.primaryMethod': primaryMethod === 'PASSWORD' ? 'PASSWORD' : 'OTP',
+          'operatorAuth.updatedAt': new Date(),
+        },
+      },
+      { new: true, upsert: true }
+    );
+
+    await recordAuditLog({
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      actorRole: req.user!.role,
+      action: 'OPERATOR_AUTH_POLICY_UPDATED',
+      targetResource: 'SystemSetting',
+      targetId: 'operatorAuth',
+      correlationId: req.correlationId || `auth_pol_${Date.now()}`,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Operator authentication policy updated successfully.',
+      operatorAuth: updated.operatorAuth,
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });

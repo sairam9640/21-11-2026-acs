@@ -32,12 +32,20 @@ export interface ISuperAdminAlertSettings {
   updatedAt?: Date;
 }
 
+export interface IOperatorAuthSettings {
+  allowOtp: boolean; // default: true
+  allowPassword: boolean; // default: true
+  primaryMethod: 'OTP' | 'PASSWORD'; // default: 'OTP'
+  updatedAt?: Date;
+}
+
 export interface ISystemSetting extends Document {
   _id: Types.ObjectId;
   key: string; // 'global_config'
   smtp: ISmtpSettings;
   whatsapp: IWhatsAppSettings;
   superAdminAlerts: ISuperAdminAlertSettings;
+  operatorAuth: IOperatorAuthSettings;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -76,6 +84,12 @@ const SystemSettingSchema = new Schema<ISystemSetting>(
       recipientPhone: { type: String, default: '' },
       alertOnPendingDevice: { type: Boolean, default: true },
       cooldownMinutes: { type: Number, default: 360 },
+      updatedAt: { type: Date, default: Date.now },
+    },
+    operatorAuth: {
+      allowOtp: { type: Boolean, default: true },
+      allowPassword: { type: Boolean, default: true },
+      primaryMethod: { type: String, enum: ['OTP', 'PASSWORD'], default: 'OTP' },
       updatedAt: { type: Date, default: Date.now },
     },
   },

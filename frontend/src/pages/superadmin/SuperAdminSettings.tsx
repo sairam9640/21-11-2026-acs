@@ -73,6 +73,13 @@ export const SuperAdminSettings: React.FC = () => {
   const [testingSaAlert, setTestingSaAlert] = useState(false);
   const [testSaAlertResult, setTestSaAlertResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Operator Auth Policy State (Super Admin Exclusive)
+  const [opAllowOtp, setOpAllowOtp] = useState(true);
+  const [opAllowPassword, setOpAllowPassword] = useState(true);
+  const [opPrimaryMethod, setOpPrimaryMethod] = useState<'OTP' | 'PASSWORD'>('OTP');
+  const [opAuthLoading, setOpAuthLoading] = useState(false);
+  const [opAuthMsg, setOpAuthMsg] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     fetchSettings();
   }, []);
@@ -95,11 +102,13 @@ export const SuperAdminSettings: React.FC = () => {
           setWaConnectedPhone(wa.connectedPhone || null);
           setWaDeviceInfo(wa.deviceInfo || 'WhatsApp Multi-Device');
           setWaQrDataUrl(null);
-        } else if (wa.status === 'SCAN_QR_REQUIRED' && wa.qrCodeDataUrl) {
+          setWaLoading(false);
+        } else if (wa.qrCodeDataUrl) {
           setWaQrDataUrl(wa.qrCodeDataUrl);
+          setWaLoading(false);
         }
       }
-    }, 2500);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [activeTab]);
@@ -126,6 +135,11 @@ export const SuperAdminSettings: React.FC = () => {
         setWaQrDataUrl(whatsapp.qrCodeDataUrl || null);
         setWaConnectedPhone(whatsapp.connectedPhone || null);
         setWaDeviceInfo(whatsapp.deviceInfo || null);
+      }
+      if (res.settings.operatorAuth) {
+        setOpAllowOtp(res.settings.operatorAuth.allowOtp ?? true);
+        setOpAllowPassword(res.settings.operatorAuth.allowPassword ?? true);
+        setOpPrimaryMethod(res.settings.operatorAuth.primaryMethod || 'OTP');
       }
     }
 
@@ -226,6 +240,26 @@ export const SuperAdminSettings: React.FC = () => {
     setTestWaResult({
       success: res.success,
       message: res.success ? `✓ Test message dispatched to ${testPhoneTarget} (ID: ${res.messageId})` : (res.error || 'Failed to send test message'),
+    });
+  };
+
+  const handleSaveOperatorAuthPolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!opAllowOtp && !opAllowPassword) {
+      setOpAuthMsg({ success: false, message: 'At least one authentication method must remain enabled.' });
+      return;
+    }
+    setOpAuthLoading(true);
+    setOpAuthMsg(null);
+    const res = await api.saveOperatorAuthPolicy({
+      allowOtp: opAllowOtp,
+      allowPassword: opAllowPassword,
+      primaryMethod: opPrimaryMethod,
+    });
+    setOpAuthLoading(false);
+    setOpAuthMsg({
+      success: Boolean(res.success),
+      message: res.message || res.error || (res.success ? 'Operator authentication policy saved successfully.' : 'Failed to save policy.'),
     });
   };
 
@@ -970,6 +1004,105 @@ export const SuperAdminSettings: React.FC = () => {
                     <span>{testWaResult.message}</span>
                   </div>
                 )}
+              </Card>
+
+              {/* Super Admin Exclusive: Operator Authentication Policy Control */}
+              <Card className="p-6 bg-white border-[#E2E8F0]">
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#E2E8F0]">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      <Shield className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-[#0F172A]">Operator Login Authentication Control</h3>
+                      <p className="text-xs text-[#64748B]">Super Admin policy to enforce WhatsApp OTP or Password login</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-1 bg-indigo-50 text-indigo-800 rounded-md border border-indigo-200 uppercase tracking-wider">
+                    Super Admin Only
+                  </span>
+                </div>
+
+                <form onSubmit={handleSaveOperatorAuthPolicy} className="space-y-4">
+                  {opAuthMsg && (
+                    <div
+                      className={`p-3 rounded-xl text-xs flex items-center space-x-2 border ${
+                        opAuthMsg.success
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      }`}
+                    >
+                      {opAuthMsg.success ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />}
+                      <span>{opAuthMsg.message}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Allow WhatsApp OTP */}
+                    <div className={`p-4 rounded-xl border transition-all ${opAllowOtp ? 'bg-emerald-50/50 border-emerald-300' : 'bg-slate-50 border-slate-200'}`}>
+                      <label className="flex items-start space-x-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={opAllowOtp}
+                          onChange={(e) => setOpAllowOtp(e.target.checked)}
+                          className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 block">Allow WhatsApp OTP Verification</span>
+                          <span className="text-[11px] text-slate-500 leading-snug block mt-0.5">
+                            Operators receive dynamic 6-digit OTP on WhatsApp to verify identity.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* Allow Password */}
+                    <div className={`p-4 rounded-xl border transition-all ${opAllowPassword ? 'bg-emerald-50/50 border-emerald-300' : 'bg-slate-50 border-slate-200'}`}>
+                      <label className="flex items-start space-x-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={opAllowPassword}
+                          onChange={(e) => setOpAllowPassword(e.target.checked)}
+                          className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 block">Allow Manual Password Entry</span>
+                          <span className="text-[11px] text-slate-500 leading-snug block mt-0.5">
+                            Operators can enter their registered password to log in.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
+                    <strong>Rule Enforcement:</strong>
+                    {opAllowOtp && opAllowPassword && (
+                      <span className="ml-1 text-emerald-700 font-medium">Both WhatsApp OTP and Password login are enabled. Operators can choose either method.</span>
+                    )}
+                    {opAllowOtp && !opAllowPassword && (
+                      <span className="ml-1 text-amber-700 font-medium">Strict WhatsApp OTP Only. Password entry is completely disabled for all operators.</span>
+                    )}
+                    {!opAllowOtp && opAllowPassword && (
+                      <span className="ml-1 text-indigo-700 font-medium">Strict Password Only. WhatsApp OTP dispatch is disabled. Operators must enter password.</span>
+                    )}
+                    {!opAllowOtp && !opAllowPassword && (
+                      <span className="ml-1 text-rose-700 font-bold">Error: At least one authentication method must remain enabled!</span>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      isLoading={opAuthLoading}
+                      disabled={!opAllowOtp && !opAllowPassword}
+                      className="text-xs font-bold px-4 py-2"
+                    >
+                      Save Authentication Policy
+                    </Button>
+                  </div>
+                </form>
               </Card>
             </div>
 

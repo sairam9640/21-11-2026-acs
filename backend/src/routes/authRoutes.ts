@@ -7,6 +7,7 @@ import { AuthenticatedRequest } from '../middleware/tenantIsolation.js';
 import { recordAuditLog } from '../middleware/audit.js';
 import { EmailService } from '../services/emailService.js';
 import { WhatsAppService } from '../services/whatsAppService.js';
+import { SystemSetting } from '../models/SystemSetting.js';
 
 export const authRouter = Router();
 
@@ -290,11 +291,36 @@ authRouter.post('/superadmin/verify-otp', async (req: AuthenticatedRequest, res:
 });
 
 /**
+ * Public Endpoint: Get active Operator Authentication Policy (OTP vs Password)
+ */
+authRouter.get('/operator/policy', async (_req, res: Response) => {
+  try {
+    const setting = await SystemSetting.findOne({ key: 'global_config' });
+    const policy = setting?.operatorAuth || {
+      allowOtp: true,
+      allowPassword: true,
+      primaryMethod: 'OTP',
+    };
+    return res.json({ success: true, policy });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * Operator WhatsApp OTP Login: Step 1 (Request WhatsApp OTP)
  * Flexible lookup across registered users and tenant owner phone numbers.
  */
 authRouter.post('/operator/request-otp', async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const setting = await SystemSetting.findOne({ key: 'global_config' });
+    if (setting?.operatorAuth?.allowOtp === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'WhatsApp OTP verification has been disabled by Super Administrator. Please sign in using your password.',
+      });
+    }
+
     const { phone, slug } = req.body;
     if (!phone) {
       return res.status(400).json({ success: false, error: 'Mobile phone number or email is required.' });
@@ -624,13 +650,22 @@ authRouter.post('/operator/verify-otp', async (req: AuthenticatedRequest, res: R
 });
 
 /**
- * Operator Tenant Login (Legacy fallback)
+ * Operator Login (Password Entry)
  */
 authRouter.post('/operator/login', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { email, password, slug } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'Email and password are required for operator login.' });
+    const setting = await SystemSetting.findOne({ key: 'global_config' });
+    if (setting?.operatorAuth?.allowPassword === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Password login has been disabled by Super Administrator. Please sign in using WhatsApp OTP verification.',
+      });
+    }
+
+    const { email, password, slug, phone } = req.body;
+    const identifier = (email || phone || '').trim();
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, error: 'Email or phone and password are required for operator login.' });
     }
 
     const tenantSlug = slug || (req.headers['x-tenant-slug'] as string) || 'apex';
@@ -644,10 +679,23 @@ authRouter.post('/operator/login', async (req: AuthenticatedRequest, res: Respon
       return res.status(403).json({ success: false, error: 'Tenant account is suspended.' });
     }
 
-    const user = await User.findOne({
-      tenantId: tenant._id,
-      email: email.trim().toLowerCase(),
-    });
+    const isEmail = identifier.includes('@');
+    const cleanDigits = identifier.replace(/[^0-9]/g, '');
+    const last10 = cleanDigits.slice(-10);
+
+    let query: any = { tenantId: tenant._id };
+    if (isEmail) {
+      query.email = identifier.toLowerCase();
+    } else if (last10.length === 10) {
+      query.$or = [
+        { phone: { $regex: new RegExp(last10 + '$') } },
+        { email: identifier.toLowerCase() },
+      ];
+    } else {
+      query.email = identifier.toLowerCase();
+    }
+
+    const user = await User.findOne(query);
 
     if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid operator credentials.' });

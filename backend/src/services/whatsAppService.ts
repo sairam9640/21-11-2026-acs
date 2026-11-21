@@ -88,6 +88,13 @@ export class WhatsAppService {
       );
     }
 
+    // Auto-spin background Baileys socket if disconnected and not initialized
+    if (!isSocketConnected && !this.sock && !this.isInitializing) {
+      this.initBaileysSocket().catch((err) => {
+        console.warn('[WhatsAppService] Auto-spin background socket:', err.message);
+      });
+    }
+
     const rawId = this.sock?.user?.id || '';
     const phoneNum = rawId ? (rawId.split(':')[0] || rawId.split('@')[0]) : '';
     const formattedPhone = phoneNum ? (phoneNum.startsWith('+') ? phoneNum : `+${phoneNum}`) : undefined;

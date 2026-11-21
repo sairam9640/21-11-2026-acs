@@ -149,6 +149,10 @@ class ApiService {
     });
   }
 
+  async getOperatorAuthPolicy() {
+    return this.request('/auth/operator/policy');
+  }
+
   async operatorRequestOtp(phone: string, slug?: string) {
     return this.request('/auth/operator/request-otp', {
       method: 'POST',
@@ -163,10 +167,10 @@ class ApiService {
     });
   }
 
-  async operatorLogin(email?: string, slug?: string) {
+  async operatorLogin(email?: string, password?: string, slug?: string) {
     return this.request('/auth/operator/login', {
       method: 'POST',
-      body: JSON.stringify({ email, slug: slug || this.tenantSlug }),
+      body: JSON.stringify({ email, password, slug: slug || this.tenantSlug }),
     });
   }
 
@@ -240,6 +244,13 @@ class ApiService {
 
   async testSmtpConnection(payload: { user?: string; pass?: string; fromName?: string; host?: string; port?: number; secure?: boolean; targetEmail?: string }) {
     return this.request('/superadmin/settings/smtp/test', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async saveOperatorAuthPolicy(payload: { allowOtp: boolean; allowPassword: boolean; primaryMethod?: 'OTP' | 'PASSWORD' }) {
+    return this.request('/superadmin/settings/operator-auth', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
