@@ -6738,7 +6738,7 @@ operatorRouter.post('/settings/whatsapp/pairing-code', async (req: Authenticated
 
 operatorRouter.post('/settings/whatsapp/confirm-scan', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { phone = '+919949666907', deviceInfo = 'WhatsApp Web Client for Operator NOC' } = req.body;
+    const { phone = '', deviceInfo = 'WhatsApp Web Client for Operator NOC' } = req.body;
     const session = await WhatsAppService.confirmTenantPairing(req.tenantId!, phone, deviceInfo);
 
     await recordAuditLog({

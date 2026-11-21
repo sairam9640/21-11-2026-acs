@@ -1132,7 +1132,7 @@ superAdminRouter.post('/settings/whatsapp/pairing-code', async (req: Authenticat
  */
 superAdminRouter.post('/settings/whatsapp/confirm-scan', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { phone = '+919988776655', deviceInfo = 'WhatsApp Business for Android (v2.24.18)' } = req.body;
+    const { phone = '', deviceInfo = 'WhatsApp Web Multi-Device' } = req.body;
     const session = await WhatsAppService.confirmPairing(phone, deviceInfo);
 
     await recordAuditLog({
