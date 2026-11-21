@@ -55,10 +55,6 @@ export const SuperAdminSettings: React.FC = () => {
   const [waDeviceInfo, setWaDeviceInfo] = useState<string | null>(null);
   const [waLoading, setWaLoading] = useState(false);
   const [waMsg, setWaMsg] = useState<string | null>(null);
-  const [waPairingPhone, setWaPairingPhone] = useState('');
-  const [waPairingCode, setWaPairingCode] = useState<string | null>(null);
-  const [waPairingLoading, setWaPairingLoading] = useState(false);
-  const [waCopied, setWaCopied] = useState(false);
 
   // WhatsApp Test State
   const [testPhoneTarget, setTestPhoneTarget] = useState('+919845000001');
@@ -216,37 +212,7 @@ export const SuperAdminSettings: React.FC = () => {
       setWaConnectedPhone(null);
       setWaDeviceInfo(null);
       setWaQrDataUrl(null);
-      setWaPairingCode(null);
       setWaMsg('WhatsApp session disconnected.');
-    }
-  };
-
-  const handleRequestWaPairingCode = async () => {
-    if (!waPairingPhone) {
-      setWaMsg('Please enter your WhatsApp mobile number with country code (e.g. 919876543210)');
-      return;
-    }
-    setWaPairingLoading(true);
-    setWaPairingCode(null);
-    try {
-      const res = await api.requestWhatsAppPairingCode(waPairingPhone);
-      if (res.success && res.pairingCode) {
-        setWaPairingCode(res.pairingCode);
-        setWaMsg('✓ Pairing code generated! Open WhatsApp on phone > Settings > Linked Devices > Link with phone number instead, and enter this code.');
-      } else {
-        setWaMsg(res.error || 'Failed to request pairing code');
-      }
-    } catch (err: any) {
-      setWaMsg(err.message || 'Error communicating with server');
-    }
-    setWaPairingLoading(false);
-  };
-
-  const handleCopyPairingCode = () => {
-    if (waPairingCode) {
-      navigator.clipboard.writeText(waPairingCode);
-      setWaCopied(true);
-      setTimeout(() => setWaCopied(false), 2500);
     }
   };
 
@@ -800,104 +766,149 @@ export const SuperAdminSettings: React.FC = () => {
                   </div>
                 )}
 
-                {/* QR Scanner & Pairing Card */}
+                {/* Official WhatsApp Web QR Scanner Interface */}
                 {waStatus === 'CONNECTED' ? (
-                  <div className="p-8 rounded-2xl bg-[#ECFDF5] border border-[#A7F3D0] text-center space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-[#D1FAE5] border border-[#A7F3D0] flex items-center justify-center mx-auto text-[#047857]">
-                      <Smartphone className="w-8 h-8" />
+                  <div className="p-8 rounded-2xl bg-gradient-to-b from-[#ECFDF5] to-white border border-[#A7F3D0] text-center space-y-5 shadow-sm">
+                    <div className="w-20 h-20 rounded-full bg-[#D1FAE5] border-2 border-emerald-400 flex items-center justify-center mx-auto text-[#047857] shadow-lg shadow-emerald-500/10">
+                      <Smartphone className="w-10 h-10" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-[#0F172A]">WhatsApp Business Linked</h3>
-                      <p className="text-xs text-[#334155] mt-1">
-                        Active Phone: <span className="font-mono text-[#047857] font-bold">{waConnectedPhone}</span>
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold mb-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Active Multi-Device Session
+                      </div>
+                      <h3 className="text-xl font-bold text-[#0F172A]">WhatsApp Web Connected</h3>
+                      <p className="text-sm text-[#334155] mt-1.5">
+                        Connected Mobile Number:{' '}
+                        <span className="font-mono text-emerald-700 font-extrabold text-base px-2 py-0.5 bg-emerald-50 rounded border border-emerald-200">
+                          {waConnectedPhone}
+                        </span>
                       </p>
-                      <p className="text-xs text-[#64748B] mt-0.5">{waDeviceInfo}</p>
+                      <p className="text-xs text-[#64748B] mt-1">{waDeviceInfo}</p>
                     </div>
 
-                    <div className="pt-4 flex items-center justify-center space-x-3">
-                      <Button onClick={() => handleGenerateWaQr(true)} isLoading={waLoading} variant="outline">
+                    <div className="pt-2 flex items-center justify-center space-x-3">
+                      <Button onClick={() => handleGenerateWaQr(true)} isLoading={waLoading} variant="outline" className="border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-semibold text-xs">
                         <RefreshCw className="w-4 h-4 mr-2" /> Re-link / Scan New QR
                       </Button>
-                      <Button onClick={handleDisconnectWa} isLoading={waLoading} variant="danger">
+                      <Button onClick={handleDisconnectWa} isLoading={waLoading} variant="danger" className="font-semibold text-xs">
                         <Power className="w-4 h-4 mr-2" /> Disconnect Session
                       </Button>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-6">
-                    {waLoading ? (
-                      <div className="w-64 h-64 rounded-2xl bg-white border-2 border-dashed border-emerald-300 flex flex-col items-center justify-center text-center p-6 space-y-3 shadow-inner">
-                        <RefreshCw className="w-10 h-10 text-emerald-600 animate-spin" />
-                        <span className="text-xs font-semibold text-[#0F172A]">Connecting to WhatsApp Multi-Device...</span>
-                        <span className="text-[11px] text-[#64748B]">Generating authentic pairing handshake</span>
-                      </div>
-                    ) : waQrDataUrl ? (
-                      <div className="flex flex-col items-center space-y-3">
-                        <div className="p-4 bg-white rounded-2xl shadow-2xl shadow-emerald-500/10 border-4 border-[#A7F3D0]">
-                          <img src={waQrDataUrl} alt="WhatsApp Web QR Code" className="w-64 h-64" />
+                  <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-slate-50 via-white to-emerald-50/30 border border-[#E2E8F0] shadow-sm">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                      {/* Left Column: Official WhatsApp Web Instructions */}
+                      <div className="lg:col-span-7 space-y-5">
+                        <div>
+                          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 text-xs font-bold uppercase tracking-wider mb-2">
+                            <QrCode className="w-3.5 h-3.5" />
+                            Official WhatsApp Web Scanner
+                          </div>
+                          <h3 className="text-xl font-bold text-[#0F172A]">
+                            Use WhatsApp on AI ISP OS
+                          </h3>
+                          <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
+                            Link your WhatsApp account directly to your Linux VPS. All operator login OTPs, subscriber receipts, and ONT alerts will be dispatched in real-time at ₹0 cost.
+                          </p>
                         </div>
-                        <span className="text-[11px] text-[#047857] font-semibold flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                          Official WhatsApp Web QR Code (Auto-refreshes)
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="w-64 h-64 rounded-2xl border-2 border-dashed border-[#CBD5E1] flex flex-col items-center justify-center text-[#94A3B8] space-y-2">
-                        <QrCode className="w-12 h-12 stroke-1" />
-                        <span className="text-xs">Click below to generate WhatsApp QR</span>
-                      </div>
-                    )}
 
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                      <Button onClick={() => handleGenerateWaQr(true)} isLoading={waLoading} variant="primary">
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        {waQrDataUrl ? 'Regenerate QR Code' : 'Generate WhatsApp QR Code'}
-                      </Button>
-                    </div>
-
-                    {/* Or Link With Phone Number Pairing Code */}
-                    <div className="w-full max-w-md pt-4 border-t border-[#E2E8F0] text-center space-y-3">
-                      <span className="text-xs font-bold text-[#64748B] uppercase tracking-wider block">
-                        — OR Link With Phone Number (No Camera Scan Required) —
-                      </span>
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Phone with country code (e.g. 919876543210)"
-                          value={waPairingPhone}
-                          onChange={(e) => setWaPairingPhone(e.target.value)}
-                        />
-                        <Button
-                          variant="outline"
-                          onClick={handleRequestWaPairingCode}
-                          isLoading={waPairingLoading}
-                          className="whitespace-nowrap font-bold text-xs"
-                        >
-                          Get 8-Digit Code
-                        </Button>
-                      </div>
-
-                      {waPairingCode && (
-                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-2">
-                          <span className="text-xs text-emerald-800 font-medium block">
-                            Enter this code in WhatsApp (<strong>Settings &gt; Linked Devices &gt; Link with phone number</strong>):
-                          </span>
-                          <div className="flex items-center justify-center gap-2">
-                            <span className="text-2xl font-mono font-bold tracking-widest text-emerald-700 bg-white px-4 py-1.5 rounded-lg border border-emerald-300 shadow-sm">
-                              {waPairingCode}
+                        {/* Step-by-step instructions */}
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-start gap-3.5">
+                            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shadow-sm">
+                              1
                             </span>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              type="button"
-                              onClick={handleCopyPairingCode}
-                              className="h-10 text-xs font-bold"
-                            >
-                              {waCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                              <span className="ml-1">{waCopied ? 'Copied!' : 'Copy'}</span>
-                            </Button>
+                            <p className="text-xs text-[#334155] leading-snug pt-0.5">
+                              Open <strong>WhatsApp</strong> on your mobile phone
+                            </p>
+                          </div>
+
+                          <div className="flex items-start gap-3.5">
+                            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shadow-sm">
+                              2
+                            </span>
+                            <p className="text-xs text-[#334155] leading-snug pt-0.5">
+                              Tap <strong>Menu</strong> (⋮ on Android) or <strong>Settings</strong> (⚙ on iPhone)
+                            </p>
+                          </div>
+
+                          <div className="flex items-start gap-3.5">
+                            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shadow-sm">
+                              3
+                            </span>
+                            <p className="text-xs text-[#334155] leading-snug pt-0.5">
+                              Tap <strong>Linked Devices</strong> and then tap <strong>Link a Device</strong>
+                            </p>
+                          </div>
+
+                          <div className="flex items-start gap-3.5">
+                            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shadow-sm">
+                              4
+                            </span>
+                            <p className="text-xs text-[#334155] leading-snug pt-0.5">
+                              Point your phone camera at the QR code to capture it
+                            </p>
                           </div>
                         </div>
-                      )}
+
+                        <div className="pt-2 flex items-center gap-3">
+                          <Button
+                            onClick={() => handleGenerateWaQr(true)}
+                            isLoading={waLoading}
+                            variant="primary"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2.5 shadow-md shadow-emerald-600/20"
+                          >
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            {waQrDataUrl ? 'Refresh QR Code' : 'Generate WhatsApp QR Code'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Right Column: Live QR Code Display */}
+                      <div className="lg:col-span-5 flex flex-col items-center justify-center">
+                        <div className="relative p-5 bg-white rounded-3xl shadow-xl border-2 border-emerald-200/80 flex flex-col items-center justify-center">
+                          {waLoading ? (
+                            <div className="w-64 h-64 rounded-2xl bg-slate-50 border-2 border-dashed border-emerald-300 flex flex-col items-center justify-center text-center p-6 space-y-3">
+                              <RefreshCw className="w-10 h-10 text-emerald-600 animate-spin" />
+                              <span className="text-xs font-semibold text-[#0F172A]">Connecting to WhatsApp Multi-Device...</span>
+                              <span className="text-[11px] text-[#64748B]">Generating authentic pairing handshake</span>
+                            </div>
+                          ) : waQrDataUrl ? (
+                            <div className="flex flex-col items-center space-y-3">
+                              <div className="p-2 bg-white rounded-xl shadow-inner border border-slate-200">
+                                <img
+                                  src={waQrDataUrl}
+                                  alt="WhatsApp Web Pairing QR Code"
+                                  className="w-64 h-64 object-contain rounded-lg"
+                                />
+                              </div>
+                              <span className="text-[11px] text-emerald-800 font-bold flex items-center gap-1.5 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                                Live QR Code — Ready to Scan
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="w-64 h-64 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 flex flex-col items-center justify-center text-[#94A3B8] p-6 text-center space-y-3">
+                              <QrCode className="w-16 h-16 stroke-1 text-slate-400" />
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-slate-700">QR Code not loaded</p>
+                                <p className="text-[11px] text-slate-500">Click the button below to generate a fresh QR code</p>
+                              </div>
+                              <Button
+                                onClick={() => handleGenerateWaQr(false)}
+                                isLoading={waLoading}
+                                size="sm"
+                                variant="outline"
+                                className="text-xs font-semibold"
+                              >
+                                Load QR Code
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}

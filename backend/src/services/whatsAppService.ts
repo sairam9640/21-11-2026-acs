@@ -71,9 +71,26 @@ export class WhatsAppService {
       activeStatus = 'DISCONNECTED';
     }
 
+    // Wipe any stale MongoDB CONNECTED state if the live socket is not actually authenticated
+    if (!isSocketConnected && rawWa.status === 'CONNECTED') {
+      await SystemSetting.updateOne(
+        { key: 'global_config' },
+        {
+          $set: {
+            'whatsapp.status': activeStatus,
+            'whatsapp.updatedAt': new Date(),
+          },
+          $unset: {
+            'whatsapp.connectedPhone': '',
+            'whatsapp.deviceInfo': '',
+          },
+        }
+      );
+    }
+
     const rawId = this.sock?.user?.id || '';
     const phoneNum = rawId ? (rawId.split(':')[0] || rawId.split('@')[0]) : '';
-    const formattedPhone = phoneNum ? (phoneNum.startsWith('+') ? phoneNum : `+${phoneNum}`) : (isSocketConnected ? rawWa.connectedPhone : undefined);
+    const formattedPhone = phoneNum ? (phoneNum.startsWith('+') ? phoneNum : `+${phoneNum}`) : undefined;
 
     const waConfig: IWhatsAppSettings = {
       ...rawWa,
