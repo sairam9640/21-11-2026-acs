@@ -145,9 +145,8 @@ export class WhatsAppService {
       const socket = makeWASocket({
         ...(version ? { version } : {}),
         auth: state,
-        printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome'),
+        browser: Browsers.macOS('Desktop'),
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
@@ -165,19 +164,24 @@ export class WhatsAppService {
 
         if (qr) {
           this.currentRawQr = qr;
-          this.currentQrDataUrl = await QRCode.toDataURL(qr, {
-            errorCorrectionLevel: 'M',
-            margin: 2,
-            scale: 8,
-            color: { dark: '#020617', light: '#ffffff' },
-          });
 
-          // Resolve any waiting QR promises
+          // Resolve any waiting QR promises immediately
           const waiting = [...this.qrResolvers];
           this.qrResolvers = [];
           waiting.forEach((resolve) => resolve(qr));
 
-          await SystemSetting.findOneAndUpdate(
+          try {
+            this.currentQrDataUrl = await QRCode.toDataURL(qr, {
+              errorCorrectionLevel: 'M',
+              margin: 2,
+              scale: 8,
+              color: { dark: '#020617', light: '#ffffff' },
+            });
+          } catch (e: any) {
+            console.error('[WhatsAppService] Error converting QR to data URL:', e.message);
+          }
+
+          SystemSetting.findOneAndUpdate(
             { key: 'global_config' },
             {
               $set: {
@@ -192,7 +196,7 @@ export class WhatsAppService {
               },
             },
             { upsert: true }
-          );
+          ).catch((e: any) => console.warn('[WhatsAppService] DB QR update warning:', e.message));
 
           console.log('[WhatsAppService] Authentic Baileys WhatsApp Web QR Code generated & ready to scan.');
         }
@@ -299,29 +303,32 @@ export class WhatsAppService {
       this.currentRawQr = null;
     }
 
-    // Trigger fresh Baileys initialization
-    await this.initBaileysSocket();
-
-    // If QR code is already present, return immediately
-    if (this.currentQrDataUrl) {
-      return {
-        qrDataUrl: this.currentQrDataUrl,
-        rawCode: this.currentRawQr || '',
-        status: 'SCAN_QR_REQUIRED',
-      };
-    }
-
-    // Wait for authentic QR event from official WhatsApp Web socket (up to 15 seconds)
+    // Register promise resolver BEFORE socket initialization to eliminate race conditions
     const qrPromise = new Promise<string>((resolve) => {
       this.qrResolvers.push(resolve);
       setTimeout(() => resolve(''), 15000);
     });
 
+    // Trigger fresh Baileys initialization
+    await this.initBaileysSocket();
+
     const qrReceived = await qrPromise;
-    if (qrReceived && this.currentQrDataUrl) {
+    const activeQr = qrReceived || this.currentRawQr;
+
+    if (activeQr) {
+      if (!this.currentQrDataUrl || this.currentRawQr !== activeQr) {
+        this.currentQrDataUrl = await QRCode.toDataURL(activeQr, {
+          errorCorrectionLevel: 'M',
+          margin: 2,
+          scale: 8,
+          color: { dark: '#020617', light: '#ffffff' },
+        });
+        this.currentRawQr = activeQr;
+      }
+
       return {
         qrDataUrl: this.currentQrDataUrl,
-        rawCode: this.currentRawQr || '',
+        rawCode: activeQr,
         status: 'SCAN_QR_REQUIRED',
       };
     }
