@@ -186,32 +186,15 @@ export const SuperAdminSettings: React.FC = () => {
     if (res.success && res.qrDataUrl) {
       setWaQrDataUrl(res.qrDataUrl);
       setWaStatus('SCAN_QR_REQUIRED');
-      setWaMsg('✓ Fresh authentic WhatsApp QR generated! Open WhatsApp on mobile > Settings > Linked Devices > Link a Device and scan the QR code below.');
+      setWaMsg('✓ Authentic WhatsApp Web QR generated! Open WhatsApp on mobile > Settings > Linked Devices > Link a Device and scan the QR code below.');
     } else if (res.success && res.status === 'CONNECTED') {
       setWaStatus('CONNECTED');
-      setWaConnectedPhone(res.connectedPhone || waConnectedPhone || '+919949666907');
+      setWaConnectedPhone(res.connectedPhone || null);
       setWaQrDataUrl(null);
-      setWaMsg('✓ WhatsApp session is already connected and active!');
+      setWaMsg('✓ WhatsApp session is connected and active!');
     } else {
       setWaStatus('SCAN_QR_REQUIRED');
-      setWaMsg('WhatsApp socket connecting in background... QR code will appear in 2 seconds.');
-    }
-  };
-
-  const handleConfirmWaScan = async () => {
-    setWaLoading(true);
-    const res = await api.confirmWhatsAppScan({
-      phone: '+919988776655',
-      deviceInfo: 'WhatsApp Business for Android (v2.24.18)',
-    });
-    setWaLoading(false);
-
-    if (res.success) {
-      setWaStatus('CONNECTED');
-      setWaConnectedPhone(res.whatsapp?.connectedPhone || '+919988776655');
-      setWaDeviceInfo(res.whatsapp?.deviceInfo || 'WhatsApp Business');
-      setWaQrDataUrl(null);
-      setWaMsg('✓ WhatsApp session paired successfully! Operator WhatsApp OTP dispatch is now live.');
+      setWaMsg('WhatsApp socket connecting in background... QR code will appear in a moment.');
     }
   };
 
@@ -842,13 +825,6 @@ export const SuperAdminSettings: React.FC = () => {
                         <RefreshCw className="w-4 h-4 mr-2" />
                         {waQrDataUrl ? 'Regenerate QR Code' : 'Generate WhatsApp QR Code'}
                       </Button>
-
-                      {waQrDataUrl && (
-                        <Button onClick={handleConfirmWaScan} isLoading={waLoading} variant="outline">
-                          <CheckCircle2 className="w-4 h-4 mr-2 text-[#047857]" />
-                          Confirm Device Linked
-                        </Button>
-                      )}
                     </div>
 
                     {/* Or Link With Phone Number Pairing Code */}

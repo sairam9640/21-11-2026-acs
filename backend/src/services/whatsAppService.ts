@@ -55,11 +55,33 @@ export class WhatsAppService {
     }
 
     const rawWa: any = (setting.toObject ? setting.toObject().whatsapp : setting.whatsapp) || {};
+    const isSocketConnected = Boolean(this.sock?.user);
+    const hasQrCode = Boolean(this.currentQrDataUrl);
+
+    // CRITICAL: Authentic status check
+    // NEVER report CONNECTED if the socket has no active authenticated user!
+    let activeStatus: 'DISCONNECTED' | 'SCAN_QR_REQUIRED' | 'CONNECTING' | 'CONNECTED';
+    if (isSocketConnected) {
+      activeStatus = 'CONNECTED';
+    } else if (hasQrCode) {
+      activeStatus = 'SCAN_QR_REQUIRED';
+    } else if (this.isInitializing) {
+      activeStatus = 'CONNECTING';
+    } else {
+      activeStatus = 'DISCONNECTED';
+    }
+
+    const rawId = this.sock?.user?.id || '';
+    const phoneNum = rawId ? (rawId.split(':')[0] || rawId.split('@')[0]) : '';
+    const formattedPhone = phoneNum ? (phoneNum.startsWith('+') ? phoneNum : `+${phoneNum}`) : (isSocketConnected ? rawWa.connectedPhone : undefined);
+
     const waConfig: IWhatsAppSettings = {
       ...rawWa,
-      status: this.sock?.user ? 'CONNECTED' : (this.currentQrDataUrl ? 'SCAN_QR_REQUIRED' : (rawWa.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED')),
-      qrCodeDataUrl: this.currentQrDataUrl || undefined,
-      qrCodeRaw: this.currentRawQr || undefined,
+      status: activeStatus,
+      connectedPhone: isSocketConnected ? formattedPhone : undefined,
+      deviceInfo: isSocketConnected ? (rawWa.deviceInfo || 'WhatsApp Web Multi-Device (Linux VPS Engine)') : undefined,
+      qrCodeDataUrl: isSocketConnected ? undefined : (this.currentQrDataUrl || undefined),
+      qrCodeRaw: isSocketConnected ? undefined : (this.currentRawQr || undefined),
     };
     return waConfig;
   }
@@ -75,17 +97,16 @@ export class WhatsAppService {
       this.ensureAuthDir();
       const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
-      // Fetch dynamic WhatsApp Web protocol version with 3s timeout
-      let version: [number, number, number] = [2, 3000, 1017531287];
+      // Fetch dynamic WhatsApp Web protocol version
+      let version: [number, number, number] | undefined = undefined;
       try {
-        const vPromise = fetchLatestBaileysVersion();
-        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 3000));
-        const vInfo: any = await Promise.race([vPromise, timeoutPromise]);
+        const vInfo = await fetchLatestBaileysVersion();
         if (vInfo?.version) {
           version = vInfo.version as [number, number, number];
+          console.log(`[WhatsAppService] Baileys using WhatsApp Web version: ${version.join('.')}`);
         }
       } catch (verErr: any) {
-        console.warn('[WhatsAppService] Error fetching latest WA version, using default:', verErr.message);
+        console.warn('[WhatsAppService] Error fetching latest WA version, using Baileys internal default:', verErr.message);
       }
 
       if (this.sock) {
@@ -94,10 +115,11 @@ export class WhatsAppService {
           this.sock.ev.removeAllListeners('creds.update');
           this.sock.end(undefined);
         } catch (_) {}
+        this.sock = null;
       }
 
       const socket = makeWASocket({
-        version,
+        ...(version ? { version } : {}),
         auth: state,
         printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
@@ -140,6 +162,10 @@ export class WhatsAppService {
                 'whatsapp.qrCodeRaw': qr,
                 'whatsapp.updatedAt': new Date(),
               },
+              $unset: {
+                'whatsapp.connectedPhone': '',
+                'whatsapp.deviceInfo': '',
+              },
             },
             { upsert: true }
           );
@@ -164,9 +190,11 @@ export class WhatsAppService {
                 'whatsapp.connectedPhone': formattedPhone,
                 'whatsapp.deviceInfo': deviceModel,
                 'whatsapp.lastConnectedAt': new Date(),
-                'whatsapp.qrCodeDataUrl': undefined,
-                'whatsapp.qrCodeRaw': undefined,
                 'whatsapp.updatedAt': new Date(),
+              },
+              $unset: {
+                'whatsapp.qrCodeDataUrl': '',
+                'whatsapp.qrCodeRaw': '',
               },
             },
             { upsert: true }
@@ -181,21 +209,24 @@ export class WhatsAppService {
 
           console.log(`[WhatsAppService] Connection closed (code: ${statusCode}, shouldReconnect: ${shouldReconnect})`);
 
+          this.currentQrDataUrl = null;
+          this.currentRawQr = null;
+
           if (statusCode === DisconnectReason.loggedOut) {
             await this.cleanupAuthFiles();
             this.sock = null;
-            this.currentQrDataUrl = null;
-            this.currentRawQr = null;
             await SystemSetting.findOneAndUpdate(
               { key: 'global_config' },
               {
                 $set: {
                   'whatsapp.status': 'DISCONNECTED',
-                  'whatsapp.connectedPhone': undefined,
-                  'whatsapp.deviceInfo': undefined,
-                  'whatsapp.qrCodeDataUrl': undefined,
-                  'whatsapp.qrCodeRaw': undefined,
                   'whatsapp.updatedAt': new Date(),
+                },
+                $unset: {
+                  'whatsapp.connectedPhone': '',
+                  'whatsapp.deviceInfo': '',
+                  'whatsapp.qrCodeDataUrl': '',
+                  'whatsapp.qrCodeRaw': '',
                 },
               }
             );
@@ -203,7 +234,7 @@ export class WhatsAppService {
             if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
             this.reconnectTimer = setTimeout(() => {
               this.initBaileysSocket();
-            }, 5000);
+            }, 3000);
           }
         }
       });
@@ -218,22 +249,20 @@ export class WhatsAppService {
    * Generates or refreshes the live authentic WhatsApp Web pairing QR code
    */
   static async generateQrCode(forceFresh = false): Promise<{ qrDataUrl: string; rawCode: string; status: string; connectedPhone?: string }> {
-    const config = await this.getSessionConfig();
-    if (!forceFresh && config.status === 'CONNECTED' && this.sock?.user) {
+    if (!forceFresh && this.sock?.user) {
       const rawId = this.sock.user?.id || '';
       const phoneNum = rawId.split(':')[0] || rawId.split('@')[0];
       return {
         qrDataUrl: '',
         rawCode: '',
         status: 'CONNECTED',
-        connectedPhone: config.connectedPhone || (phoneNum ? `+${phoneNum}` : undefined),
+        connectedPhone: phoneNum ? `+${phoneNum}` : undefined,
       };
     }
 
     if (forceFresh) {
       this.isInitializing = false;
       await this.disconnectSession();
-      await this.cleanupAuthFiles();
     }
 
     // Reset QR state to ensure we get a fresh handshake code
@@ -271,7 +300,6 @@ export class WhatsAppService {
       qrDataUrl: this.currentQrDataUrl || '',
       rawCode: this.currentRawQr || '',
       status: this.currentQrDataUrl ? 'SCAN_QR_REQUIRED' : (this.sock?.user ? 'CONNECTED' : 'CONNECTING'),
-      connectedPhone: config.connectedPhone,
     };
   }
 
@@ -284,6 +312,7 @@ export class WhatsAppService {
       this.ensureAuthDir();
       if (!this.sock) {
         await this.initBaileysSocket();
+        await new Promise((r) => setTimeout(r, 1500));
       }
 
       const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
@@ -292,7 +321,8 @@ export class WhatsAppService {
       }
 
       if (this.sock && typeof (this.sock as any).requestPairingCode === 'function') {
-        const pairingCode = await (this.sock as any).requestPairingCode(cleanPhone);
+        const rawCode = await (this.sock as any).requestPairingCode(cleanPhone);
+        const pairingCode = rawCode?.match(/.{1,4}/g)?.join('-') || rawCode;
         console.log(`[WhatsAppService] Authentic WhatsApp Web Pairing Code generated for ${cleanPhone}: ${pairingCode}`);
         return { success: true, pairingCode };
       }
@@ -308,23 +338,29 @@ export class WhatsAppService {
    * Manually confirm or pair session (for testing / manual override)
    */
   static async confirmPairing(
-    phone = '+919988776655',
-    deviceInfo = 'WhatsApp Business for Android (v2.24.18)'
+    phone?: string,
+    deviceInfo?: string
   ): Promise<IWhatsAppSettings> {
     this.currentQrDataUrl = null;
     this.currentRawQr = null;
+
+    const rawId = this.sock?.user?.id || '';
+    const phoneNum = rawId ? (rawId.split(':')[0] || rawId.split('@')[0]) : '';
+    const activePhone = phone || (phoneNum ? `+${phoneNum}` : undefined);
 
     const updated = await SystemSetting.findOneAndUpdate(
       { key: 'global_config' },
       {
         $set: {
-          'whatsapp.status': 'CONNECTED',
-          'whatsapp.connectedPhone': phone,
-          'whatsapp.deviceInfo': deviceInfo,
-          'whatsapp.lastConnectedAt': new Date(),
-          'whatsapp.qrCodeDataUrl': undefined,
-          'whatsapp.qrCodeRaw': undefined,
+          'whatsapp.status': this.sock?.user ? 'CONNECTED' : 'DISCONNECTED',
+          'whatsapp.connectedPhone': activePhone,
+          'whatsapp.deviceInfo': deviceInfo || (this.sock?.user ? 'WhatsApp Web Multi-Device' : undefined),
+          'whatsapp.lastConnectedAt': this.sock?.user ? new Date() : undefined,
           'whatsapp.updatedAt': new Date(),
+        },
+        $unset: {
+          'whatsapp.qrCodeDataUrl': '',
+          'whatsapp.qrCodeRaw': '',
         },
       },
       { new: true, upsert: true }
@@ -366,6 +402,7 @@ export class WhatsAppService {
           'whatsapp.deviceInfo': '',
           'whatsapp.qrCodeDataUrl': '',
           'whatsapp.qrCodeRaw': '',
+          'whatsapp.lastConnectedAt': '',
         },
       },
       { new: true, upsert: true }
@@ -651,7 +688,7 @@ export class WhatsAppService {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
 
-    const targetPhone = phone || tenant.owner?.phone || '+919949666907';
+    const targetPhone = phone || tenant.owner?.phone || '';
     tenant.whatsapp = {
       status: 'CONNECTED',
       phone: targetPhone,

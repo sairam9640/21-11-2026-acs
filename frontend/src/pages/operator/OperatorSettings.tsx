@@ -57,21 +57,6 @@ export const OperatorSettings: React.FC = () => {
     setQrLoading(false);
   };
 
-  const handleConfirmPairing = async () => {
-    try {
-      const res = await api.confirmOperatorWhatsAppScan({
-        phone: customPhone || '+919949666907',
-        deviceInfo: 'WhatsApp Business Mobile App',
-      });
-      if (res.success) {
-        setWaActionSuccess(`WhatsApp Business connected for ${customPhone || '+919949666907'}`);
-        setIsQrModalOpen(false);
-        fetchWaStatus();
-        setTimeout(() => setWaActionSuccess(null), 4000);
-      }
-    } catch (_) {}
-  };
-
   const handleRequestPairingCode = async () => {
     if (!customPhone) return;
     setPairingCodeLoading(true);
@@ -307,11 +292,7 @@ export const OperatorSettings: React.FC = () => {
 
             <div className="flex justify-end space-x-3 pt-3 border-t border-[#E2E8F0]">
               <Button variant="outline" type="button" onClick={() => setIsQrModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="button" onClick={handleConfirmPairing} className="font-bold">
-                <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                <span>Confirm Linked Session</span>
+                Close
               </Button>
             </div>
           </div>
