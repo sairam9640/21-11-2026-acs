@@ -38,6 +38,7 @@ jobs:
               set -eu
               cd /root/21-11-2026-acs
 
+              echo "Fetching latest GitHub code..."
               git fetch origin main
 
               if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -47,7 +48,14 @@ jobs:
 
               git merge --ff-only origin/main
 
+              echo "Building backend and frontend..."
               docker compose build backend frontend
-              docker compose up -d --no-deps backend frontend
+
+              echo "Restarting updated application containers..."
+              docker compose up -d --no-deps --force-recreate backend frontend
+
+              echo "Checking container status..."
               docker compose ps
+
+              echo "Deployment completed successfully."
             '
