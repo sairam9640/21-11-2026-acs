@@ -381,11 +381,9 @@ export class WhatsAppService {
   private static async cleanupAuthFiles() {
     try {
       if (fs.existsSync(AUTH_DIR)) {
-        const files = fs.readdirSync(AUTH_DIR);
-        for (const file of files) {
-          fs.unlinkSync(path.join(AUTH_DIR, file));
-        }
+        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
       }
+      fs.mkdirSync(AUTH_DIR, { recursive: true });
     } catch (e: any) {
       console.warn('[WhatsAppService] Error cleaning auth directory:', e.message);
     }

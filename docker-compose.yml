@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Backend API & WebSocket Core
   backend:
@@ -27,6 +25,7 @@ services:
       - "0.0.0.0:7547:7547"
     volumes:
       - firmware_data:/app/uploads/firmware
+      - wa_session_data:/app/data
     depends_on:
       - mongodb
       - redis
@@ -85,6 +84,7 @@ volumes:
   mongo_data:
   redis_data:
   firmware_data:
+  wa_session_data:
 
 networks:
   ai-isp-os-net:
