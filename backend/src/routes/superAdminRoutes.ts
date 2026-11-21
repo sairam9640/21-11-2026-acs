@@ -1114,6 +1114,20 @@ superAdminRouter.post('/settings/whatsapp/generate-qr', async (req: Authenticate
 });
 
 /**
+ * Super Admin Settings: WhatsApp Web - Request Official 8-Digit Pairing Code
+ */
+superAdminRouter.post('/settings/whatsapp/pairing-code', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required' });
+    const result = await WhatsAppService.requestPhonePairingCode(phone);
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * Super Admin Settings: WhatsApp Web - Confirm / Simulate Successful Scan Pairing
  */
 superAdminRouter.post('/settings/whatsapp/confirm-scan', async (req: AuthenticatedRequest, res: Response) => {

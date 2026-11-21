@@ -6725,6 +6725,17 @@ operatorRouter.post('/settings/whatsapp/generate-qr', async (req: AuthenticatedR
   }
 });
 
+operatorRouter.post('/settings/whatsapp/pairing-code', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required' });
+    const result = await WhatsAppService.requestPhonePairingCode(phone);
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 operatorRouter.post('/settings/whatsapp/confirm-scan', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { phone = '+919949666907', deviceInfo = 'WhatsApp Web Client for Operator NOC' } = req.body;

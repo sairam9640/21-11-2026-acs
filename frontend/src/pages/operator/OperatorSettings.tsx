@@ -22,6 +22,8 @@ export const OperatorSettings: React.FC = () => {
   const [qrLoading, setQrLoading] = useState(false);
   const [customPhone, setCustomPhone] = useState('');
   const [waActionSuccess, setWaActionSuccess] = useState<string | null>(null);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingCodeLoading, setPairingCodeLoading] = useState(false);
 
   const fetchWaStatus = async () => {
     setIsWaLoading(true);
@@ -68,6 +70,23 @@ export const OperatorSettings: React.FC = () => {
         setTimeout(() => setWaActionSuccess(null), 4000);
       }
     } catch (_) {}
+  };
+
+  const handleRequestPairingCode = async () => {
+    if (!customPhone) return;
+    setPairingCodeLoading(true);
+    setPairingCode(null);
+    try {
+      const res = await api.requestOperatorWhatsAppPairingCode(customPhone);
+      if (res.success && res.pairingCode) {
+        setPairingCode(res.pairingCode);
+      } else {
+        alert(res.error || 'Failed to request pairing code');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error communicating with server');
+    }
+    setPairingCodeLoading(false);
   };
 
   const handleDisconnectWa = async () => {
@@ -256,12 +275,34 @@ export const OperatorSettings: React.FC = () => {
             )}
 
             <div className="p-3 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-left space-y-2">
-              <label className="text-xs font-bold text-[#0F172A] block">Operator WhatsApp Phone Number</label>
-              <Input
-                placeholder="+919949666907"
-                value={customPhone}
-                onChange={(e) => setCustomPhone(e.target.value)}
-              />
+              <label className="text-xs font-bold text-[#0F172A] block">Operator WhatsApp Phone Number (with Country Code)</label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="+919949666907"
+                  value={customPhone}
+                  onChange={(e) => setCustomPhone(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={handleRequestPairingCode}
+                  isLoading={pairingCodeLoading}
+                  className="whitespace-nowrap text-xs font-bold"
+                >
+                  Get 8-Digit Code
+                </Button>
+              </div>
+
+              {pairingCode && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-center mt-2">
+                  <span className="text-[11px] text-emerald-800 font-medium block mb-1">
+                    Enter this code in WhatsApp (Settings &gt; Linked Devices &gt; Link with phone number):
+                  </span>
+                  <span className="text-xl font-mono font-bold tracking-widest text-emerald-700 bg-white px-3 py-1 rounded border border-emerald-300 inline-block">
+                    {pairingCode}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end space-x-3 pt-3 border-t border-[#E2E8F0]">

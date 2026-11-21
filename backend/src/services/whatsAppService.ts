@@ -95,7 +95,7 @@ export class WhatsAppService {
       const socket = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: false,
+        printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
         browser: Browsers.ubuntu('Chrome'),
         connectTimeoutMs: 60000,
@@ -227,6 +227,7 @@ export class WhatsAppService {
     }
 
     if (forceFresh) {
+      this.isInitializing = false;
       await this.disconnectSession();
       await this.cleanupAuthFiles();
     }
@@ -247,10 +248,10 @@ export class WhatsAppService {
       };
     }
 
-    // Wait for authentic QR event (up to 4 seconds)
+    // Wait for authentic QR event from official WhatsApp Web socket (up to 12 seconds)
     const qrPromise = new Promise<string>((resolve) => {
       this.qrResolvers.push(resolve);
-      setTimeout(() => resolve(''), 4000);
+      setTimeout(() => resolve(''), 12000);
     });
 
     const qrReceived = await qrPromise;
@@ -262,37 +263,42 @@ export class WhatsAppService {
       };
     }
 
-    // If socket is still establishing or on headless VPS, ensure a valid pairing QR is returned immediately
-    if (!this.currentQrDataUrl) {
-      const pairingToken = `2@${crypto.randomBytes(16).toString('base64')},${crypto.randomBytes(32).toString('base64')},${crypto.randomBytes(32).toString('base64')}`;
-      this.currentRawQr = pairingToken;
-      this.currentQrDataUrl = await QRCode.toDataURL(pairingToken, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        scale: 8,
-        color: { dark: '#020617', light: '#ffffff' },
-      });
-
-      await SystemSetting.findOneAndUpdate(
-        { key: 'global_config' },
-        {
-          $set: {
-            'whatsapp.status': 'SCAN_QR_REQUIRED',
-            'whatsapp.qrCodeDataUrl': this.currentQrDataUrl,
-            'whatsapp.qrCodeRaw': pairingToken,
-            'whatsapp.updatedAt': new Date(),
-          },
-        },
-        { upsert: true }
-      );
-    }
-
     return {
-      qrDataUrl: this.currentQrDataUrl,
+      qrDataUrl: this.currentQrDataUrl || '',
       rawCode: this.currentRawQr || '',
-      status: 'SCAN_QR_REQUIRED',
+      status: this.currentQrDataUrl ? 'SCAN_QR_REQUIRED' : (this.sock?.user ? 'CONNECTED' : 'CONNECTING'),
       connectedPhone: config.connectedPhone,
     };
+  }
+
+  /**
+   * Request official 8-character WhatsApp Web Pairing Code for a mobile number
+   * User can open WhatsApp on phone -> Settings -> Linked Devices -> Link with phone number instead -> Enter Code
+   */
+  static async requestPhonePairingCode(phoneNumber: string): Promise<{ success: boolean; pairingCode?: string; error?: string }> {
+    try {
+      this.ensureAuthDir();
+      if (!this.sock) {
+        await this.initBaileysSocket();
+      }
+
+      const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+      if (cleanPhone.length < 10) {
+        return { success: false, error: 'Please enter a valid phone number with country code (e.g. 919876543210).' };
+      }
+
+      if (this.sock && typeof (this.sock as any).requestPairingCode === 'function') {
+        const pairingCode = await (this.sock as any).requestPairingCode(cleanPhone);
+        console.log(`[WhatsAppService] Authentic WhatsApp Web Pairing Code generated for ${cleanPhone}: ${pairingCode}`);
+        return { success: true, pairingCode };
+      }
+
+      return { success: false, error: 'Pairing code service temporarily unavailable on socket.' };
+    } catch (err: any) {
+      console.error('[WhatsAppService] Error requesting pairing code:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
   }
 
   /**
@@ -617,26 +623,21 @@ export class WhatsAppService {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
 
-    const randomSecret = crypto.randomBytes(18).toString('base64');
-    const qrRaw = `2@${tenant.slug}:${Date.now()}:${randomSecret}`;
+    const qrResult = await this.generateQrCode(true);
 
-    const qrDataUrl = await QRCode.toDataURL(qrRaw, {
-      errorCorrectionLevel: 'M',
-      margin: 2,
-      scale: 8,
-      color: { dark: '#0F172A', light: '#FFFFFF' },
-    });
-
-    if (!tenant.whatsapp) {
-      tenant.whatsapp = { status: 'SCAN_QR_REQUIRED' };
+    if (qrResult.qrDataUrl) {
+      if (!tenant.whatsapp) {
+        tenant.whatsapp = { status: 'SCAN_QR_REQUIRED' };
+      }
+      tenant.whatsapp.status = 'SCAN_QR_REQUIRED';
+      tenant.whatsapp.qrCodeDataUrl = qrResult.qrDataUrl;
+      tenant.whatsapp.qrCodeRaw = qrResult.rawCode;
+      await tenant.save();
+      console.log(`[WhatsAppService] Authentic Baileys WhatsApp Web QR Code generated for Operator: ${tenant.slug}`);
+      return { success: true, qrDataUrl: qrResult.qrDataUrl, qrRaw: qrResult.rawCode };
     }
-    tenant.whatsapp.status = 'SCAN_QR_REQUIRED';
-    tenant.whatsapp.qrCodeDataUrl = qrDataUrl;
-    tenant.whatsapp.qrCodeRaw = qrRaw;
-    await tenant.save();
 
-    console.log(`[WhatsAppService] Dedicated QR Code generated for Operator Tenant: ${tenant.slug}`);
-    return { success: true, qrDataUrl, qrRaw };
+    return { success: false, qrDataUrl: '', qrRaw: '' };
   }
 
   static async confirmTenantPairing(

@@ -53,6 +53,9 @@ export const SuperAdminSettings: React.FC = () => {
   const [waDeviceInfo, setWaDeviceInfo] = useState<string | null>(null);
   const [waLoading, setWaLoading] = useState(false);
   const [waMsg, setWaMsg] = useState<string | null>(null);
+  const [waPairingPhone, setWaPairingPhone] = useState('');
+  const [waPairingCode, setWaPairingCode] = useState<string | null>(null);
+  const [waPairingLoading, setWaPairingLoading] = useState(false);
 
   // WhatsApp Test State
   const [testPhoneTarget, setTestPhoneTarget] = useState('+919845000001');
@@ -222,8 +225,30 @@ export const SuperAdminSettings: React.FC = () => {
       setWaConnectedPhone(null);
       setWaDeviceInfo(null);
       setWaQrDataUrl(null);
+      setWaPairingCode(null);
       setWaMsg('WhatsApp session disconnected.');
     }
+  };
+
+  const handleRequestWaPairingCode = async () => {
+    if (!waPairingPhone) {
+      setWaMsg('Please enter your WhatsApp mobile number with country code (e.g. 919876543210)');
+      return;
+    }
+    setWaPairingLoading(true);
+    setWaPairingCode(null);
+    try {
+      const res = await api.requestWhatsAppPairingCode(waPairingPhone);
+      if (res.success && res.pairingCode) {
+        setWaPairingCode(res.pairingCode);
+        setWaMsg('✓ Pairing code generated! Open WhatsApp on phone > Settings > Linked Devices > Link with phone number instead, and enter this code.');
+      } else {
+        setWaMsg(res.error || 'Failed to request pairing code');
+      }
+    } catch (err: any) {
+      setWaMsg(err.message || 'Error communicating with server');
+    }
+    setWaPairingLoading(false);
   };
 
   const handleTestWaMessage = async () => {
@@ -823,6 +848,39 @@ export const SuperAdminSettings: React.FC = () => {
                           <CheckCircle2 className="w-4 h-4 mr-2 text-[#047857]" />
                           Confirm Device Linked
                         </Button>
+                      )}
+                    </div>
+
+                    {/* Or Link With Phone Number Pairing Code */}
+                    <div className="w-full max-w-md pt-4 border-t border-[#E2E8F0] text-center space-y-3">
+                      <span className="text-xs font-bold text-[#64748B] uppercase tracking-wider block">
+                        — OR Link With Phone Number (No Camera Scan Required) —
+                      </span>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Phone with country code (e.g. 919876543210)"
+                          value={waPairingPhone}
+                          onChange={(e) => setWaPairingPhone(e.target.value)}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={handleRequestWaPairingCode}
+                          isLoading={waPairingLoading}
+                          className="whitespace-nowrap font-bold text-xs"
+                        >
+                          Get 8-Digit Code
+                        </Button>
+                      </div>
+
+                      {waPairingCode && (
+                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                          <span className="text-xs text-emerald-800 font-medium block mb-1">
+                            Enter this code in WhatsApp (Settings &gt; Linked Devices &gt; Link with phone number):
+                          </span>
+                          <span className="text-2xl font-mono font-bold tracking-widest text-emerald-700 bg-white px-4 py-1.5 rounded-lg border border-emerald-300 inline-block shadow-sm">
+                            {waPairingCode}
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

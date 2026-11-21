@@ -256,6 +256,13 @@ class ApiService {
     });
   }
 
+  async requestWhatsAppPairingCode(phone: string) {
+    return this.request('/superadmin/settings/whatsapp/pairing-code', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    });
+  }
+
   async confirmWhatsAppScan(payload?: { phone?: string; deviceInfo?: string }) {
     return this.request('/superadmin/settings/whatsapp/confirm-scan', {
       method: 'POST',
@@ -642,6 +649,13 @@ class ApiService {
   async generateOperatorWhatsAppQR() {
     return this.request('/operator/settings/whatsapp/generate-qr', {
       method: 'POST',
+    });
+  }
+
+  async requestOperatorWhatsAppPairingCode(phone: string) {
+    return this.request('/operator/settings/whatsapp/pairing-code', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
     });
   }
 
