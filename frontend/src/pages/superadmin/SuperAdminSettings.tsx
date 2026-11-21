@@ -916,6 +916,9 @@ export const SuperAdminSettings: React.FC = () => {
                                   src={waQrDataUrl}
                                   alt="WhatsApp Web Pairing QR Code"
                                   className="w-64 h-64 object-contain rounded-lg"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = `/api/superadmin/settings/whatsapp/qr-image?t=${Date.now()}`;
+                                  }}
                                 />
                               </div>
                               <span className="text-[11px] text-emerald-800 font-bold flex items-center gap-1.5 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
@@ -928,16 +931,17 @@ export const SuperAdminSettings: React.FC = () => {
                               <QrCode className="w-16 h-16 stroke-1 text-slate-400" />
                               <div className="space-y-1">
                                 <p className="text-xs font-semibold text-slate-700">QR Code not loaded</p>
-                                <p className="text-[11px] text-slate-500">Click the button below to generate a fresh QR code</p>
+                                <p className="text-[11px] text-slate-500">Click below to generate a fresh QR code</p>
                               </div>
                               <Button
-                                onClick={() => handleGenerateWaQr(false)}
+                                onClick={() => handleGenerateWaQr(true)}
                                 isLoading={waLoading}
                                 size="sm"
-                                variant="outline"
-                                className="text-xs font-semibold"
+                                variant="primary"
+                                className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
                               >
-                                Load QR Code
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                                Generate QR Code
                               </Button>
                             </div>
                           )}

@@ -16,6 +16,7 @@ import { recordAuditLog } from '../middleware/audit.js';
 import { EventBusService } from '../services/eventBusService.js';
 import { EmailService } from '../services/emailService.js';
 import { WhatsAppService } from '../services/whatsAppService.js';
+import QRCode from 'qrcode';
 
 export const superAdminRouter = Router();
 
@@ -1162,6 +1163,28 @@ superAdminRouter.post('/settings/whatsapp/generate-qr', async (req: Authenticate
     const { forceFresh } = req.body;
     const qrResult = await WhatsAppService.generateQrCode(Boolean(forceFresh));
     return res.json({ success: true, ...qrResult });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Super Admin Settings: WhatsApp Web - Stream Live PNG QR Code Image Directly
+ */
+superAdminRouter.get('/settings/whatsapp/qr-image', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const qrResult = await WhatsAppService.generateQrCode(false);
+    if (qrResult.rawCode) {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return QRCode.toFileStream(res, qrResult.rawCode, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        scale: 8,
+        color: { dark: '#020617', light: '#ffffff' },
+      });
+    }
+    return res.status(404).json({ success: false, error: 'QR Code not available yet' });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }
