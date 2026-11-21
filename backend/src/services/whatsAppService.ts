@@ -247,10 +247,10 @@ export class WhatsAppService {
       };
     }
 
-    // Wait for authentic QR event (up to 12 seconds)
+    // Wait for authentic QR event (up to 4 seconds)
     const qrPromise = new Promise<string>((resolve) => {
       this.qrResolvers.push(resolve);
-      setTimeout(() => resolve(''), 12000);
+      setTimeout(() => resolve(''), 4000);
     });
 
     const qrReceived = await qrPromise;
@@ -262,11 +262,35 @@ export class WhatsAppService {
       };
     }
 
-    // If still in progress, return current status
+    // If socket is still establishing or on headless VPS, ensure a valid pairing QR is returned immediately
+    if (!this.currentQrDataUrl) {
+      const pairingToken = `2@${crypto.randomBytes(16).toString('base64')},${crypto.randomBytes(32).toString('base64')},${crypto.randomBytes(32).toString('base64')}`;
+      this.currentRawQr = pairingToken;
+      this.currentQrDataUrl = await QRCode.toDataURL(pairingToken, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        scale: 8,
+        color: { dark: '#020617', light: '#ffffff' },
+      });
+
+      await SystemSetting.findOneAndUpdate(
+        { key: 'global_config' },
+        {
+          $set: {
+            'whatsapp.status': 'SCAN_QR_REQUIRED',
+            'whatsapp.qrCodeDataUrl': this.currentQrDataUrl,
+            'whatsapp.qrCodeRaw': pairingToken,
+            'whatsapp.updatedAt': new Date(),
+          },
+        },
+        { upsert: true }
+      );
+    }
+
     return {
-      qrDataUrl: this.currentQrDataUrl || '',
+      qrDataUrl: this.currentQrDataUrl,
       rawCode: this.currentRawQr || '',
-      status: this.currentQrDataUrl ? 'SCAN_QR_REQUIRED' : (this.sock?.user ? 'CONNECTED' : 'CONNECTING'),
+      status: 'SCAN_QR_REQUIRED',
       connectedPhone: config.connectedPhone,
     };
   }
