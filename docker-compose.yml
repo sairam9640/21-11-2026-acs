@@ -40,7 +40,7 @@ services:
     container_name: ai-isp-os-frontend
     restart: always
     ports:
-      - "127.0.0.1:3000:80"
+      - "0.0.0.0:80:80"
     depends_on:
       - backend
     networks:
