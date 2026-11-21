@@ -205,8 +205,10 @@ export const SuperAdminSettings: React.FC = () => {
     const res = await api.generateWhatsAppQr(forceFresh);
     setWaLoading(false);
 
-    if (res.success && res.qrDataUrl) {
-      setWaQrDataUrl(res.qrDataUrl);
+    const qrUrl = res.qrDataUrl || res.whatsapp?.qrCodeDataUrl || (res.data && res.data.qrDataUrl);
+    if (res.success && qrUrl) {
+      setWaQrDataUrl(qrUrl);
+      setDirectImgFailed(false);
       setWaStatus('SCAN_QR_REQUIRED');
       setWaMsg('✓ Authentic WhatsApp Web QR generated! Open WhatsApp on mobile > Settings > Linked Devices > Link a Device and scan the QR code below.');
     } else if (res.success && res.status === 'CONNECTED') {
@@ -917,12 +919,12 @@ export const SuperAdminSettings: React.FC = () => {
                             <div className="flex flex-col items-center space-y-3">
                               <div className="p-2 bg-white rounded-xl shadow-inner border border-slate-200">
                                 <img
-                                  src={waQrDataUrl || `/api/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${qrTimestamp}`}
+                                  src={waQrDataUrl || `/api/v1/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${qrTimestamp}`}
                                   alt="WhatsApp Web Pairing QR Code"
                                   className="w-64 h-64 object-contain rounded-lg"
                                   onError={(e) => {
                                     if (waQrDataUrl) {
-                                      (e.target as HTMLImageElement).src = `/api/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${Date.now()}`;
+                                      (e.target as HTMLImageElement).src = `/api/v1/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${Date.now()}`;
                                     } else {
                                       setDirectImgFailed(true);
                                     }

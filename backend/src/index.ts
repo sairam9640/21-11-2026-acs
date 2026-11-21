@@ -155,6 +155,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // API Routes
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/superadmin', superAdminRouter);
+app.use('/api/superadmin', superAdminRouter); // Direct & backward compatibility alias
 app.use('/api/v1/operator', operatorRouter);
 app.use('/api/v1/technician', technicianRouter);
 app.use('/api/v1/customer', customerRouter);
