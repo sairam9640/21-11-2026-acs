@@ -1,0 +1,17 @@
+[Unit]
+Description=ACS Continuous Auto-Deploy Daemon
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/21-11-2026-acs
+ExecStart=/bin/bash /root/21-11-2026-acs/deploy/auto_deploy.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/acs-autodeploy.log
+StandardError=append:/var/log/acs-autodeploy.log
+
+[Install]
+WantedBy=multi-user.target
