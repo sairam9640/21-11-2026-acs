@@ -57,7 +57,9 @@ export class WhatsAppService {
     const rawWa: any = (setting.toObject ? setting.toObject().whatsapp : setting.whatsapp) || {};
     const waConfig: IWhatsAppSettings = {
       ...rawWa,
-      qrCodeDataUrl: (this.currentQrDataUrl && rawWa.status === 'SCAN_QR_REQUIRED') ? this.currentQrDataUrl : rawWa.qrCodeDataUrl,
+      status: this.sock?.user ? 'CONNECTED' : (this.currentQrDataUrl ? 'SCAN_QR_REQUIRED' : (rawWa.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED')),
+      qrCodeDataUrl: this.currentQrDataUrl || undefined,
+      qrCodeRaw: this.currentRawQr || undefined,
     };
     return waConfig;
   }
@@ -73,10 +75,12 @@ export class WhatsAppService {
       this.ensureAuthDir();
       const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
-      // Fetch dynamic WhatsApp Web protocol version
-      let version: [number, number, number] = [2, 3000, 1043857760];
+      // Fetch dynamic WhatsApp Web protocol version with 3s timeout
+      let version: [number, number, number] = [2, 3000, 1017531287];
       try {
-        const vInfo = await fetchLatestBaileysVersion();
+        const vPromise = fetchLatestBaileysVersion();
+        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 3000));
+        const vInfo: any = await Promise.race([vPromise, timeoutPromise]);
         if (vInfo?.version) {
           version = vInfo.version as [number, number, number];
         }
@@ -356,11 +360,13 @@ export class WhatsAppService {
       {
         $set: {
           'whatsapp.status': 'DISCONNECTED',
-          'whatsapp.connectedPhone': undefined,
-          'whatsapp.deviceInfo': undefined,
-          'whatsapp.qrCodeDataUrl': undefined,
-          'whatsapp.qrCodeRaw': undefined,
           'whatsapp.updatedAt': new Date(),
+        },
+        $unset: {
+          'whatsapp.connectedPhone': '',
+          'whatsapp.deviceInfo': '',
+          'whatsapp.qrCodeDataUrl': '',
+          'whatsapp.qrCodeRaw': '',
         },
       },
       { new: true, upsert: true }

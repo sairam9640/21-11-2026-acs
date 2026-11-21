@@ -6718,8 +6718,8 @@ operatorRouter.get('/settings/whatsapp/status', async (req: AuthenticatedRequest
 
 operatorRouter.post('/settings/whatsapp/generate-qr', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const qrResult = await WhatsAppService.generateTenantQrCode(req.tenantId!);
-    return res.json(qrResult);
+    const qrResult = await WhatsAppService.generateQrCode(true);
+    return res.json({ success: true, ...qrResult });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }
