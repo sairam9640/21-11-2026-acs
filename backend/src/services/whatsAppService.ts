@@ -303,7 +303,6 @@ export class WhatsAppService {
       return { success: false, error: err.message };
     }
   }
-  }
 
   /**
    * Manually confirm or pair session (for testing / manual override)
