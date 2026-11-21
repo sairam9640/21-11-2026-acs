@@ -28,6 +28,10 @@ class ApiService {
     }
   }
 
+  getToken(): string | null {
+    return this.token || localStorage.getItem('ai_isp_os_token');
+  }
+
   setTenantSlug(slug: string | null) {
     this.tenantSlug = slug;
     if (slug) {

@@ -917,12 +917,12 @@ export const SuperAdminSettings: React.FC = () => {
                             <div className="flex flex-col items-center space-y-3">
                               <div className="p-2 bg-white rounded-xl shadow-inner border border-slate-200">
                                 <img
-                                  src={waQrDataUrl || `/api/superadmin/settings/whatsapp/qr-image?t=${qrTimestamp}`}
+                                  src={waQrDataUrl || `/api/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${qrTimestamp}`}
                                   alt="WhatsApp Web Pairing QR Code"
                                   className="w-64 h-64 object-contain rounded-lg"
                                   onError={(e) => {
                                     if (waQrDataUrl) {
-                                      (e.target as HTMLImageElement).src = `/api/superadmin/settings/whatsapp/qr-image?t=${Date.now()}`;
+                                      (e.target as HTMLImageElement).src = `/api/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${Date.now()}`;
                                     } else {
                                       setDirectImgFailed(true);
                                     }

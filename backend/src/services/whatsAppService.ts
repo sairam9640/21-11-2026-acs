@@ -396,25 +396,12 @@ export class WhatsAppService {
   /**
    * Initializes real Baileys WebSocket multi-device connection
    */
-  static async initBaileysSocket(): Promise<void> {
-    if (this.isInitializing) return;
+  static async initBaileysSocket(forceRestart = false): Promise<void> {
+    if (this.isInitializing && !forceRestart) return;
     this.isInitializing = true;
 
     try {
       this.ensureAuthDir();
-      const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-
-      // Fetch dynamic WhatsApp Web protocol version
-      let version: [number, number, number] | undefined = undefined;
-      try {
-        const vInfo = await fetchLatestBaileysVersion();
-        if (vInfo?.version) {
-          version = vInfo.version as [number, number, number];
-          console.log(`[WhatsAppService] Baileys using WhatsApp Web version: ${version.join('.')}`);
-        }
-      } catch (verErr: any) {
-        console.warn('[WhatsAppService] Error fetching latest WA version, using Baileys internal default:', verErr.message);
-      }
 
       if (this.sock) {
         try {
@@ -425,13 +412,19 @@ export class WhatsAppService {
         this.sock = null;
       }
 
+      // If requested or if credentials are stale/unauthenticated, clear session for clean QR generation
+      if (forceRestart) {
+        await this.cleanupAuthFiles();
+      }
+
+      const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
       const socket = makeWASocket({
-        ...(version ? { version } : {}),
         auth: state,
         logger: pino({ level: 'silent' }),
         browser: Browsers.macOS('Desktop'),
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000,
+        connectTimeoutMs: 30000,
+        defaultQueryTimeoutMs: 30000,
         keepAliveIntervalMs: 10000,
         emitOwnEvents: false,
       });
@@ -448,11 +441,6 @@ export class WhatsAppService {
         if (qr) {
           this.currentRawQr = qr;
 
-          // Resolve any waiting QR promises immediately
-          const waiting = [...this.qrResolvers];
-          this.qrResolvers = [];
-          waiting.forEach((resolve) => resolve(qr));
-
           try {
             this.currentQrDataUrl = await QRCode.toDataURL(qr, {
               errorCorrectionLevel: 'M',
@@ -463,6 +451,11 @@ export class WhatsAppService {
           } catch (e: any) {
             console.error('[WhatsAppService] Error converting QR to data URL:', e.message);
           }
+
+          // Resolve any waiting QR promises immediately
+          const waiting = [...this.qrResolvers];
+          this.qrResolvers = [];
+          waiting.forEach((resolve) => resolve(qr));
 
           SystemSetting.findOneAndUpdate(
             { key: 'global_config' },
@@ -658,9 +651,19 @@ export class WhatsAppService {
       };
     }
 
-    if (!forceFresh && this.currentQrDataUrl) {
+    if (!forceFresh && (this.currentQrDataUrl || this.currentRawQr)) {
+      if (!this.currentQrDataUrl && this.currentRawQr) {
+        try {
+          this.currentQrDataUrl = await QRCode.toDataURL(this.currentRawQr, {
+            errorCorrectionLevel: 'M',
+            margin: 2,
+            scale: 8,
+            color: { dark: '#020617', light: '#ffffff' },
+          });
+        } catch (_) {}
+      }
       return {
-        qrDataUrl: this.currentQrDataUrl,
+        qrDataUrl: this.currentQrDataUrl || '',
         rawCode: this.currentRawQr || '',
         status: 'SCAN_QR_REQUIRED',
       };
@@ -676,11 +679,11 @@ export class WhatsAppService {
     // Register promise resolver BEFORE socket initialization to eliminate race conditions
     const qrPromise = new Promise<string>((resolve) => {
       this.qrResolvers.push(resolve);
-      setTimeout(() => resolve(''), 15000);
+      setTimeout(() => resolve(''), 12000);
     });
 
     // Trigger fresh Baileys initialization
-    await this.initBaileysSocket();
+    await this.initBaileysSocket(Boolean(forceFresh));
 
     const qrReceived = await qrPromise;
     const activeQr = qrReceived || this.currentRawQr;

@@ -29,7 +29,10 @@ export const authenticateToken = async (
 ) => {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    let token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    if (!token && req.query?.token) {
+      token = String(req.query.token);
+    }
 
     if (!token) {
       return res.status(401).json({
