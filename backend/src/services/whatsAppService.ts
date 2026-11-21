@@ -50,18 +50,29 @@ export class EvolutionApiClient {
     };
   }
 
+  private static lastAvailabilityCheck = 0;
+  private static isAvailableCached = false;
+
   /**
    * Health-check whether Evolution API microservice is running and accessible
    */
   static async isAvailable(): Promise<boolean> {
+    const now = Date.now();
+    // Cache positive status for 10s, negative for 30s to eliminate latency
+    if (now - this.lastAvailabilityCheck < (this.isAvailableCached ? 10000 : 30000)) {
+      return this.isAvailableCached;
+    }
+    this.lastAvailabilityCheck = now;
     try {
       const res = await fetch(`${EVOLUTION_API_URL}/instance/fetchInstances`, {
         method: 'GET',
         headers: this.getHeaders(),
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(800),
       });
-      return res.status < 500;
+      this.isAvailableCached = res.status < 500;
+      return this.isAvailableCached;
     } catch {
+      this.isAvailableCached = false;
       return false;
     }
   }
@@ -486,7 +497,7 @@ export class WhatsAppService {
           const formattedPhone = phoneNum.startsWith('+') ? phoneNum : `+${phoneNum}`;
           const deviceModel = 'WhatsApp Web Multi-Device (Linux VPS Engine)';
 
-          await SystemSetting.findOneAndUpdate(
+          SystemSetting.findOneAndUpdate(
             { key: 'global_config' },
             {
               $set: {
@@ -502,7 +513,7 @@ export class WhatsAppService {
               },
             },
             { upsert: true }
-          );
+          ).catch((e: any) => console.warn('[WhatsAppService] DB connect update warning:', e.message));
 
           console.log(`[WhatsAppService] ✓ WhatsApp Web successfully paired and connected for [${formattedPhone}]`);
         }
@@ -513,13 +524,12 @@ export class WhatsAppService {
 
           console.log(`[WhatsAppService] Connection closed (code: ${statusCode}, shouldReconnect: ${shouldReconnect})`);
 
-          this.currentQrDataUrl = null;
-          this.currentRawQr = null;
-
           if (statusCode === DisconnectReason.loggedOut) {
+            this.currentQrDataUrl = null;
+            this.currentRawQr = null;
             await this.cleanupAuthFiles();
             this.sock = null;
-            await SystemSetting.findOneAndUpdate(
+            SystemSetting.findOneAndUpdate(
               { key: 'global_config' },
               {
                 $set: {
@@ -533,12 +543,17 @@ export class WhatsAppService {
                   'whatsapp.qrCodeRaw': '',
                 },
               }
-            );
+            ).catch((e: any) => console.warn('[WhatsAppService] DB logout update warning:', e.message));
           } else if (shouldReconnect) {
+            // Keep currentQrDataUrl alive while reconnecting so the user can scan the QR code!
             if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
             this.reconnectTimer = setTimeout(() => {
-              this.initBaileysSocket();
+              if (!this.sock?.user) {
+                this.initBaileysSocket(false);
+              }
             }, 3000);
+          } else {
+            this.sock = null;
           }
         }
       });
@@ -669,17 +684,57 @@ export class WhatsAppService {
       };
     }
 
+    // Check MongoDB for persistent QR code if not in memory
+    if (!forceFresh) {
+      try {
+        const setting: any = await SystemSetting.findOne({ key: 'global_config' }).lean();
+        if (setting?.whatsapp?.qrCodeDataUrl && setting?.whatsapp?.status === 'SCAN_QR_REQUIRED') {
+          this.currentQrDataUrl = setting.whatsapp.qrCodeDataUrl;
+          this.currentRawQr = setting.whatsapp.qrCodeRaw || '';
+          return {
+            qrDataUrl: this.currentQrDataUrl || '',
+            rawCode: this.currentRawQr || '',
+            status: 'SCAN_QR_REQUIRED',
+          };
+        }
+      } catch (_) {}
+    }
+
     if (forceFresh) {
       this.isInitializing = false;
-      await this.disconnectSession();
+      if (this.sock) {
+        try {
+          this.sock.ev.removeAllListeners('connection.update');
+          this.sock.ev.removeAllListeners('creds.update');
+          this.sock.end(undefined);
+        } catch (_) {}
+        this.sock = null;
+      }
+      await this.cleanupAuthFiles();
       this.currentQrDataUrl = null;
       this.currentRawQr = null;
+
+      SystemSetting.findOneAndUpdate(
+        { key: 'global_config' },
+        {
+          $set: {
+            'whatsapp.status': 'CONNECTING',
+            'whatsapp.updatedAt': new Date(),
+          },
+          $unset: {
+            'whatsapp.connectedPhone': '',
+            'whatsapp.deviceInfo': '',
+            'whatsapp.qrCodeDataUrl': '',
+            'whatsapp.qrCodeRaw': '',
+          },
+        }
+      ).catch((e: any) => console.warn('[WhatsAppService] DB forceFresh update warning:', e.message));
     }
 
     // Register promise resolver BEFORE socket initialization to eliminate race conditions
     const qrPromise = new Promise<string>((resolve) => {
       this.qrResolvers.push(resolve);
-      setTimeout(() => resolve(''), 12000);
+      setTimeout(() => resolve(''), 10000);
     });
 
     // Trigger fresh Baileys initialization

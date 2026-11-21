@@ -56,7 +56,6 @@ export const SuperAdminSettings: React.FC = () => {
   const [waLoading, setWaLoading] = useState(false);
   const [waMsg, setWaMsg] = useState<string | null>(null);
   const [qrTimestamp, setQrTimestamp] = useState<number>(Date.now());
-  const [directImgFailed, setDirectImgFailed] = useState<boolean>(false);
 
   // WhatsApp Test State
   const [testPhoneTarget, setTestPhoneTarget] = useState('+919845000001');
@@ -198,27 +197,29 @@ export const SuperAdminSettings: React.FC = () => {
   };
 
   const handleGenerateWaQr = async (forceFresh = false) => {
-    setDirectImgFailed(false);
     setQrTimestamp(Date.now());
     setWaLoading(true);
     setWaMsg('Connecting to WhatsApp Multi-Device servers... Generating authentic QR Code...');
-    const res = await api.generateWhatsAppQr(forceFresh);
-    setWaLoading(false);
-
-    const qrUrl = res.qrDataUrl || res.whatsapp?.qrCodeDataUrl || (res.data && res.data.qrDataUrl);
-    if (res.success && qrUrl) {
-      setWaQrDataUrl(qrUrl);
-      setDirectImgFailed(false);
-      setWaStatus('SCAN_QR_REQUIRED');
-      setWaMsg('✓ Authentic WhatsApp Web QR generated! Open WhatsApp on mobile > Settings > Linked Devices > Link a Device and scan the QR code below.');
-    } else if (res.success && res.status === 'CONNECTED') {
-      setWaStatus('CONNECTED');
-      setWaConnectedPhone(res.connectedPhone || null);
-      setWaQrDataUrl(null);
-      setWaMsg('✓ WhatsApp session is connected and active!');
-    } else {
-      setWaStatus('SCAN_QR_REQUIRED');
-      setWaMsg('WhatsApp socket connecting in background... QR code will appear in a moment.');
+    try {
+      const res = await api.generateWhatsAppQr(forceFresh);
+      const qrUrl = res.qrDataUrl || res.whatsapp?.qrCodeDataUrl || (res.data && res.data.qrDataUrl);
+      if (res.success && qrUrl) {
+        setWaQrDataUrl(qrUrl);
+        setWaStatus('SCAN_QR_REQUIRED');
+        setWaMsg('✓ Authentic WhatsApp Web QR generated! Open WhatsApp on mobile > Settings > Linked Devices > Link a Device and scan the QR code below.');
+      } else if (res.success && res.status === 'CONNECTED') {
+        setWaStatus('CONNECTED');
+        setWaConnectedPhone(res.connectedPhone || null);
+        setWaQrDataUrl(null);
+        setWaMsg('✓ WhatsApp session is connected and active!');
+      } else {
+        setWaStatus('SCAN_QR_REQUIRED');
+        setWaMsg('WhatsApp socket connecting in background... QR code will appear in a moment.');
+      }
+    } catch (err: any) {
+      setWaMsg(`Failed to generate WhatsApp QR: ${err.message || 'Network error'}`);
+    } finally {
+      setWaLoading(false);
     }
   };
 
@@ -908,27 +909,20 @@ export const SuperAdminSettings: React.FC = () => {
 
                       {/* Right Column: Live QR Code Display */}
                       <div className="lg:col-span-5 flex flex-col items-center justify-center">
-                        <div className="relative p-5 bg-white rounded-3xl shadow-xl border-2 border-emerald-200/80 flex flex-col items-center justify-center">
+                        <div className="relative p-5 bg-white rounded-3xl shadow-xl border-2 border-emerald-200/80 flex flex-col items-center justify-center min-h-[320px] min-w-[300px]">
                           {waLoading ? (
                             <div className="w-64 h-64 rounded-2xl bg-slate-50 border-2 border-dashed border-emerald-300 flex flex-col items-center justify-center text-center p-6 space-y-3">
                               <RefreshCw className="w-10 h-10 text-emerald-600 animate-spin" />
                               <span className="text-xs font-semibold text-[#0F172A]">Connecting to WhatsApp Multi-Device...</span>
                               <span className="text-[11px] text-[#64748B]">Generating authentic pairing handshake</span>
                             </div>
-                          ) : (waQrDataUrl || !directImgFailed) ? (
+                          ) : waQrDataUrl ? (
                             <div className="flex flex-col items-center space-y-3">
-                              <div className="p-2 bg-white rounded-xl shadow-inner border border-slate-200">
+                              <div className="p-3 bg-white rounded-2xl shadow-inner border border-slate-200">
                                 <img
-                                  src={waQrDataUrl || `/api/v1/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${qrTimestamp}`}
+                                  src={waQrDataUrl}
                                   alt="WhatsApp Web Pairing QR Code"
-                                  className="w-64 h-64 object-contain rounded-lg"
-                                  onError={(e) => {
-                                    if (waQrDataUrl) {
-                                      (e.target as HTMLImageElement).src = `/api/v1/superadmin/settings/whatsapp/qr-image?token=${encodeURIComponent(api.getToken() || '')}&t=${Date.now()}`;
-                                    } else {
-                                      setDirectImgFailed(true);
-                                    }
-                                  }}
+                                  className="w-64 h-64 object-contain rounded-lg shadow-sm"
                                 />
                               </div>
                               <span className="text-[11px] text-emerald-800 font-bold flex items-center gap-1.5 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">

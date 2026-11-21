@@ -1173,10 +1173,7 @@ superAdminRouter.post('/settings/whatsapp/generate-qr', async (req: Authenticate
  */
 superAdminRouter.get('/settings/whatsapp/qr-image', async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    let qrResult = await WhatsAppService.generateQrCode(false);
-    if (!qrResult.rawCode && !qrResult.qrDataUrl && qrResult.status !== 'CONNECTED') {
-      qrResult = await WhatsAppService.generateQrCode(true);
-    }
+    const qrResult = await WhatsAppService.generateQrCode(false);
 
     if (qrResult.rawCode) {
       res.setHeader('Content-Type', 'image/png');
