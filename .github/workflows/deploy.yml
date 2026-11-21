@@ -28,7 +28,7 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          printf '%s\n' '[109.122.56.149]:22 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPURAfaMc2FtkGCwnl0KrYKntXXGmNmRtuGTj5hHX5mg' >> ~/.ssh/known_hosts
+          printf '%s\n' '109.122.56.149 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPURAfaMc2FtkGCwnl0KrYKntXXGmNmRtuGTj5hHX5mg' >> ~/.ssh/known_hosts
 
           ssh -i ~/.ssh/deploy_key \
             -o IdentitiesOnly=yes \
@@ -52,3 +52,4 @@ jobs:
 
               docker compose ps
             '
+
