@@ -55,6 +55,8 @@ export const SuperAdminSettings: React.FC = () => {
   const [waDeviceInfo, setWaDeviceInfo] = useState<string | null>(null);
   const [waLoading, setWaLoading] = useState(false);
   const [waMsg, setWaMsg] = useState<string | null>(null);
+  const [qrTimestamp, setQrTimestamp] = useState<number>(Date.now());
+  const [directImgFailed, setDirectImgFailed] = useState<boolean>(false);
 
   // WhatsApp Test State
   const [testPhoneTarget, setTestPhoneTarget] = useState('+919845000001');
@@ -196,6 +198,8 @@ export const SuperAdminSettings: React.FC = () => {
   };
 
   const handleGenerateWaQr = async (forceFresh = false) => {
+    setDirectImgFailed(false);
+    setQrTimestamp(Date.now());
     setWaLoading(true);
     setWaMsg('Connecting to WhatsApp Multi-Device servers... Generating authentic QR Code...');
     const res = await api.generateWhatsAppQr(forceFresh);
@@ -909,15 +913,19 @@ export const SuperAdminSettings: React.FC = () => {
                               <span className="text-xs font-semibold text-[#0F172A]">Connecting to WhatsApp Multi-Device...</span>
                               <span className="text-[11px] text-[#64748B]">Generating authentic pairing handshake</span>
                             </div>
-                          ) : waQrDataUrl ? (
+                          ) : (waQrDataUrl || !directImgFailed) ? (
                             <div className="flex flex-col items-center space-y-3">
                               <div className="p-2 bg-white rounded-xl shadow-inner border border-slate-200">
                                 <img
-                                  src={waQrDataUrl}
+                                  src={waQrDataUrl || `/api/superadmin/settings/whatsapp/qr-image?t=${qrTimestamp}`}
                                   alt="WhatsApp Web Pairing QR Code"
                                   className="w-64 h-64 object-contain rounded-lg"
                                   onError={(e) => {
-                                    (e.target as HTMLImageElement).src = `/api/superadmin/settings/whatsapp/qr-image?t=${Date.now()}`;
+                                    if (waQrDataUrl) {
+                                      (e.target as HTMLImageElement).src = `/api/superadmin/settings/whatsapp/qr-image?t=${Date.now()}`;
+                                    } else {
+                                      setDirectImgFailed(true);
+                                    }
                                   }}
                                 />
                               </div>

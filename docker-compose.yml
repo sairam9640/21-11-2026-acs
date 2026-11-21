@@ -14,6 +14,9 @@ services:
       NODE_ENV: production
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/ai_isp_os_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution-api:8080}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-evolution_isp_os_wa_2026_key}
+      EVOLUTION_INSTANCE_NAME: ${EVOLUTION_INSTANCE_NAME:-ai-isp-os}
       JWT_SECRET: ${JWT_SECRET}
       METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
@@ -29,6 +32,7 @@ services:
     depends_on:
       - mongodb
       - redis
+      - evolution-api
     networks:
       - ai-isp-os-net
 
@@ -80,11 +84,56 @@ services:
     networks:
       - ai-isp-os-net
 
+  # WhatsApp Microservice Engine (Evolution API v2)
+  # Provides rock-solid WhatsApp Web Multi-Device QR session handling & ₹0 OTP messaging
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.2
+    container_name: ai-isp-os-evolution
+    restart: always
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - SERVER_URL=http://localhost:8080
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-evolution_isp_os_wa_2026_key}
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://evolution:evolution_wa_secure_2026@postgres:5432/evolution?schema=public
+      - DATABASE_CONNECTION_CLIENT_NAME=evolution_api
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://redis:6379/2
+      - CACHE_REDIS_SAVE_INSTANCES=true
+      - DEL_INSTANCE=false
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - ai-isp-os-net
+
+  # PostgreSQL for Evolution API Persistent Session Store
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai-isp-os-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution_wa_secure_2026
+      POSTGRES_DB: evolution
+    volumes:
+      - postgres_evolution_data:/var/lib/postgresql/data
+    networks:
+      - ai-isp-os-net
+
 volumes:
   mongo_data:
   redis_data:
   firmware_data:
   wa_session_data:
+  evolution_instances:
+  postgres_evolution_data:
 
 networks:
   ai-isp-os-net:

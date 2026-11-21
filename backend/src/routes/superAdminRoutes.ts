@@ -1183,6 +1183,12 @@ superAdminRouter.get('/settings/whatsapp/qr-image', async (_req: AuthenticatedRe
         scale: 8,
         color: { dark: '#020617', light: '#ffffff' },
       });
+    } else if (qrResult.qrDataUrl) {
+      const base64Data = qrResult.qrDataUrl.replace(/^data:image\/[^;]+;base64,/, '');
+      const imgBuffer = Buffer.from(base64Data, 'base64');
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.end(imgBuffer);
     }
     return res.status(404).json({ success: false, error: 'QR Code not available yet' });
   } catch (error: any) {
