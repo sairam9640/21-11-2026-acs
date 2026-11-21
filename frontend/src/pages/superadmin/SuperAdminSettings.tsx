@@ -18,6 +18,8 @@ import {
   Bell,
   Radio,
   Building2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { Shell } from '../../components/layout/Shell.js';
@@ -56,6 +58,7 @@ export const SuperAdminSettings: React.FC = () => {
   const [waPairingPhone, setWaPairingPhone] = useState('');
   const [waPairingCode, setWaPairingCode] = useState<string | null>(null);
   const [waPairingLoading, setWaPairingLoading] = useState(false);
+  const [waCopied, setWaCopied] = useState(false);
 
   // WhatsApp Test State
   const [testPhoneTarget, setTestPhoneTarget] = useState('+919845000001');
@@ -81,6 +84,11 @@ export const SuperAdminSettings: React.FC = () => {
   // Auto-poll WhatsApp session state when on WhatsApp tab
   useEffect(() => {
     if (activeTab !== 'whatsapp') return;
+
+    // Auto-generate fresh QR if disconnected and not loaded yet
+    if (waStatus !== 'CONNECTED' && !waQrDataUrl && !waLoading) {
+      handleGenerateWaQr(false);
+    }
 
     const interval = setInterval(async () => {
       const res = await api.getWhatsAppStatus();
@@ -232,6 +240,14 @@ export const SuperAdminSettings: React.FC = () => {
       setWaMsg(err.message || 'Error communicating with server');
     }
     setWaPairingLoading(false);
+  };
+
+  const handleCopyPairingCode = () => {
+    if (waPairingCode) {
+      navigator.clipboard.writeText(waPairingCode);
+      setWaCopied(true);
+      setTimeout(() => setWaCopied(false), 2500);
+    }
   };
 
   const handleTestWaMessage = async () => {
@@ -809,14 +825,26 @@ export const SuperAdminSettings: React.FC = () => {
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-6">
-                    {waQrDataUrl ? (
-                      <div className="p-4 bg-white rounded-2xl shadow-2xl shadow-emerald-500/10 border-4 border-[#A7F3D0]">
-                        <img src={waQrDataUrl} alt="WhatsApp Web QR Code" className="w-64 h-64" />
+                    {waLoading ? (
+                      <div className="w-64 h-64 rounded-2xl bg-white border-2 border-dashed border-emerald-300 flex flex-col items-center justify-center text-center p-6 space-y-3 shadow-inner">
+                        <RefreshCw className="w-10 h-10 text-emerald-600 animate-spin" />
+                        <span className="text-xs font-semibold text-[#0F172A]">Connecting to WhatsApp Multi-Device...</span>
+                        <span className="text-[11px] text-[#64748B]">Generating authentic pairing handshake</span>
+                      </div>
+                    ) : waQrDataUrl ? (
+                      <div className="flex flex-col items-center space-y-3">
+                        <div className="p-4 bg-white rounded-2xl shadow-2xl shadow-emerald-500/10 border-4 border-[#A7F3D0]">
+                          <img src={waQrDataUrl} alt="WhatsApp Web QR Code" className="w-64 h-64" />
+                        </div>
+                        <span className="text-[11px] text-[#047857] font-semibold flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Official WhatsApp Web QR Code (Auto-refreshes)
+                        </span>
                       </div>
                     ) : (
                       <div className="w-64 h-64 rounded-2xl border-2 border-dashed border-[#CBD5E1] flex flex-col items-center justify-center text-[#94A3B8] space-y-2">
                         <QrCode className="w-12 h-12 stroke-1" />
-                        <span className="text-xs">No Active QR Session</span>
+                        <span className="text-xs">Click below to generate WhatsApp QR</span>
                       </div>
                     )}
 
@@ -849,13 +877,25 @@ export const SuperAdminSettings: React.FC = () => {
                       </div>
 
                       {waPairingCode && (
-                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
-                          <span className="text-xs text-emerald-800 font-medium block mb-1">
-                            Enter this code in WhatsApp (Settings &gt; Linked Devices &gt; Link with phone number):
+                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-2">
+                          <span className="text-xs text-emerald-800 font-medium block">
+                            Enter this code in WhatsApp (<strong>Settings &gt; Linked Devices &gt; Link with phone number</strong>):
                           </span>
-                          <span className="text-2xl font-mono font-bold tracking-widest text-emerald-700 bg-white px-4 py-1.5 rounded-lg border border-emerald-300 inline-block shadow-sm">
-                            {waPairingCode}
-                          </span>
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="text-2xl font-mono font-bold tracking-widest text-emerald-700 bg-white px-4 py-1.5 rounded-lg border border-emerald-300 shadow-sm">
+                              {waPairingCode}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              type="button"
+                              onClick={handleCopyPairingCode}
+                              className="h-10 text-xs font-bold"
+                            >
+                              {waCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                              <span className="ml-1">{waCopied ? 'Copied!' : 'Copy'}</span>
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
