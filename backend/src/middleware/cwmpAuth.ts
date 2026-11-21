@@ -81,14 +81,21 @@ export async function cwmpDigestAuthMiddleware(
   res: Response,
   next: NextFunction
 ): Promise<void | Response> {
-  // Pass through GET probes and non-POST requests without challenge
-  if (req.method !== 'POST') {
+  // Pass through GET probes, non-POST requests, and all REST API / health routes without challenge
+  const url = req.originalUrl || req.url || '';
+  if (req.method !== 'POST' || url.startsWith('/api') || url.startsWith('/health')) {
+    return next();
+  }
+
+  const authHeader = req.headers['authorization'];
+
+  // If Authorization header is a Bearer token (JWT REST API authentication), pass through immediately
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
     return next();
   }
 
   // If global CWMP auth requirement is toggled via ENV or tenant config
   const isAuthRequired = process.env.CWMP_REQUIRE_AUTH === 'true';
-  const authHeader = req.headers['authorization'];
 
   // If no auth required globally and CPE sent no credentials, allow through (e.g. initial ZTP discovery)
   if (!isAuthRequired && !authHeader) {

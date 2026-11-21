@@ -89,8 +89,6 @@ app.use(express.text({ type: ['text/xml', 'application/xml', 'text/*'], limit: '
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(resolveTenantContext as any);
-app.use(cwmpRouter);
-app.use(firmwareRouter);
 
 // Dedicated TR-069 CWMP Application Engine (Isolated for CPE traffic on CWMP_PORT)
 const cwmpApp = express();
@@ -160,6 +158,10 @@ app.use('/api/v1/superadmin', superAdminRouter);
 app.use('/api/v1/operator', operatorRouter);
 app.use('/api/v1/technician', technicianRouter);
 app.use('/api/v1/customer', customerRouter);
+
+// Inbound TR-069 CWMP and Firmware routes (Port 4000 fallback)
+app.use(cwmpRouter);
+app.use(firmwareRouter);
 
 // 3. Global Public Health & Dependency Readiness Endpoints
 app.get('/health/live', (req: Request, res: Response) => {
