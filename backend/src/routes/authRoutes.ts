@@ -73,12 +73,12 @@ authRouter.post('/superadmin/register-initial', async (req: AuthenticatedRequest
     });
 
     await recordAuditLog({
-      userId: newSuperAdmin._id.toString(),
-      userEmail: newSuperAdmin.email,
-      role: 'super_admin',
+      actorId: newSuperAdmin._id.toString(),
+      actorEmail: newSuperAdmin.email,
+      actorRole: 'super_admin',
       action: 'INITIAL_SUPERADMIN_SETUP',
-      resource: 'User',
-      resourceId: newSuperAdmin._id.toString(),
+      targetResource: 'User',
+      targetId: newSuperAdmin._id.toString(),
       correlationId: `initial_setup_${Date.now()}`,
     });
 
