@@ -1290,7 +1290,7 @@ superAdminRouter.get('/settings/whatsapp/qr-image', async (_req: AuthenticatedRe
  */
 superAdminRouter.post('/settings/whatsapp/pairing-code', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { phone } = req.body;
+    const phone = req.body.phone || req.body.phoneNumber;
     if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required' });
     const result = await WhatsAppService.requestPhonePairingCode(phone);
     return res.json(result);

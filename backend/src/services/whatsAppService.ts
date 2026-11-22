@@ -450,20 +450,12 @@ export class WhatsAppService {
         this.sock = null;
       }
 
-      // If requested or if credentials are stale/unauthenticated, clear session for clean QR generation
+      // If requested explicitly via user action, clear session for clean QR generation
       if (forceRestart) {
         await this.cleanupAuthFiles();
       }
 
-      let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-
-      // If credentials exist but are not registered/authenticated, wipe them so Baileys emits a fresh QR immediately
-      if (!state.creds?.registered && !forceRestart) {
-        await this.cleanupAuthFiles();
-        const fresh = await useMultiFileAuthState(AUTH_DIR);
-        state = fresh.state;
-        saveCreds = fresh.saveCreds;
-      }
+      const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
       const agent = new https.Agent({
         family: 4,
@@ -475,7 +467,7 @@ export class WhatsAppService {
         version: [2, 3000, 1043857760],
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome'),
+        browser: Browsers.macOS('Desktop'),
         syncFullHistory: false,
         connectTimeoutMs: 35000,
         defaultQueryTimeoutMs: 35000,
@@ -594,6 +586,13 @@ export class WhatsAppService {
                 },
               }
             ).catch((e: any) => console.warn('[WhatsAppService] DB logout update warning:', e.message));
+          } else if (statusCode === DisconnectReason.restartRequired) {
+            // Immediate reconnect without delay to finalize the scanned QR / pairing code handshake!
+            console.log('[WhatsAppService] 515 restartRequired received — immediately reconnecting with saved session credentials to finalize login!');
+            if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+            this.initBaileysSocket(false).catch((err) => {
+              console.error('[WhatsAppService] Error during 515 restart:', err.message);
+            });
           } else if (shouldReconnect) {
             // Keep currentQrDataUrl alive while reconnecting so the user can scan the QR code!
             if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -849,22 +848,22 @@ export class WhatsAppService {
 
       // 2. Fallback: Local Baileys Socket
       this.ensureAuthDir();
-      const wsReady = (this.sock as any)?.ws?.readyState;
-      if (!this.sock || wsReady !== 1) {
-        await this.initBaileysSocket(true);
-        // Wait for WebSocket handshake to reach OPEN state (max 15s)
-        await new Promise<void>((resolve) => {
-          let elapsed = 0;
-          const check = setInterval(() => {
-            elapsed += 200;
-            const state = (this.sock as any)?.ws?.readyState;
-            if (state === 1 || elapsed >= 15000) {
-              clearInterval(check);
-              resolve();
-            }
-          }, 200);
-        });
-      }
+      await this.initBaileysSocket(true);
+      // Wait for WebSocket handshake to reach OPEN state (max 15s)
+      await new Promise<void>((resolve) => {
+        let elapsed = 0;
+        const check = setInterval(() => {
+          elapsed += 200;
+          const state = (this.sock as any)?.ws?.readyState;
+          if (state === 1 || elapsed >= 15000) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 200);
+      });
+
+      // Allow initial handshake frame to settle before requesting pairing code
+      await new Promise((r) => setTimeout(r, 500));
 
       if (this.sock && typeof (this.sock as any).requestPairingCode === 'function') {
         const rawCode = await (this.sock as any).requestPairingCode(cleanPhone);
