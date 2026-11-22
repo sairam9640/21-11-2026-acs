@@ -1574,24 +1574,40 @@ export class WhatsAppService {
       `${message}\n\n` +
       `📞 Support: ${tenant?.branding?.supportPhone || tenant?.owner?.phone || 'Customer Care'}`;
 
-    const session = this.tenantSessions.get(tenantId);
-    const cleanPhone = recipientPhone.replace(/[^0-9]/g, '');
-    const jid = `${cleanPhone}@s.whatsapp.net`;
+    let session = this.tenantSessions.get(tenantId);
+    if (!session?.sock?.user) {
+      const tenantDir = this.getTenantAuthDir(tenantId);
+      const credsPath = path.join(tenantDir, 'creds.json');
+      if (fs.existsSync(credsPath)) {
+        console.log(`[WhatsAppService] Restoring tenant [${tenantId}] socket from disk for message delivery...`);
+        await this.initTenantBaileysSocket(tenantId, false).catch((err) => {
+          console.warn(`[WhatsAppService] Failed to auto-restore tenant socket: ${err.message}`);
+        });
+        session = this.tenantSessions.get(tenantId);
+      }
+    }
+
+    const jid = this.formatJid(recipientPhone);
+    let messageDelivered = false;
 
     if (session?.sock?.user) {
       try {
         await session.sock.sendMessage(jid, { text: formattedMessage });
-        console.log(`[WhatsAppService] ✓ Message sent via Tenant [${tenantId}] socket to [${recipientPhone}]`);
+        messageDelivered = true;
+        console.log(`[WhatsAppService] ✓ Message sent via Tenant [${tenantId}] socket to [${recipientPhone}] (JID: ${jid})`);
       } catch (err: any) {
         console.warn(`[WhatsAppService] Tenant socket send failed (${err.message})`);
       }
     } else if (this.sock?.user) {
       try {
         await this.sock.sendMessage(jid, { text: formattedMessage });
-        console.log(`[WhatsAppService] ✓ Message sent via Super Admin fallback socket to [${recipientPhone}]`);
+        messageDelivered = true;
+        console.log(`[WhatsAppService] ✓ Message sent via Super Admin fallback socket to [${recipientPhone}] (JID: ${jid})`);
       } catch (err: any) {
         console.warn(`[WhatsAppService] Super Admin fallback send failed (${err.message})`);
       }
+    } else {
+      console.warn(`[WhatsAppService] Neither tenant [${tenantId}] nor superadmin socket is currently connected.`);
     }
 
     try {
@@ -1601,18 +1617,18 @@ export class WhatsAppService {
         recipient: recipientPhone,
         subject: `Notification from ${tenantName}`,
         content: formattedMessage,
-        status: 'delivered',
-        deliveredAt: new Date(),
+        status: messageDelivered ? 'delivered' : 'failed',
+        deliveredAt: messageDelivered ? new Date() : undefined,
         metadata: {
           tenantId,
           tenantSlug: tenant?.slug,
           messageId,
-          sentFromOperatorSession: true,
+          sentFromOperatorSession: !!session?.sock?.user,
         },
       });
     } catch (_) {}
 
-    return { success: true, messageId };
+    return { success: messageDelivered, messageId };
   }
 
   /**

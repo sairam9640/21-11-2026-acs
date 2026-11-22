@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Shield, Sliders, Bell, Server, CheckCircle2, QrCode, RefreshCw, Smartphone, Unlink, AlertCircle } from 'lucide-react';
+import { Settings, Save, Shield, Sliders, Bell, Server, CheckCircle2, QrCode, RefreshCw, Smartphone, Unlink, AlertCircle, Copy, Check, Eye, EyeOff, Radio } from 'lucide-react';
 import { Shell } from '../../components/layout/Shell.js';
 import { Button, Input } from '../../components/ui/Button.js';
 import { Badge } from '../../components/ui/Badge.js';
@@ -24,6 +24,24 @@ export const OperatorSettings: React.FC = () => {
   const [waActionSuccess, setWaActionSuccess] = useState<string | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingCodeLoading, setPairingCodeLoading] = useState(false);
+
+  // ACS TR-069 Credentials State
+  const [showAcsPassword, setShowAcsPassword] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const activeHost = window.location.hostname || '109.122.56.149';
+  const tenantSlug = tenant?.slug || 'operator';
+  const acsUrl = `http://${activeHost}:7547/tr069/${tenantSlug}`;
+  const acsUsername = tenantSlug || 'acs';
+  const acsPassword = 'cpe_cwmp_pass_2026';
+  const connReqUser = 'cpe';
+  const connReqPass = 'cpe_password';
+
+  const handleCopyText = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2500);
+  };
 
   const fetchWaStatus = async () => {
     setIsWaLoading(true);
@@ -147,6 +165,100 @@ export const OperatorSettings: React.FC = () => {
                   value={`http://${tenant?.slug || 'operator'}.${window.location.hostname || 'yourdomain.com'}`}
                   className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-3 text-[#1677FF] font-mono font-bold"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* TR-069 ACS CPE Gateway Credentials */}
+          <div className="bg-white border border-[#CBD5E1] rounded-2xl p-6 space-y-4 shadow-xs">
+            <div className="flex items-center space-x-3 pb-3 border-b border-[#E2E8F0]">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                <Radio className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#0F172A]">TR-069 ACS Connection & CPE Credentials</h3>
+                <p className="text-xs text-[#64748B]">Use these exact parameters in your ONT / Router TR-069 configuration page</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* ACS URL */}
+              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold uppercase text-blue-700">Dedicated TR-069 ACS URL</span>
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-blue-900 select-all break-all">{acsUrl}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleCopyText(acsUrl, 'acsUrl')}
+                    className="h-7 text-xs shrink-0 ml-2"
+                  >
+                    {copiedField === 'acsUrl' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                    <span>{copiedField === 'acsUrl' ? 'Copied' : 'Copy'}</span>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Username & Password */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-slate-500">ACS Username</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-[#0F172A] text-sm select-all">{acsUsername}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(acsUsername, 'acsUser')}
+                      className="p-1 text-slate-500 hover:text-blue-600 rounded transition"
+                      title="Copy ACS Username"
+                    >
+                      {copiedField === 'acsUser' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-slate-500">ACS Password</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-[#0F172A] text-sm select-all">
+                      {showAcsPassword ? acsPassword : '••••••••••••'}
+                    </span>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowAcsPassword(!showAcsPassword)}
+                        className="p-1 text-slate-500 hover:text-blue-600 rounded transition"
+                        title={showAcsPassword ? 'Hide Password' : 'Show Password'}
+                      >
+                        {showAcsPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyText(acsPassword, 'acsPass')}
+                        className="p-1 text-slate-500 hover:text-blue-600 rounded transition"
+                        title="Copy ACS Password"
+                      >
+                        {copiedField === 'acsPass' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Advanced Parameters */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
+                  <span className="text-[10px] text-slate-500 font-bold block">Conn Request Username</span>
+                  <span className="font-mono font-semibold text-slate-800">{connReqUser}</span>
+                </div>
+                <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
+                  <span className="text-[10px] text-slate-500 font-bold block">Conn Request Password</span>
+                  <span className="font-mono font-semibold text-slate-800">{connReqPass}</span>
+                </div>
+                <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
+                  <span className="text-[10px] text-slate-500 font-bold block">Periodic Inform Interval</span>
+                  <span className="font-mono font-semibold text-emerald-600">60 seconds (Enabled)</span>
+                </div>
               </div>
             </div>
           </div>

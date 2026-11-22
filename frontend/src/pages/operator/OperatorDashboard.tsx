@@ -26,6 +26,10 @@ import {
   ArrowDownUp,
   ChevronDown,
   Info,
+  Eye,
+  EyeOff,
+  Lock,
+  Key,
 } from 'lucide-react';
 import { Shell } from '../../components/layout/Shell.js';
 import { Badge } from '../../components/ui/Badge.js';
@@ -45,6 +49,8 @@ export const OperatorDashboard: React.FC = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [selectedInterface, setSelectedInterface] = useState('ens1f0');
   const [timeFilter, setTimeFilter] = useState('24h');
+  const [showPassword, setShowPassword] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const { tenant } = useAuth();
@@ -110,8 +116,19 @@ export const OperatorDashboard: React.FC = () => {
   const pppoePct = totalOnline > 0 ? (pppoeCount / totalOnline) : 0;
   const ipoePct = totalOnline > 0 ? (ipoeCount / totalOnline) : 0;
 
+  const acsUsername = tenantSlug || 'acs';
+  const acsPassword = 'cpe_cwmp_pass_2026';
+  const connReqUser = 'cpe';
+  const connReqPass = 'cpe_password';
+
+  const handleCopyText = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2500);
+  };
+
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(activeCwmpUrl);
+    handleCopyText(activeCwmpUrl, 'url');
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -541,14 +558,78 @@ export const OperatorDashboard: React.FC = () => {
         maxWidth="lg"
       >
         <div className="space-y-4 text-xs font-sans">
+          {/* TR-069 Dedicated ACS URL */}
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1">
             <span className="text-[10px] font-bold uppercase text-blue-700">Dedicated TR-069 ACS URL</span>
             <div className="flex items-center justify-between">
-              <span className="font-mono font-bold text-blue-900 select-all">{activeCwmpUrl}</span>
-              <Button size="sm" variant="secondary" onClick={handleCopyUrl} className="h-7 text-xs">
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                <span>{copied ? 'Copied' : 'Copy'}</span>
+              <span className="font-mono font-bold text-blue-900 select-all break-all">{activeCwmpUrl}</span>
+              <Button size="sm" variant="secondary" onClick={() => handleCopyText(activeCwmpUrl, 'url')} className="h-7 text-xs shrink-0 ml-2">
+                {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                <span>{copiedField === 'url' ? 'Copied' : 'Copy'}</span>
               </Button>
+            </div>
+          </div>
+
+          {/* ACS Credentials Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* ACS Username */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+              <span className="text-[10px] font-bold uppercase text-slate-500">ACS Username (ONT Config)</span>
+              <div className="flex items-center justify-between">
+                <span className="font-mono font-bold text-slate-800 text-sm select-all">{acsUsername}</span>
+                <button
+                  type="button"
+                  onClick={() => handleCopyText(acsUsername, 'user')}
+                  className="p-1 text-slate-500 hover:text-blue-600 rounded transition"
+                  title="Copy ACS Username"
+                >
+                  {copiedField === 'user' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* ACS Password */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+              <span className="text-[10px] font-bold uppercase text-slate-500">ACS Password (ONT Config)</span>
+              <div className="flex items-center justify-between">
+                <span className="font-mono font-bold text-slate-800 text-sm select-all">
+                  {showPassword ? acsPassword : '••••••••••••'}
+                </span>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="p-1 text-slate-500 hover:text-blue-600 rounded transition"
+                    title={showPassword ? 'Hide Password' : 'Show Password'}
+                  >
+                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(acsPassword, 'pass')}
+                    className="p-1 text-slate-500 hover:text-blue-600 rounded transition"
+                    title="Copy ACS Password"
+                  >
+                    {copiedField === 'pass' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Connection Request & Periodic Inform Parameters */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <span className="text-[10px] text-slate-500 font-bold block">Conn Request User</span>
+              <span className="font-mono font-semibold text-slate-700">{connReqUser}</span>
+            </div>
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <span className="text-[10px] text-slate-500 font-bold block">Conn Request Pass</span>
+              <span className="font-mono font-semibold text-slate-700">{connReqPass}</span>
+            </div>
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <span className="text-[10px] text-slate-500 font-bold block">Periodic Inform</span>
+              <span className="font-mono font-semibold text-emerald-600">Enabled (60s)</span>
             </div>
           </div>
 
