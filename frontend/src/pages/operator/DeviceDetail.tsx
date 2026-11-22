@@ -591,6 +591,8 @@ export const DeviceDetail: React.FC = () => {
     setIsRefreshingClients(true);
     try {
       await api.post(`/operator/devices/${id}/connected-clients/refresh`);
+      // Allow 2.5 seconds for CPE connection request roundtrip & live GPV parameter response
+      await new Promise((r) => setTimeout(r, 2500));
       await fetchWorkspace(id);
     } catch (_) {}
     setIsRefreshingClients(false);
@@ -2527,8 +2529,8 @@ export const DeviceDetail: React.FC = () => {
             {/* TAB CONTENT 3: CONNECTED DEVICES */}
             {activeTab === 'connected' && (() => {
               const allClients = workspace.connectedDevices || [];
-              const clients24 = allClients.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4'));
-              const clients5g = allClients.filter((c: any) => String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0'));
+              const clients24 = allClients.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (String(c.connectionType || c.interface || '').toLowerCase().includes('wi-fi') && !String(c.connectionType || c.interface || '').includes('5')));
+              const clients5g = allClients.filter((c: any) => String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0') || String(c.connectionType || c.interface || '').includes('5 GHz'));
               const clientsEth = allClients.filter((c: any) => String(c.connectionType || c.interface || '').toLowerCase().includes('eth') || String(c.connectionType || c.interface || '').toLowerCase().includes('lan'));
 
               const filteredClients = allClients.filter((c: any) => {
@@ -2539,8 +2541,8 @@ export const DeviceDetail: React.FC = () => {
                   (c.mac && c.mac.toLowerCase().includes(clientSearchTerm.toLowerCase()));
 
                 if (!matchesSearch) return false;
-                if (clientFilterBand === '2.4G') return String(c.connectionType || c.interface || '').includes('2.4');
-                if (clientFilterBand === '5G') return String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0');
+                if (clientFilterBand === '2.4G') return String(c.connectionType || c.interface || '').includes('2.4') || (String(c.connectionType || c.interface || '').toLowerCase().includes('wi-fi') && !String(c.connectionType || c.interface || '').includes('5'));
+                if (clientFilterBand === '5G') return String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0') || String(c.connectionType || c.interface || '').includes('5 GHz');
                 if (clientFilterBand === 'ETH') return String(c.connectionType || c.interface || '').toLowerCase().includes('eth') || String(c.connectionType || c.interface || '').toLowerCase().includes('lan');
                 return true;
               });
@@ -2585,9 +2587,9 @@ export const DeviceDetail: React.FC = () => {
                       <div>
                         <span className="text-[11px] font-semibold text-[#64748B] block">Total Active Hosts</span>
                         <div className="flex items-baseline space-x-2">
-                          <span className="text-xl font-bold text-[#0F172A]">{allClients.length || workspace.lanHostCount || 0}</span>
+                          <span className="text-xl font-bold text-[#0F172A]">{Math.max(workspace.lanHostCount || 0, allClients.length)}</span>
                           <span className="text-[10px] font-bold text-[#047857] bg-[#ECFDF5] px-1.5 py-0.5 rounded border border-[#A7F3D0]">
-                            {workspace.liveOnlineCount ?? allClients.filter((c: any) => c.status === 'Online').length} ONLINE
+                            {workspace.liveOnlineCount ?? Math.max(workspace.lanHostCount || 0, allClients.filter((c: any) => c.status === 'Online').length)} ONLINE
                           </span>
                         </div>
                       </div>

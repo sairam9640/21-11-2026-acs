@@ -1677,14 +1677,20 @@ ${paramElements}
             cmdAction === 'GetParameterValues' ||
             cmdAction === 'SUMMON_LIVE_POLL' ||
             cmdAction === 'CUSTOM_RPC' ||
-            (pendingCmd as any).commandType === 'SUMMON_LIVE_POLL'
+            cmdAction === 'GET_PARAMETERS' ||
+            cmdAction === 'REFRESH_TELEMETRY' ||
+            (pendingCmd as any).commandType === 'SUMMON_LIVE_POLL' ||
+            (pendingCmd as any).commandType === 'CUSTOM_RPC'
           ) {
             pendingCmd.status = 'sending';
             pendingCmd.sentAt = new Date();
             await pendingCmd.save();
 
             session.stage = 'BASELINE_SENT';
-            const requestedParams = (pendingCmd as any).parameters?.parameterNames || (pendingCmd as any).parameters?.paths;
+            const requestedParams = (pendingCmd as any).parameters?.parameterNames ||
+              (pendingCmd as any).payload?.parameterNames ||
+              (pendingCmd as any).parameters?.paths ||
+              (pendingCmd as any).payload?.paths;
             const targetParams = requestedParams && requestedParams.length > 0
               ? requestedParams
               : CwmpVendorProfiles.getSafeBaselineParameters(session.vendor, session.modelName);
@@ -2080,11 +2086,11 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         }
       }
 
-      // Dynamically include all confirmed Wi-Fi & WAN parameter paths from dev.rawParameters
+      // Dynamically include all confirmed Wi-Fi, WAN & LAN Host/Client parameter paths from dev.rawParameters
       if (dev?.rawParameters) {
         for (const rk of Object.keys(dev.rawParameters)) {
           if (
-            /(?:WLANConfiguration\.\d+\.(?:SSID|Channel|Enable|BeaconType)|Device\.WiFi\.(?:SSID|Radio)\.\d+\.(?:SSID|Channel|Enable)|WAN(?:PPP|IP)Connection\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|VLANID|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Status|.*IPAddress))/i.test(rk) &&
+            /(?:WLANConfiguration\.\d+\.(?:SSID|Channel|Enable|BeaconType|TotalAssociations)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|AssociatedDeviceNumberOfEntries)|WAN(?:PPP|IP)Connection\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|VLANID|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Status|.*IPAddress)|LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:MACAddress|IPAddress|InterfaceType|HostName|Active|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:PhysAddress|IPAddress|InterfaceType|HostName|Active)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(rk) &&
             !rk.toLowerCase().includes('password') &&
             !rk.toLowerCase().includes('presharedkey') &&
             !rk.toLowerCase().includes('secret') &&
@@ -2312,28 +2318,57 @@ ${stringElements}
     // Build the query parameter list strictly from parameters that EXIST on the CPE
     const confirmedParams: string[] = [];
 
-    // 1. Ingest ALL discovered Wi-Fi parameters across all WLAN instances (SSID 1, 2, 3, 4, 5...)
-    const allWifiParams = names.filter((n) =>
-      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(SSID|PreSharedKey\.\d+\.KeyPassphrase|KeyPassphrase|BeaconType|Channel|Enable|Status|WEPKey\.\d+\.WEPKey)|Device\.WiFi\.(SSID|AccessPoint|Radio)\.\d+\.(SSID|Channel|Enable|Status|Security\.KeyPassphrase|Security\.ModeEnabled))/i.test(n) &&
+    // 1. Priority 1: Discovered LAN Host details & Associated Wi-Fi Devices (Always queried fully without truncation)
+    const hostParams = names.filter((n) =>
+      /(LANDevice\.\d+\.Hosts\.Host\.\d+\.(IPAddress|MACAddress|HostName|UserHostName|ClientID|Active|InterfaceType|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(IPAddress|PhysAddress|HostName|Active|InterfaceType)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(n) &&
       !n.endsWith('.')
     );
-    for (const p of allWifiParams) {
-      if (!confirmedParams.includes(p)) confirmedParams.push(p);
-    }
-
-    // 2. Ingest ALL discovered WAN parameters across ALL connection instances (WANIPConnection.1..8, WANPPPConnection.1..8)
-    const allWanParams = names.filter((n) =>
-      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|VLANID|DNSServers|DefaultGateway|SubnetMask|NATEnabled)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.X_CT-COM_WANEponLinkConfig\.(?:VLANIDMark|Mode)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)/i.test(n) &&
-      !n.endsWith('.')
-    );
-    for (const p of allWanParams) {
-      if (!confirmedParams.includes(p)) confirmedParams.push(p);
+    for (const hp of hostParams) {
+      if (!confirmedParams.includes(hp)) confirmedParams.push(hp);
     }
 
     const lanHosts = names.find((n) => /LANDevice\.\d+\.(Hosts\.HostNumberOfEntries|HostNumberOfEntries)$|Device\.Hosts\.HostNumberOfEntries$/i.test(n));
     if (lanHosts && !confirmedParams.includes(lanHosts)) confirmedParams.push(lanHosts);
 
-    // 3. Identify confirmed Optical / PON telemetry parameters
+    // Host Fallback: If no explicit host instances were in GPN, query Hosts 1..16 safely
+    if (hostParams.length === 0 && (lanHosts || names.some(n => /LANDevice\.\d+\.Hosts\./i.test(n)))) {
+      for (let h = 1; h <= 16; h++) {
+        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.HostName`);
+        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
+        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
+        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.InterfaceType`);
+        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.Active`);
+      }
+    }
+
+    // Wi-Fi Association counts & band parameters
+    const assocCounts = names.filter((n) =>
+      /(?:TotalAssociations|AssociatedDeviceNumberOfEntries|X_TP_Band|OperatingFrequencyBand)$/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const ac of assocCounts) {
+      if (!confirmedParams.includes(ac)) confirmedParams.push(ac);
+    }
+
+    // 2. Ingest essential discovered Wi-Fi parameters across all WLAN instances (SSID 1, 2, 3, 4, 5, 6...)
+    const allWifiParams = names.filter((n) =>
+      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(SSID|Channel|Enable|BeaconType|Status|X_TP_Band)|Device\.WiFi\.(SSID|AccessPoint|Radio)\.\d+\.(SSID|Channel|Enable|Status))/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const p of allWifiParams) {
+      if (confirmedParams.length < 192 && !confirmedParams.includes(p)) confirmedParams.push(p);
+    }
+
+    // 3. Ingest active WAN parameters across ALL connection instances
+    const allWanParams = names.filter((n) =>
+      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|VLANID|DNSServers|DefaultGateway|SubnetMask)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.X_CT-COM_WANEponLinkConfig\.(?:VLANIDMark|Mode)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const p of allWanParams) {
+      if (confirmedParams.length < 240 && !confirmedParams.includes(p)) confirmedParams.push(p);
+    }
+
+    // 4. Identify confirmed Optical / PON telemetry parameters
     const opticalRxCandidates = names.filter((n) =>
       /rxpower|rx_power|opticalsignallevel|receivepower|rxdba|opt_rx/i.test(n) &&
       !/ping|traceroute|wlan|wifi|beacon/i.test(n) && !n.endsWith('.')
@@ -2352,34 +2387,17 @@ ${stringElements}
       { rx: opticalRxCandidates, tx: opticalTxCandidates }
     );
 
-    // Priority 1: All discovered Optical RX paths
+    // Priority Optical RX paths
     for (const optRx of opticalRxCandidates) {
       if (!confirmedParams.includes(optRx)) confirmedParams.push(optRx);
     }
-    // Priority 2: All discovered Optical TX paths
+    // Priority Optical TX paths
     for (const optTx of opticalTxCandidates) {
       if (!confirmedParams.includes(optTx)) confirmedParams.push(optTx);
     }
-    // Priority 3: Companions (Voltage, Temperature, Bias Current)
+    // Companions (Voltage, Temperature, Bias Current)
     for (const comp of opticalCompanionCandidates) {
-      if (confirmedParams.length < 32 && !confirmedParams.includes(comp)) confirmedParams.push(comp);
-    }
-
-    // Priority 4: Discovered LAN Host details & Associated Wi-Fi Devices (HostName, MAC, IP, Active, Interface)
-    const hostParams = names.filter((n) =>
-      /(LANDevice\.\d+\.Hosts\.Host\.\d+\.(IPAddress|MACAddress|HostName|UserHostName|ClientID|Active|InterfaceType|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState)|Device\.Hosts\.Host\.\d+\.(IPAddress|PhysAddress|HostName|Active|InterfaceType))/i.test(n) &&
-      !n.endsWith('.')
-    );
-    if (hostParams.length > 0) {
-      for (const hp of hostParams) {
-        if (confirmedParams.length < 96 && !confirmedParams.includes(hp)) confirmedParams.push(hp);
-      }
-    } else if (lanHosts || names.some(n => /LANDevice\.1\.Hosts\./i.test(n))) {
-      for (let h = 1; h <= 16; h++) {
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.HostName`);
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
-      }
+      if (confirmedParams.length < 250 && !confirmedParams.includes(comp)) confirmedParams.push(comp);
     }
 
     if (session && confirmedParams.length > 0) {
@@ -3807,26 +3825,32 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         }
       }
 
-      // 2. Wi-Fi Associated Devices parsing
-      const wlanMatch = key.match(/LANDevice\.\d+\.WLANConfiguration\.(\d+)\.AssociatedDevice\.(\d+)\.(AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState)/i);
+      // 2. Wi-Fi Associated Devices parsing (TR-098 WLANConfiguration + TR-181 WiFi AccessPoint + Vendor Paths)
+      const wlanMatch = key.match(/(?:LANDevice\.\d+\.WLANConfiguration\.(\d+)\.AssociatedDevice|Device\.WiFi\.AccessPoint\.(\d+)\.AssociatedDevice)\.(\d+)\.(AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress|IPAddress)/i);
       if (wlanMatch) {
-        const wlanBand = wlanMatch[1];
-        const idx = `wlan_${wlanBand}_${wlanMatch[2]}`;
-        const field = wlanMatch[3].toLowerCase();
+        const wlanBand = wlanMatch[1] || wlanMatch[2];
+        const devNum = wlanMatch[3];
+        const idx = `wlan_${wlanBand}_${devNum}`;
+        const field = wlanMatch[4].toLowerCase();
+        
+        // Check if this WLAN instance channel is 5 GHz
+        const chanVal = parseInt(pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanBand}.Channel`) || '', 10);
+        const is5GHz = (wlanBand === '3' || wlanBand === '2' || wlanBand === '5' || wlanBand === '6') || (chanVal >= 36);
+
         if (!clientMap.has(idx)) {
           clientMap.set(idx, {
             mac: '',
             ip: '',
             hostname: '',
-            interfaceType: (wlanBand === '2' || wlanBand === '5') ? '5GHz' : '2.4GHz',
+            interfaceType: is5GHz ? '5GHz' : '2.4GHz',
             connected: true,
             isBlocked: false,
             lastSeen: new Date(),
           });
         }
         const c = clientMap.get(idx);
-        if (field === 'associateddevicemacaddress') c.mac = String(val).toUpperCase().trim();
-        if (field === 'associateddeviceipaddress') c.ip = String(val).trim();
+        if (field === 'associateddevicemacaddress' || field === 'macaddress') c.mac = String(val).toUpperCase().trim();
+        if (field === 'associateddeviceipaddress' || field === 'ipaddress') c.ip = String(val).trim();
         if (field === 'associateddevicehostname') {
           const cleanName = String(val).replace(/["']/g, '').trim();
           if (cleanName && cleanName !== 'unknown') c.hostname = cleanName;
@@ -3841,7 +3865,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     const uniqueClientsMap = new Map<string, any>();
     for (const c of clientMap.values()) {
       if (!c.mac && !c.ip) continue;
-      const key = c.mac || c.ip;
+      const key = (c.mac || c.ip).toUpperCase();
       if (uniqueClientsMap.has(key)) {
         const existing = uniqueClientsMap.get(key);
         if (!existing.hostname && c.hostname) existing.hostname = c.hostname;
@@ -3854,12 +3878,15 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     }
 
     const parsedClients = Array.from(uniqueClientsMap.values());
+    const realHostEntries = rawHosts ? parseInt(rawHosts, 10) : 0;
     if (parsedClients.length > 0) {
       device.connectedClients = parsedClients.map((c: any) => ({
         ...c,
         hostname: CwmpVendorProfiles.resolveFriendlyDeviceName(c.hostname, c.mac, c.interfaceType),
       }));
-      device.lanHostCount = device.connectedClients.filter((c: any) => c.connected !== false).length || parsedClients.length;
+      device.lanHostCount = Math.max(realHostEntries || 0, parsedClients.length);
+    } else if (realHostEntries > 0) {
+      device.lanHostCount = realHostEntries;
     }
 
     device.lastParameterSyncStatus = 'PARTIAL_SUCCESS';

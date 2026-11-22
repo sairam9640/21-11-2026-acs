@@ -190,7 +190,8 @@ export class CwmpVendorProfiles {
     }
 
     const isDual = this.isDualBandModel(vendor, modelName);
-    const wlan5gInstance = (vendor === 'TPLINK' || vendor === 'VSOL' || vendor === 'RICHERLINK') ? 2 : 5;
+    const isTplink = vendor === 'TPLINK' || (modelName && /archer|c6|c5|c20|c50/i.test(modelName));
+    const wlan5gInstance = isTplink ? 3 : (vendor === 'VSOL' || vendor === 'RICHERLINK') ? 2 : 5;
     const wlan5gParams = isDual ? [
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.SSID`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.PreSharedKey.1.KeyPassphrase`,
@@ -198,6 +199,14 @@ export class CwmpVendorProfiles {
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.BeaconType`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.Enable`,
     ] : [];
+
+    // Explicit baseline host queries for devices that do not support wildcard partial paths
+    const explicitHostParams: string[] = [];
+    for (let h = 1; h <= 12; h++) {
+      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
+      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
+      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.InterfaceType`);
+    }
 
     // Comprehensive Universal TR-098 Baseline (Using standard TR-069 subtrees to prevent Fault 9005):
     return [
@@ -221,9 +230,16 @@ export class CwmpVendorProfiles {
       ...wlan5gParams,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.TotalAssociations`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.AssociatedDevice.`,
+      // Secondary / Multi-Band WLAN Association Hooks (TP-Link 3, Generic 5)
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.TotalAssociations',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.AssociatedDevice.',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.TotalAssociations',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.AssociatedDevice.',
       // LAN Host Count & Full Connected Host Subtree (Hostnames, MACs, IPs, Active status)
       'InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries',
       'InternetGatewayDevice.LANDevice.1.Hosts.Host.',
+      // Explicit top hosts for full inventory without wildcard reliance
+      ...explicitHostParams,
       // Universal WAN Connection Subtree (Discovers all active PPP and IP connection slots without leaf path mismatches)
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.',
       // Management Server
@@ -615,9 +631,9 @@ export class CwmpVendorProfiles {
   ): '2.4GHz' | '5GHz' | '6GHz' | 'UNKNOWN' {
     const rawKeys = Object.keys(rawParams);
 
-    // 1. Explicit Band Parameter
+    // 1. Explicit Band Parameter (Universal + Vendor extensions e.g. TP-Link, Huawei, ZTE)
     const bandKey = rawKeys.find((k) =>
-      new RegExp(`(WLANConfiguration\\.${instance}\\.(X_RFBand|OperatingFrequencyBand|SupportedFrequencyBands)|Device\\.WiFi\\.Radio\\.${instance}\\.OperatingFrequencyBand)`, 'i').test(k)
+      new RegExp(`(WLANConfiguration\\.${instance}\\.(X_TP_Band|X_RFBand|RFBand|OperatingFrequencyBand|SupportedFrequencyBands)|Device\\.WiFi\\.Radio\\.${instance}\\.OperatingFrequencyBand)`, 'i').test(k)
     );
     if (bandKey && rawParams[bandKey]) {
       const val = String(rawParams[bandKey]).toLowerCase();
@@ -626,18 +642,7 @@ export class CwmpVendorProfiles {
       if (val.includes('6g') || val.includes('6ghz')) return '6GHz';
     }
 
-    // 2. Explicit Operating Standards
-    const stdKey = rawKeys.find((k) =>
-      new RegExp(`(WLANConfiguration\\.${instance}\\.(Standard|OperatingStandards)|Device\\.WiFi\\.Radio\\.${instance}\\.OperatingStandards)`, 'i').test(k)
-    );
-    if (stdKey && rawParams[stdKey]) {
-      const val = String(rawParams[stdKey]).toLowerCase();
-      if (val.includes('11ac') || val.includes('11a,') || val.includes('ac,') || val === 'a') return '5GHz';
-      if (val.includes('11ax')) return '5GHz';
-      if (val.includes('11b') || val.includes('11g') || val.includes('b,g,n')) return '2.4GHz';
-    }
-
-    // 3. Explicit Channel Numbers (1-14 = 2.4G, 36-165 = 5G)
+    // 2. Explicit Operating Channel Numbers (1-14 = 2.4G, 36-165 = 5G)
     const chanKey = rawKeys.find((k) =>
       new RegExp(`(WLANConfiguration\\.${instance}\\.Channel|Device\\.WiFi\\.Radio\\.${instance}\\.Channel)`, 'i').test(k)
     );
@@ -647,6 +652,17 @@ export class CwmpVendorProfiles {
         if (chan >= 36 && chan <= 165) return '5GHz';
         if (chan >= 1 && chan <= 14) return '2.4GHz';
       }
+    }
+
+    // 3. Explicit Operating Standards
+    const stdKey = rawKeys.find((k) =>
+      new RegExp(`(WLANConfiguration\\.${instance}\\.(Standard|OperatingStandards)|Device\\.WiFi\\.Radio\\.${instance}\\.OperatingStandards)`, 'i').test(k)
+    );
+    if (stdKey && rawParams[stdKey]) {
+      const val = String(rawParams[stdKey]).toLowerCase();
+      if (val.includes('11ac') || val.includes('11a,') || val.includes('ac,') || val === 'a') return '5GHz';
+      if (val.includes('11ax')) return '5GHz';
+      if (val.includes('11b') || val.includes('11g') || val.includes('b,g,n')) return '2.4GHz';
     }
 
     // 4. Possible Channels String Evidence

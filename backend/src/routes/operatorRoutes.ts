@@ -3798,26 +3798,45 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
       if ((rawMac && rawMac !== '00:00:00:00:00:00') || (rawIp && rawIp !== '0.0.0.0')) {
         const key = ((rawMac || rawIp) as string).toUpperCase();
-        const ifaceClean = rawIface && /5g/i.test(String(rawIface))
+        const isEthernet = rawIface && /eth|lan/i.test(String(rawIface));
+        const is5G = rawIface && /5g/i.test(String(rawIface));
+        const ifaceClean = is5G
           ? '5GHz High-Speed'
-          : rawIface && /eth/i.test(String(rawIface))
+          : isEthernet
           ? 'LAN Ethernet'
           : '2.4GHz Primary';
         
         const friendlyName = resolveFriendlyDeviceName(rawName, rawMac, ifaceClean);
 
-        clientMap.set(key, {
-          name: friendlyName,
-          hostname: String(rawName ? decodeXmlEntities(rawName) : (rawMac ? `host-${rawMac.replace(/[: -]/g, '').slice(-4).toLowerCase()}.lan` : `client-${idx}.lan`)),
-          ip: String(rawIp || `192.168.1.${100 + idx}`),
-          mac: String(rawMac || '00:E0:4C:AA:BB:CC').toUpperCase(),
-          connectionType: ifaceClean,
-          interface: ifaceClean,
-          signal: idx === 1 ? '-42 dBm' : idx % 2 === 0 ? '-55 dBm' : '-62 dBm',
-          leaseTimeRemaining: rawLease && !isNaN(rawLease) ? `${Math.floor(rawLease / 3600)}h ${Math.floor((rawLease % 3600) / 60)}m` : '23h 12m',
-          lastSeen: device.lastInform || new Date(),
-          status: isClientOnline ? 'Online' : 'Offline',
-        });
+        if (clientMap.has(key)) {
+          const existing = clientMap.get(key);
+          if (rawIp && (!existing.ip || existing.ip.startsWith('192.168.1.1'))) existing.ip = rawIp;
+          if (rawMac && (!existing.mac || existing.mac === '00:00:00:00:00:00')) existing.mac = rawMac.toUpperCase();
+          if (rawName) {
+            existing.name = friendlyName;
+            existing.hostname = decodeXmlEntities(rawName);
+          } else if (!existing.name || existing.name === 'Unknown Client') {
+            existing.name = friendlyName;
+          }
+          if (rawIface) {
+            existing.connectionType = ifaceClean;
+            existing.interface = ifaceClean;
+          }
+          existing.status = isClientOnline ? 'Online' : 'Offline';
+        } else {
+          clientMap.set(key, {
+            name: friendlyName,
+            hostname: String(rawName ? decodeXmlEntities(rawName) : (friendlyName && !friendlyName.startsWith('Host-') ? friendlyName : (rawMac ? `host-${rawMac.replace(/[: -]/g, '').slice(-4).toLowerCase()}.lan` : `client-${idx}.lan`))),
+            ip: rawIp || (device.ipAddress ? `${device.ipAddress.replace(/\.\d+$/, '')}.${100 + idx}` : `192.168.0.${100 + idx}`),
+            mac: String(rawMac || '00:E0:4C:AA:BB:CC').toUpperCase(),
+            connectionType: ifaceClean,
+            interface: ifaceClean,
+            signal: idx === 1 ? '-42 dBm' : idx % 2 === 0 ? '-55 dBm' : '-62 dBm',
+            leaseTimeRemaining: rawLease && !isNaN(rawLease) ? `${Math.floor(rawLease / 3600)}h ${Math.floor((rawLease % 3600) / 60)}m` : '23h 12m',
+            lastSeen: device.lastInform || new Date(),
+            status: isClientOnline ? 'Online' : 'Offline',
+          });
+        }
       }
     }
 
@@ -3825,16 +3844,16 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
     const assocDeviceKeys = rawKeys.filter(k => /AssociatedDevice\.\d+\./i.test(k));
     const assocIndices = Array.from(new Set(
       assocDeviceKeys.map(k => {
-        const m = k.match(/WLANConfiguration\.(\d+)\.AssociatedDevice\.(\d+)\./i);
-        return m ? `${m[1]}_${m[2]}` : null;
+        const m = k.match(/(?:WLANConfiguration\.(\d+)\.AssociatedDevice|Device\.WiFi\.AccessPoint\.(\d+)\.AssociatedDevice)\.(\d+)\./i);
+        return m ? `${m[1] || m[2]}_${m[3]}` : null;
       }).filter((v): v is string => v !== null)
     ));
 
     for (const aKey of assocIndices) {
       const [wlanIdx, devIdx] = aKey.split('_');
-      const macKey = rawKeys.find(k => new RegExp(`WLANConfiguration\\.${wlanIdx}\\.AssociatedDevice\\.${devIdx}\\.(AssociatedDeviceMACAddress|MACAddress)$`, 'i').test(k));
-      const ipKey = rawKeys.find(k => new RegExp(`WLANConfiguration\\.${wlanIdx}\\.AssociatedDevice\\.${devIdx}\\.(AssociatedDeviceIPAddress|IPAddress)$`, 'i').test(k));
-      const rssiKey = rawKeys.find(k => new RegExp(`WLANConfiguration\\.${wlanIdx}\\.AssociatedDevice\\.${devIdx}\\.(AssociatedDeviceRSSI|X_BROADCOM_COM_RSSI|SignalStrength)$`, 'i').test(k));
+      const macKey = rawKeys.find(k => new RegExp(`(?:WLANConfiguration\\.${wlanIdx}|AccessPoint\\.${wlanIdx})\\.AssociatedDevice\\.${devIdx}\\.(AssociatedDeviceMACAddress|MACAddress)$`, 'i').test(k));
+      const ipKey = rawKeys.find(k => new RegExp(`(?:WLANConfiguration\\.${wlanIdx}|AccessPoint\\.${wlanIdx})\\.AssociatedDevice\\.${devIdx}\\.(AssociatedDeviceIPAddress|IPAddress)$`, 'i').test(k));
+      const rssiKey = rawKeys.find(k => new RegExp(`(?:WLANConfiguration\\.${wlanIdx}|AccessPoint\\.${wlanIdx})\\.AssociatedDevice\\.${devIdx}\\.(AssociatedDeviceRSSI|X_BROADCOM_COM_RSSI|SignalStrength)$`, 'i').test(k));
 
       const rawMac = macKey ? rawParams[macKey] : null;
       const rawIp = ipKey ? rawParams[ipKey] : null;
@@ -3842,17 +3861,19 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
       if (rawMac && rawMac !== '00:00:00:00:00:00') {
         const key = rawMac.toUpperCase();
-        const band = (wlanIdx === '5' || wlanIdx === '2') ? '5GHz High-Speed' : '2.4GHz Primary';
+        const band = (wlanIdx === '3' || wlanIdx === '5' || wlanIdx === '2' || wlanIdx === '4' || wlanIdx === '6') ? '5GHz High-Speed' : '2.4GHz Primary';
         if (clientMap.has(key)) {
           const existing = clientMap.get(key);
           existing.status = device.status === 'online' ? 'Online' : 'Offline';
+          existing.connectionType = band;
+          existing.interface = `${band} Wi-Fi`;
           if (rawRssi) existing.signal = `${rawRssi} dBm`;
         } else {
           const friendlyName = resolveFriendlyDeviceName(null, rawMac, band);
           clientMap.set(key, {
             name: friendlyName,
             hostname: `wifi-client-${devIdx}.lan`,
-            ip: rawIp || `192.168.1.${110 + parseInt(devIdx, 10)}`,
+            ip: rawIp || `192.168.0.${110 + parseInt(devIdx, 10)}`,
             mac: rawMac.toUpperCase(),
             connectionType: band,
             interface: `${band} Wi-Fi`,
@@ -4016,13 +4037,20 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           ? Boolean(d.wifi5g.enabled)
           : (enableKey ? (rawParams[enableKey] === '1' || rawParams[enableKey] === true || rawParams[enableKey] === 'true') : true);
 
-        const detectedBand = idx === 1 ? '2.4GHz' : (idx === 2 || idx === 5) ? '5GHz' : CwmpVendorProfiles.determineWifiBand(rawParams, idx, String(ssidVal || ''));
+        const explicitBand = CwmpVendorProfiles.determineWifiBand(rawParams, idx, String(ssidVal || ''));
+        const detectedBand = explicitBand !== 'UNKNOWN'
+          ? explicitBand
+          : idx === 1
+          ? '2.4GHz'
+          : (idx === 3 || idx === 5)
+          ? '5GHz'
+          : '2.4GHz';
 
-        const resolvedSsid = ssidVal ? decodeXmlEntities(ssidVal) : (idx === 1 ? d.wifi24?.ssid : (idx === 2 || idx === 5) ? d.wifi5g?.ssid : `WLAN-${idx}`);
+        const resolvedSsid = ssidVal ? decodeXmlEntities(ssidVal) : (idx === 1 ? d.wifi24?.ssid : (idx === 3 || idx === 5 || idx === 2) ? d.wifi5g?.ssid : `WLAN-${idx}`);
 
         return {
           instance: idx,
-          ssid: resolvedSsid ? String(resolvedSsid) : (idx === 1 ? 'Wi-Fi 2.4GHz' : `Wi-Fi 5GHz`),
+          ssid: resolvedSsid ? String(resolvedSsid) : (detectedBand === '5GHz' ? 'Wi-Fi 5GHz' : 'Wi-Fi 2.4GHz'),
           band: detectedBand,
           channel: !isNaN(chanVal as number) ? (chanVal as number) : null,
           security: beaconVal || 'WPA2-PSK',
@@ -4064,7 +4092,7 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
     }
 
     const primary24 = discoveredInterfaces.find((i) => i.band === '2.4GHz') || discoveredInterfaces.find((i) => i.instance === 1);
-    const primary5g = discoveredInterfaces.find((i) => i.band === '5GHz') || discoveredInterfaces.find((i) => i.instance === 2 || i.instance === 5);
+    const primary5g = discoveredInterfaces.find((i) => i.band === '5GHz') || discoveredInterfaces.find((i) => i.instance === 3 || i.instance === 5 || i.instance === 2);
     const isDualBandCapable = CwmpVendorProfiles.isDualBandModel(device.manufacturer, device.modelName, device.hardwareVersion) || Boolean(primary5g?.ssid);
 
     // Extract real WAN parameters from CPE TR-069 parameter tree if available
@@ -4171,7 +4199,7 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
             radioPath: primary24?.sourcePaths?.channelPath || 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.',
             sourcePaths: primary24?.sourcePaths || {},
             txPowerPercent: d.wifi24?.txPowerPercent || 100,
-            connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || '').includes('2.4')).length,
+            connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (String(c.connectionType || c.interface || '').toLowerCase() === 'wi-fi' && !String(c.connectionType || c.interface || '').includes('5'))).length,
             noiseDbm: d.wifi24?.noiseDbm ?? -92,
             signalQuality: d.wifi24?.signalQuality ?? (primary24?.ssid ? 'Good' : '—'),
             passwordConfigured: Boolean(primary24?.password || d.wifi24?.password),
@@ -4188,7 +4216,7 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
             radioPath: primary5g?.sourcePaths?.channelPath || (isDualBandCapable ? 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.' : null),
             sourcePaths: primary5g?.sourcePaths || {},
             txPowerPercent: d.wifi5g?.txPowerPercent || 100,
-            connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || '').includes('5G')).length,
+            connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0') || String(c.connectionType || c.interface || '').includes('5 GHz')).length,
             noiseDbm: d.wifi5g?.noiseDbm ?? -95,
             signalQuality: d.wifi5g?.signalQuality ?? (primary5g?.ssid ? 'Excellent' : '—'),
             passwordConfigured: Boolean(primary5g?.password || d.wifi5g?.password),
@@ -4244,7 +4272,7 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           })),
         },
         connectedDevices,
-        lanHostCount: liveOnlineCount || (d.lanHostCount !== undefined ? d.lanHostCount : connectedDevices.length),
+        lanHostCount: Math.max(d.lanHostCount || 0, connectedDevices.length, liveOnlineCount || 0),
         liveOnlineCount,
         siteSurvey: d.neighborWiFiSurvey && d.neighborWiFiSurvey.length > 0 ? d.neighborWiFiSurvey : [],
         diagnostics: d.diagnosticHistory || [],
@@ -4599,6 +4627,30 @@ operatorRouter.post('/devices/:id/connected-clients/refresh', async (req: Authen
     const device = await Device.findOne(getSafeDeviceQuery(id, tenantId));
     if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
 
+    const hostQueryPaths: string[] = [
+      'InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries',
+      'InternetGatewayDevice.LANDevice.1.Hosts.Host.',
+      'Device.Hosts.HostNumberOfEntries',
+      'Device.Hosts.Host.',
+    ];
+    for (let h = 1; h <= 16; h++) {
+      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
+      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
+      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.InterfaceType`);
+      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.HostName`);
+      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.Active`);
+    }
+    for (let w = 1; w <= 6; w++) {
+      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${w}.TotalAssociations`);
+      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${w}.AssociatedDevice.`);
+    }
+    hostQueryPaths.push(
+      'Device.WiFi.AccessPoint.1.AssociatedDeviceNumberOfEntries',
+      'Device.WiFi.AccessPoint.1.AssociatedDevice.',
+      'Device.WiFi.AccessPoint.2.AssociatedDeviceNumberOfEntries',
+      'Device.WiFi.AccessPoint.2.AssociatedDevice.'
+    );
+
     // Queue query for host and client parameter paths in Native CWMP Engine
     await DeviceCommand.create({
       tenantId: device.tenantId,
@@ -4608,16 +4660,11 @@ operatorRouter.post('/devices/:id/connected-clients/refresh', async (req: Authen
       action: 'GET_PARAMETERS',
       rpcMethod: 'GetParameterValues',
       status: 'pending',
+      parameters: {
+        parameterNames: hostQueryPaths,
+      },
       payload: {
-        parameterNames: [
-          'InternetGatewayDevice.LANDevice.1.Hosts.',
-          'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.AssociatedDevice.',
-          'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.AssociatedDevice.',
-          'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.AssociatedDevice.',
-          'Device.Hosts.',
-          'Device.WiFi.AccessPoint.1.AssociatedDevice.',
-          'Device.WiFi.AccessPoint.2.AssociatedDevice.',
-        ],
+        parameterNames: hostQueryPaths,
       },
       correlationId: req.correlationId || `client_sync_${Date.now()}`,
     });
