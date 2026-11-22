@@ -253,6 +253,32 @@ export class WhatsAppService {
   private static isInitializing = false;
   private static reconnectTimer: NodeJS.Timeout | null = null;
   private static qrResolvers: Array<(qr: string) => void> = [];
+  public static lastDisconnectReason: any = null;
+
+  /**
+   * Diagnostic debug helper for system administrators
+   */
+  static async getDebugStatus(): Promise<any> {
+    let outboundOk = false;
+    let outboundError = null;
+    try {
+      const res = await fetch('https://web.whatsapp.com', { signal: AbortSignal.timeout(3000) });
+      outboundOk = res.status === 200;
+    } catch (e: any) {
+      outboundError = e.message;
+    }
+
+    return {
+      isSocketAlive: Boolean(this.sock),
+      wsReadyState: (this.sock as any)?.ws?.readyState,
+      hasRawQr: Boolean(this.currentRawQr),
+      rawQrLength: this.currentRawQr?.length || 0,
+      hasQrDataUrl: Boolean(this.currentQrDataUrl),
+      isInitializing: this.isInitializing,
+      lastDisconnect: this.lastDisconnectReason,
+      outboundWhatsAppWeb: { ok: outboundOk, error: outboundError },
+    };
+  }
 
   /**
    * Ensure auth session storage directory exists
@@ -533,7 +559,9 @@ export class WhatsAppService {
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-          console.log(`[WhatsAppService] Connection closed (code: ${statusCode}, shouldReconnect: ${shouldReconnect})`);
+          const errorMsg = lastDisconnect?.error?.message || 'Unknown disconnect reason';
+          this.lastDisconnectReason = { statusCode, errorMsg, time: new Date().toISOString() };
+          console.log(`[WhatsAppService] Connection closed (code: ${statusCode}, msg: ${errorMsg}, shouldReconnect: ${shouldReconnect})`);
 
           if (statusCode === DisconnectReason.loggedOut) {
             this.currentQrDataUrl = null;
@@ -810,9 +838,21 @@ export class WhatsAppService {
 
       // 2. Fallback: Local Baileys Socket
       this.ensureAuthDir();
-      if (!this.sock) {
-        await this.initBaileysSocket();
-        await new Promise((r) => setTimeout(r, 2000));
+      const wsReady = (this.sock as any)?.ws?.readyState;
+      if (!this.sock || wsReady !== 1) {
+        await this.initBaileysSocket(true);
+        // Wait for WebSocket handshake to reach OPEN state (max 8s)
+        await new Promise<void>((resolve) => {
+          let elapsed = 0;
+          const check = setInterval(() => {
+            elapsed += 200;
+            const state = (this.sock as any)?.ws?.readyState;
+            if (state === 1 || elapsed >= 8000) {
+              clearInterval(check);
+              resolve();
+            }
+          }, 200);
+        });
       }
 
       if (this.sock && typeof (this.sock as any).requestPairingCode === 'function') {

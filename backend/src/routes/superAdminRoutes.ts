@@ -1169,6 +1169,18 @@ superAdminRouter.post('/settings/whatsapp/generate-qr', async (req: Authenticate
 });
 
 /**
+ * Super Admin Settings: WhatsApp Web - Live Diagnostic Status
+ */
+superAdminRouter.get('/settings/whatsapp/debug', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const debug = await WhatsAppService.getDebugStatus();
+    return res.json({ success: true, debug });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * Super Admin Settings: WhatsApp Web - Stream Live PNG QR Code Image Directly
  */
 superAdminRouter.get('/settings/whatsapp/qr-image', async (_req: AuthenticatedRequest, res: Response) => {
