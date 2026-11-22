@@ -37,6 +37,7 @@ import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { api } from '../../services/api.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { copyToClipboard } from '../../utils/clipboard.js';
 
 export const OperatorDashboard: React.FC = () => {
   const [summary, setSummary] = useState<any>(null);
@@ -121,16 +122,20 @@ export const OperatorDashboard: React.FC = () => {
   const connReqUser = 'cpe';
   const connReqPass = 'cpe_password';
 
-  const handleCopyText = (text: string, field: string) => {
-    navigator.clipboard.writeText(text);
+  const handleCopyText = async (text: string, field: string) => {
+    await copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2500);
   };
 
-  const handleCopyUrl = () => {
-    handleCopyText(activeCwmpUrl, 'url');
+  const handleCopyUrl = async () => {
+    await copyToClipboard(activeCwmpUrl);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    setCopiedField('url');
+    setTimeout(() => {
+      setCopied(false);
+      setCopiedField(null);
+    }, 2500);
   };
 
   return (

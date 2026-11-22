@@ -31,6 +31,7 @@ import { Badge } from '../../components/ui/Badge.js';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { api } from '../../services/api.js';
+import { copyToClipboard } from '../../utils/clipboard.js';
 
 export const SuperAdminDashboard: React.FC = () => {
   const [data, setData] = useState<any>(null);
@@ -109,8 +110,8 @@ export const SuperAdminDashboard: React.FC = () => {
   const activeHost = window.location.hostname || 'localhost';
   const activeCwmpUrl = `http://${activeHost}:7547/tr069${selectedTenantSlug ? `/${selectedTenantSlug}` : ''}`;
 
-  const handleCopyUrl = () => {
-    navigator.clipboard.writeText(activeCwmpUrl);
+  const handleCopyUrl = async () => {
+    await copyToClipboard(activeCwmpUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };

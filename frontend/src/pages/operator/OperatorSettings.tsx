@@ -6,6 +6,7 @@ import { Badge } from '../../components/ui/Badge.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { api } from '../../services/api.js';
+import { copyToClipboard } from '../../utils/clipboard.js';
 
 export const OperatorSettings: React.FC = () => {
   const { tenant } = useAuth();
@@ -37,8 +38,8 @@ export const OperatorSettings: React.FC = () => {
   const connReqUser = 'cpe';
   const connReqPass = 'cpe_password';
 
-  const handleCopyText = (text: string, field: string) => {
-    navigator.clipboard.writeText(text);
+  const handleCopyText = async (text: string, field: string) => {
+    await copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2500);
   };
