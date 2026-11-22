@@ -10,6 +10,7 @@ import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import https from 'https';
 import { SystemSetting, IWhatsAppSettings } from '../models/SystemSetting.js';
 import { NotificationLog } from '../models/NotificationLog.js';
 import { Tenant } from '../models/Tenant.js';
@@ -464,17 +465,24 @@ export class WhatsAppService {
         saveCreds = fresh.saveCreds;
       }
 
+      const agent = new https.Agent({
+        family: 4,
+        keepAlive: true,
+        timeout: 35000,
+      });
+
       const socket = makeWASocket({
         version: [2, 3000, 1043857760],
         auth: state,
         logger: pino({ level: 'silent' }),
         browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false,
-        connectTimeoutMs: 30000,
-        defaultQueryTimeoutMs: 30000,
+        connectTimeoutMs: 35000,
+        defaultQueryTimeoutMs: 35000,
         keepAliveIntervalMs: 15000,
         emitOwnEvents: false,
         generateHighQualityLinkPreview: false,
+        agent,
       });
 
       this.sock = socket;
@@ -487,6 +495,7 @@ export class WhatsAppService {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
+          this.isInitializing = false;
           this.currentRawQr = qr;
 
           try {
@@ -526,6 +535,7 @@ export class WhatsAppService {
         }
 
         if (connection === 'open') {
+          this.isInitializing = false;
           this.currentQrDataUrl = null;
           this.currentRawQr = null;
 
@@ -556,6 +566,7 @@ export class WhatsAppService {
         }
 
         if (connection === 'close') {
+          this.isInitializing = false;
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
@@ -773,7 +784,7 @@ export class WhatsAppService {
     // Register promise resolver BEFORE socket initialization to eliminate race conditions
     const qrPromise = new Promise<string>((resolve) => {
       this.qrResolvers.push(resolve);
-      setTimeout(() => resolve(''), 10000);
+      setTimeout(() => resolve(''), 20000);
     });
 
     // Trigger fresh Baileys initialization (force restart if fresh requested or no QR exists yet)
@@ -841,13 +852,13 @@ export class WhatsAppService {
       const wsReady = (this.sock as any)?.ws?.readyState;
       if (!this.sock || wsReady !== 1) {
         await this.initBaileysSocket(true);
-        // Wait for WebSocket handshake to reach OPEN state (max 8s)
+        // Wait for WebSocket handshake to reach OPEN state (max 15s)
         await new Promise<void>((resolve) => {
           let elapsed = 0;
           const check = setInterval(() => {
             elapsed += 200;
             const state = (this.sock as any)?.ws?.readyState;
-            if (state === 1 || elapsed >= 8000) {
+            if (state === 1 || elapsed >= 15000) {
               clearInterval(check);
               resolve();
             }

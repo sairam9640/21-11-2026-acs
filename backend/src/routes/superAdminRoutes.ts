@@ -1202,7 +1202,7 @@ superAdminRouter.get('/settings/whatsapp/debug', async (_req: AuthenticatedReque
         const s = new net.Socket();
         s.setTimeout(4000);
         const t0 = Date.now();
-        s.connect(port, host, () => {
+        s.connect({ port, host, family: 4 }, () => {
           const ms = Date.now() - t0;
           s.destroy();
           resolve({ ok: true, ms });
@@ -1220,7 +1220,7 @@ superAdminRouter.get('/settings/whatsapp/debug', async (_req: AuthenticatedReque
     const testTls = async (host: string, port: number) => {
       return new Promise<any>((resolve) => {
         const t0 = Date.now();
-        const s = tls.connect(port, host, { servername: host, timeout: 4000 }, () => {
+        const s = tls.connect(port, host, { servername: host, timeout: 4000 } as any, () => {
           const ms = Date.now() - t0;
           const authorized = s.authorized;
           s.destroy();

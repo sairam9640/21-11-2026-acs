@@ -12,6 +12,7 @@ services:
       CWMP_REQUIRE_AUTH: ${CWMP_REQUIRE_AUTH:-false}
       ACS_FIRMWARE_BASE_URL: ${ACS_FIRMWARE_BASE_URL:-http://acs.your-isp.net:7547}
       NODE_ENV: production
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/ai_isp_os_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution-api:8080}
@@ -23,6 +24,9 @@ services:
       WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "127.0.0.1:4000:4000"
       - "0.0.0.0:7547:7547"

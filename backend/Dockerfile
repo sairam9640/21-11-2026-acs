@@ -19,5 +19,6 @@ COPY --from=builder /app/dist ./dist
 
 EXPOSE 4000 7547
 ENV NODE_ENV=production
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "--dns-result-order=ipv4first", "dist/index.js"]
