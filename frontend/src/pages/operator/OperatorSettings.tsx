@@ -33,6 +33,7 @@ export const OperatorSettings: React.FC = () => {
   const activeHost = window.location.hostname || '109.122.56.149';
   const tenantSlug = tenant?.slug || 'operator';
   const acsUrl = `http://${activeHost}:7547/tr069/${tenantSlug}`;
+  const port80AcsUrl = `http://${activeHost}/tr069/${tenantSlug}`;
   const acsUsername = tenantSlug || 'acs';
   const acsPassword = 'cpe_cwmp_pass_2026';
   const connReqUser = 'cpe';
@@ -183,21 +184,43 @@ export const OperatorSettings: React.FC = () => {
             </div>
 
             <div className="space-y-4 text-xs">
-              {/* ACS URL */}
-              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase text-blue-700">Dedicated TR-069 ACS URL</span>
-                <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-blue-900 select-all break-all">{acsUrl}</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => handleCopyText(acsUrl, 'acsUrl')}
-                    className="h-7 text-xs shrink-0 ml-2"
-                  >
-                    {copiedField === 'acsUrl' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                    <span>{copiedField === 'acsUrl' ? 'Copied' : 'Copy'}</span>
-                  </Button>
+              {/* ACS URLs */}
+              <div className="space-y-2">
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase text-emerald-800">ACS URL — Port 80 (Recommended / Open Port)</span>
+                    <span className="text-[9px] bg-emerald-200 text-emerald-900 font-extrabold px-1.5 py-0.5 rounded">RECOMMENDED</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-emerald-950 select-all break-all">{port80AcsUrl}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleCopyText(port80AcsUrl, 'port80Acs')}
+                      className="h-7 text-xs shrink-0 ml-2"
+                    >
+                      {copiedField === 'port80Acs' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                      <span>{copiedField === 'port80Acs' ? 'Copied' : 'Copy'}</span>
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-blue-700">ACS URL — Port 7547 (Standard CWMP Port)</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-blue-900 select-all break-all">{acsUrl}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleCopyText(acsUrl, 'acsUrl')}
+                      className="h-7 text-xs shrink-0 ml-2"
+                    >
+                      {copiedField === 'acsUrl' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                      <span>{copiedField === 'acsUrl' ? 'Copied' : 'Copy'}</span>
+                    </Button>
+                  </div>
                 </div>
               </div>
 
