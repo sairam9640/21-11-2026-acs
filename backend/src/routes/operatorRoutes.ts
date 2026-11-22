@@ -4605,12 +4605,14 @@ operatorRouter.post('/devices/:id/connected-clients/refresh', async (req: Authen
       deviceId: device._id,
       serialNumber: device.serialNumber,
       commandType: 'CUSTOM_RPC',
+      action: 'GET_PARAMETERS',
       rpcMethod: 'GetParameterValues',
       status: 'pending',
       payload: {
         parameterNames: [
           'InternetGatewayDevice.LANDevice.1.Hosts.',
           'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.AssociatedDevice.',
+          'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.AssociatedDevice.',
           'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.AssociatedDevice.',
           'Device.Hosts.',
           'Device.WiFi.AccessPoint.1.AssociatedDevice.',
@@ -4619,6 +4621,8 @@ operatorRouter.post('/devices/:id/connected-clients/refresh', async (req: Authen
       },
       correlationId: req.correlationId || `client_sync_${Date.now()}`,
     });
+
+    triggerGenieAcsConnectionRequest(device.serialNumber).catch(() => {});
 
     const now = new Date();
     await Device.updateOne(

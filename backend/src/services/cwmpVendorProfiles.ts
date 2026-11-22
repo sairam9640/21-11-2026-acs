@@ -170,6 +170,10 @@ export class CwmpVendorProfiles {
         'Device.WiFi.SSID.2.SSID',
         'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
         'Device.WiFi.Radio.2.Channel',
+        'Device.WiFi.AccessPoint.1.AssociatedDeviceNumberOfEntries',
+        'Device.WiFi.AccessPoint.1.AssociatedDevice.',
+        'Device.WiFi.AccessPoint.2.AssociatedDeviceNumberOfEntries',
+        'Device.WiFi.AccessPoint.2.AssociatedDevice.',
         'Device.PPP.Interface.1.Username',
         'Device.PPP.Interface.1.ConnectionStatus',
         'Device.PPP.Interface.2.Username',
@@ -179,6 +183,7 @@ export class CwmpVendorProfiles {
         'Device.IP.Interface.2.IPv4Address.1.IPAddress',
         'Device.Ethernet.VLANTermination.1.VLANID',
         'Device.Hosts.HostNumberOfEntries',
+        'Device.Hosts.Host.',
         'Device.Optical.Interface.1.OpticalSignalLevel',
         'Device.Optical.Interface.1.TransmitOpticalPower',
       ];
@@ -210,8 +215,15 @@ export class CwmpVendorProfiles {
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.BeaconType',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Enable',
-      // LAN Host Count & Subtree
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.TotalAssociations',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.AssociatedDevice.',
+      // Wi-Fi 5 GHz
+      ...wlan5gParams,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.TotalAssociations`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.AssociatedDevice.`,
+      // LAN Host Count & Full Connected Host Subtree (Hostnames, MACs, IPs, Active status)
       'InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries',
+      'InternetGatewayDevice.LANDevice.1.Hosts.Host.',
       // Universal WAN Connection Subtree (Discovers all active PPP and IP connection slots without leaf path mismatches)
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.',
       // Management Server
