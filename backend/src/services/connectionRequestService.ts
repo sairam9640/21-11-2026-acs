@@ -110,9 +110,9 @@ async function sendDirectConnectionRequest(
   const path = urlObj.pathname + (urlObj.search || '');
   const port = urlObj.port ? parseInt(urlObj.port, 10) : (urlObj.protocol === 'https:' ? 443 : 80);
 
-  // Fallback to URL-embedded credentials if explicit credentials were empty
-  const user = username || decodeURIComponent(urlObj.username) || 'admin';
-  const pass = password || decodeURIComponent(urlObj.password) || 'admin';
+  // Fallback to URL-embedded credentials or standard CPE credentials
+  const user = username || decodeURIComponent(urlObj.username) || 'cpe';
+  const pass = password || decodeURIComponent(urlObj.password) || 'cpe_password';
 
   // Step 1: Initial unauthenticated probe (CPE usually replies 401 with WWW-Authenticate)
   const initialResult = await new Promise<{ statusCode?: number; authHeader?: string }>((resolve) => {
@@ -150,15 +150,19 @@ async function sendDirectConnectionRequest(
     return true;
   }
 
-  // Step 2: Handle HTTP 401 Digest Challenge
+  // Step 2: Handle HTTP 401 Challenge (Support both RFC 7617 Basic and RFC 2617 Digest)
   if (initialResult.statusCode === 401 && initialResult.authHeader) {
-    const challenge = parseDigestChallenge(initialResult.authHeader);
-    if (!challenge) {
-      console.warn(`[ConnectionRequest] Unparseable WWW-Authenticate header: ${initialResult.authHeader}`);
-      return false;
+    let authHeaderValue = '';
+    if (initialResult.authHeader.toLowerCase().includes('basic')) {
+      authHeaderValue = 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
+    } else {
+      const challenge = parseDigestChallenge(initialResult.authHeader);
+      if (challenge) {
+        authHeaderValue = buildDigestAuthorization(challenge, user, pass, 'GET', path);
+      } else {
+        authHeaderValue = 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
+      }
     }
-
-    const authHeaderValue = buildDigestAuthorization(challenge, user, pass, 'GET', path);
 
     return await new Promise<boolean>((resolve) => {
       const authedReq = transport.request({
@@ -175,9 +179,9 @@ async function sendDirectConnectionRequest(
       }, (res) => {
         const ok = res.statusCode === 200 || res.statusCode === 204;
         if (ok) {
-          console.log(`[ConnectionRequest] Digest handshake SUCCESS (HTTP ${res.statusCode}) for ${urlObj.hostname}:${port}`);
+          console.log(`[ConnectionRequest] Auth handshake SUCCESS (HTTP ${res.statusCode}) for ${urlObj.hostname}:${port}`);
         } else {
-          console.warn(`[ConnectionRequest] Digest handshake REJECTED (HTTP ${res.statusCode}) by ${urlObj.hostname}:${port}`);
+          console.warn(`[ConnectionRequest] Auth handshake REJECTED (HTTP ${res.statusCode}) by ${urlObj.hostname}:${port}`);
         }
         resolve(ok);
         res.resume();
@@ -272,13 +276,13 @@ export async function triggerGenieAcsConnectionRequest(serialNumber: string): Pr
         dev?.rawParameters?.['InternetGatewayDevice.ManagementServer.ConnectionRequestUsername'] ||
         dev?.rawParameters?.['Device.ManagementServer.ConnectionRequestUsername'] ||
         dev?.cwmpUsername ||
-        'admin';
+        'cpe';
 
       const password = (dev as any)?.connectionRequestPassword ||
         dev?.rawParameters?.['InternetGatewayDevice.ManagementServer.ConnectionRequestPassword'] ||
         dev?.rawParameters?.['Device.ManagementServer.ConnectionRequestPassword'] ||
         dev?.cwmpPassword ||
-        'admin';
+        'cpe_password';
 
       return await sendDirectConnectionRequest(crUrl, username, password);
     }
