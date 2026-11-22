@@ -15,8 +15,12 @@ import { requireRole } from '../middleware/rbac.js';
 import { recordAuditLog } from '../middleware/audit.js';
 import { EventBusService } from '../services/eventBusService.js';
 import { EmailService } from '../services/emailService.js';
-import { WhatsAppService } from '../services/whatsAppService.js';
+import { WhatsAppService, EvolutionApiClient } from '../services/whatsAppService.js';
 import QRCode from 'qrcode';
+import dns from 'dns';
+import net from 'net';
+import tls from 'tls';
+import os from 'os';
 
 export const superAdminRouter = Router();
 
@@ -1173,8 +1177,80 @@ superAdminRouter.post('/settings/whatsapp/generate-qr', async (req: Authenticate
  */
 superAdminRouter.get('/settings/whatsapp/debug', async (_req: AuthenticatedRequest, res: Response) => {
   try {
+    const testHost = async (url: string) => {
+      try {
+        const t0 = Date.now();
+        const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+        return { ok: true, status: r.status, ms: Date.now() - t0 };
+      } catch (e: any) {
+        return { ok: false, error: e.message, code: (e as any).cause?.code, cause: String((e as any).cause || '') };
+      }
+    };
+
+    const testDns = async (hostname: string) => {
+      try {
+        const t0 = Date.now();
+        const records = await dns.promises.lookup(hostname, { all: true });
+        return { ok: true, records, ms: Date.now() - t0 };
+      } catch (e: any) {
+        return { ok: false, error: e.message, code: (e as any).code };
+      }
+    };
+
+    const testTcp = async (host: string, port: number) => {
+      return new Promise<any>((resolve) => {
+        const s = new net.Socket();
+        s.setTimeout(4000);
+        const t0 = Date.now();
+        s.connect(port, host, () => {
+          const ms = Date.now() - t0;
+          s.destroy();
+          resolve({ ok: true, ms });
+        });
+        s.on('error', (err: any) => {
+          resolve({ ok: false, error: err.message, code: err.code });
+        });
+        s.on('timeout', () => {
+          s.destroy();
+          resolve({ ok: false, error: 'Timeout after 4000ms' });
+        });
+      });
+    };
+
+    const testTls = async (host: string, port: number) => {
+      return new Promise<any>((resolve) => {
+        const t0 = Date.now();
+        const s = tls.connect(port, host, { servername: host, timeout: 4000 }, () => {
+          const ms = Date.now() - t0;
+          const authorized = s.authorized;
+          s.destroy();
+          resolve({ ok: true, authorized, ms });
+        });
+        s.on('error', (err: any) => {
+          resolve({ ok: false, error: err.message, code: err.code });
+        });
+        s.on('timeout', () => {
+          s.destroy();
+          resolve({ ok: false, error: 'TLS timeout after 4000ms' });
+        });
+      });
+    };
+
+    const connectivity = {
+      dnsServers: dns.getServers(),
+      dnsGoogle: await testDns('google.com'),
+      dnsWhatsApp: await testDns('web.whatsapp.com'),
+      tcpWhatsApp443: await testTcp('web.whatsapp.com', 443),
+      tlsWhatsApp443: await testTls('web.whatsapp.com', 443),
+      httpGoogle: await testHost('https://google.com'),
+      httpCloudflareDns: await testHost('https://1.1.1.1'),
+      httpIpify: await testHost('https://api.ipify.org?format=json'),
+      httpWhatsAppWeb: await testHost('https://web.whatsapp.com'),
+      evolutionAvailable: await EvolutionApiClient.isAvailable(),
+    };
+
     const debug = await WhatsAppService.getDebugStatus();
-    return res.json({ success: true, debug });
+    return res.json({ success: true, connectivity, debug });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }
