@@ -135,37 +135,40 @@ export const Shell: React.FC<ShellProps> = ({
       )}
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar - White Enterprise */}
+        {/* Sidebar - oneTRacs Dark Enterprise */}
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-[#E2E8F0] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#0F172A] border-r border-slate-800 flex flex-col transition-transform duration-200 lg:translate-x-0 ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } ${isImpersonating ? 'top-[37px]' : ''}`}
         >
           {/* Brand Header */}
-          <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between bg-white">
+          <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#0F172A]">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 rounded-lg bg-[#1677FF] flex items-center justify-center font-black text-white text-sm shadow-xs">
-                {portalType === 'superadmin' ? 'SA' : 'OS'}
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-black text-white text-xs shadow-md">
+                {portalType === 'superadmin' ? 'SA' : 'ACS'}
               </div>
               <div>
-                <h2 className="text-sm font-bold tracking-tight text-[#0F172A] leading-tight">
-                  {portalType === 'superadmin' ? 'AI ISP OS Control' : tenant?.displayName || 'Apex Fiber'}
-                </h2>
-                <p className="text-[10px] uppercase font-bold tracking-wider text-[#1677FF]">
-                  {portalType === 'superadmin' ? 'Super Admin SaaS' : 'Operations Portal'}
+                <div className="flex items-center space-x-1.5">
+                  <h2 className="text-sm font-extrabold tracking-tight text-white leading-tight">
+                    {portalType === 'superadmin' ? 'AI ISP OS Control' : tenant?.displayName || 'Apex Fiber'}
+                  </h2>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                </div>
+                <p className="text-[10px] uppercase font-bold tracking-wider text-sky-400">
+                  {portalType === 'superadmin' ? 'Super Admin SaaS' : 'TR-069 Operations'}
                 </p>
               </div>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden p-1 text-[#64748B] hover:text-[#0F172A]"
+              className="lg:hidden p-1 text-slate-400 hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Navigation Links */}
-          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto bg-white">
+          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto bg-[#0F172A]">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
@@ -174,13 +177,13 @@ export const Shell: React.FC<ShellProps> = ({
                   key={item.path}
                   to={item.path}
                   onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-xs font-medium transition ${
+                  className={`flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-semibold transition ${
                     isActive
-                      ? 'bg-[#EFF6FF] text-[#1677FF] font-semibold shadow-xs'
-                      : 'text-[#475569] hover:text-[#0F172A] hover:bg-[#F8FAFC]'
+                      ? 'bg-slate-800 text-sky-400 border-l-4 border-sky-400 shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-[#1677FF]' : 'text-[#64748B]'}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-sky-400' : 'text-slate-400'}`} />
                   <span>{item.label}</span>
                 </Link>
               );
@@ -188,22 +191,22 @@ export const Shell: React.FC<ShellProps> = ({
           </nav>
 
           {/* User Footer Profile */}
-          <div className="p-3 border-t border-[#E2E8F0] bg-[#F8FAFC]">
+          <div className="p-3 border-t border-slate-800 bg-[#0B132B]">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2.5 overflow-hidden">
-                <div className="w-8 h-8 rounded-full bg-[#E2E8F0] border border-[#CBD5E1] flex items-center justify-center font-bold text-xs text-[#334155]">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 border border-slate-700 flex items-center justify-center font-bold text-xs text-white">
                   {user?.fullName?.charAt(0) || 'U'}
                 </div>
                 <div className="truncate">
-                  <p className="text-xs font-semibold text-[#0F172A] truncate">{user?.fullName || 'Operator'}</p>
-                  <p className="text-[10px] text-[#64748B] capitalize">
+                  <p className="text-xs font-semibold text-white truncate">{user?.fullName || 'Operator'}</p>
+                  <p className="text-[10px] text-slate-400 capitalize">
                     {isImpersonating ? 'Super Admin (Impersonating)' : user?.role?.replace('_', ' ')}
                   </p>
                 </div>
               </div>
               <button
                 onClick={handleLogout}
-                className="p-1.5 text-[#64748B] hover:text-rose-600 hover:bg-[#F1F5F9] rounded-lg transition"
+                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
                 title="Sign Out"
               >
                 <LogOut className="w-4 h-4" />

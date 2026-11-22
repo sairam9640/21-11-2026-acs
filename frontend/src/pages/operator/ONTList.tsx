@@ -437,9 +437,18 @@ export const ONTList: React.FC = () => {
       header: 'Hardware / Serial #',
       accessor: (d) => (
         <div className="flex items-center space-x-3">
-          <Radio className={`w-4 h-4 ${d.status === 'online' ? 'text-[#047857] animate-pulse' : 'text-[#94A3B8]'}`} />
+          <Radio className={`w-4 h-4 shrink-0 ${d.status === 'online' ? 'text-emerald-500 animate-pulse' : 'text-slate-400'}`} />
           <div>
-            <p className="font-semibold text-[#0F172A] font-mono text-sm">{d.serialNumber}</p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/operator/devices/${d._id}`);
+              }}
+              className="font-bold text-sky-600 hover:text-sky-800 font-mono text-sm hover:underline text-left block"
+              title="Open Device Management Profile"
+            >
+              {d.serialNumber}
+            </button>
             <p className="text-xs text-[#64748B]">{d.manufacturer} {d.modelName || 'GPON ONT'}</p>
           </div>
         </div>
@@ -718,26 +727,34 @@ export const ONTList: React.FC = () => {
               e.preventDefault();
               fetchDevices();
             }}
-            className="w-full sm:w-80"
+            className="w-full sm:w-96"
           >
             <Input
-              placeholder="Search serial, MAC, IP, model..."
+              placeholder="Search serial, MAC, PPPoE user, customer..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               icon={Search}
             />
           </form>
 
-          <div className="flex items-center space-x-2">
-            {['all', 'online', 'offline'].map((st) => (
+          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+            {[
+              { id: 'all', label: 'All Fleet' },
+              { id: 'online', label: 'Online' },
+              { id: 'offline', label: 'Offline' },
+              { id: 'low_signal', label: 'Low Signal (< -27 dBm)' },
+              { id: 'unassigned', label: 'Unassigned' },
+            ].map((st) => (
               <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
-                  statusFilter === st ? 'bg-sky-600 text-white' : 'bg-[#F1F5F9] text-[#64748B]'
+                key={st.id}
+                onClick={() => setStatusFilter(st.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition ${
+                  statusFilter === st.id
+                    ? 'bg-[#1E56A0] text-white shadow-xs'
+                    : 'bg-[#F1F5F9] text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {st}
+                {st.label}
               </button>
             ))}
             <Button

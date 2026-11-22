@@ -397,20 +397,59 @@ operatorRouter.get('/devices', async (req: AuthenticatedRequest, res: Response) 
     const { search, status, opticalStatus } = req.query;
 
     const query: any = { tenantId };
-    if (status && status !== 'all') query.status = status;
+    if (status && status !== 'all') {
+      if (status === 'unassigned') {
+        query.$or = [{ customerId: null }, { customerId: { $exists: false } }];
+      } else if (status === 'low_signal' || status === 'bad_power') {
+        query.$or = [
+          { opticalRxPower: { $lt: -27 } },
+          { opticalPowerDbm: { $lt: -27 } },
+          { currentRxPowerDbm: { $lt: -27 } },
+        ];
+      } else {
+        query.status = status;
+      }
+    }
     if (opticalStatus && opticalStatus !== 'all') query.opticalStatus = opticalStatus;
 
     if (search) {
       const s = String(search).trim();
       if (s) {
         const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        query.$or = [
-          { serialNumber: new RegExp(escaped, 'i') },
-          { macAddress: new RegExp(escaped, 'i') },
-          { ipAddress: new RegExp(escaped, 'i') },
-          { modelName: new RegExp(escaped, 'i') },
-          { manufacturer: new RegExp(escaped, 'i') },
+        const searchRegex = new RegExp(escaped, 'i');
+
+        // Look up matching subscribers by name, account number, phone, or PPPoE username
+        const matchingCustomers = await Customer.find({
+          tenantId,
+          $or: [
+            { fullName: searchRegex },
+            { accountNumber: searchRegex },
+            { phone: searchRegex },
+            { pppoeUsername: searchRegex },
+          ],
+        }).select('_id').lean();
+        const matchedCustIds = matchingCustomers.map((c: any) => c._id);
+
+        const searchConditions: any[] = [
+          { serialNumber: searchRegex },
+          { macAddress: searchRegex },
+          { ipAddress: searchRegex },
+          { modelName: searchRegex },
+          { manufacturer: searchRegex },
+          { pppoeUsername: searchRegex },
+          { wanUsername: searchRegex },
         ];
+
+        if (matchedCustIds.length > 0) {
+          searchConditions.push({ customerId: { $in: matchedCustIds } });
+        }
+
+        if (query.$or) {
+          query.$and = [{ $or: query.$or }, { $or: searchConditions }];
+          delete query.$or;
+        } else {
+          query.$or = searchConditions;
+        }
       }
     }
 
