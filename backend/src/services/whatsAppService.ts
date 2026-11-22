@@ -428,16 +428,27 @@ export class WhatsAppService {
         await this.cleanupAuthFiles();
       }
 
-      const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+      let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
+      // If credentials exist but are not registered/authenticated, wipe them so Baileys emits a fresh QR immediately
+      if (!state.creds?.registered && !forceRestart) {
+        await this.cleanupAuthFiles();
+        const fresh = await useMultiFileAuthState(AUTH_DIR);
+        state = fresh.state;
+        saveCreds = fresh.saveCreds;
+      }
 
       const socket = makeWASocket({
+        version: [2, 3000, 1043857760],
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.macOS('Desktop'),
+        browser: Browsers.ubuntu('Chrome'),
+        syncFullHistory: false,
         connectTimeoutMs: 30000,
         defaultQueryTimeoutMs: 30000,
-        keepAliveIntervalMs: 10000,
+        keepAliveIntervalMs: 15000,
         emitOwnEvents: false,
+        generateHighQualityLinkPreview: false,
       });
 
       this.sock = socket;
@@ -737,8 +748,8 @@ export class WhatsAppService {
       setTimeout(() => resolve(''), 10000);
     });
 
-    // Trigger fresh Baileys initialization
-    await this.initBaileysSocket(Boolean(forceFresh));
+    // Trigger fresh Baileys initialization (force restart if fresh requested or no QR exists yet)
+    await this.initBaileysSocket(Boolean(forceFresh) || !this.currentRawQr);
 
     const qrReceived = await qrPromise;
     const activeQr = qrReceived || this.currentRawQr;
