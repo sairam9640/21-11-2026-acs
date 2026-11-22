@@ -21,6 +21,7 @@ const makeWASocket = (makeWASocketPkg as any).default || makeWASocketPkg;
 
 // Path to persistent WhatsApp multi-device auth credentials
 const AUTH_DIR = process.env.WA_AUTH_PATH || path.resolve(process.cwd(), 'data', 'wa_auth_session');
+const TENANT_AUTH_BASE = process.env.WA_TENANT_AUTH_PATH || path.resolve(process.cwd(), 'data', 'wa_sessions');
 
 // Evolution API Configuration
 const EVOLUTION_API_URL = (process.env.EVOLUTION_API_URL || 'http://evolution-api:8080').replace(/\/+$/, '');
@@ -255,6 +256,23 @@ export class WhatsAppService {
   private static reconnectTimer: NodeJS.Timeout | null = null;
   private static qrResolvers: Array<(qr: string) => void> = [];
   public static lastDisconnectReason: any = null;
+
+  // Multi-Tenant Isolated Sessions
+  private static tenantSessions: Map<string, {
+    sock: WASocket | null;
+    currentQrDataUrl: string | null;
+    currentRawQr: string | null;
+    isInitializing: boolean;
+    qrResolvers: Array<(qr: string) => void>;
+  }> = new Map();
+
+  private static getTenantAuthDir(tenantId: string) {
+    const dir = path.join(TENANT_AUTH_BASE, `tenant_${tenantId}`);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  }
 
   /**
    * Diagnostic debug helper for system administrators
@@ -1215,28 +1233,193 @@ export class WhatsAppService {
   /**
    * ==========================================
    * Multi-Tenant Operator WhatsApp Management
-   * Each Operator gets their own WhatsApp session
+   * Each Operator gets their own isolated WhatsApp session
    * ==========================================
    */
+
+  static async initTenantBaileysSocket(tenantId: string, forceRestart = false): Promise<void> {
+    let session = this.tenantSessions.get(tenantId);
+    if (!session) {
+      session = {
+        sock: null,
+        currentQrDataUrl: null,
+        currentRawQr: null,
+        isInitializing: false,
+        qrResolvers: [],
+      };
+      this.tenantSessions.set(tenantId, session);
+    }
+
+    if (session.isInitializing && !forceRestart) return;
+    session.isInitializing = true;
+
+    try {
+      const tenantDir = this.getTenantAuthDir(tenantId);
+
+      if (session.sock) {
+        try {
+          session.sock.ev.removeAllListeners('connection.update');
+          session.sock.ev.removeAllListeners('creds.update');
+          session.sock.end(undefined);
+        } catch (_) {}
+        session.sock = null;
+      }
+
+      if (forceRestart) {
+        try {
+          if (fs.existsSync(tenantDir)) {
+            const files = fs.readdirSync(tenantDir);
+            for (const file of files) {
+              fs.unlinkSync(path.join(tenantDir, file));
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[WhatsAppService] Error cleaning tenant ${tenantId} auth dir:`, e.message);
+        }
+      }
+
+      const { state, saveCreds } = await useMultiFileAuthState(tenantDir);
+
+      const agent = new https.Agent({
+        family: 4,
+        keepAlive: true,
+        timeout: 35000,
+      });
+
+      const socket = makeWASocket({
+        version: [2, 3000, 1043857760],
+        auth: state,
+        logger: pino({ level: 'silent' }),
+        browser: Browsers.macOS('Desktop'),
+        syncFullHistory: false,
+        connectTimeoutMs: 35000,
+        defaultQueryTimeoutMs: 35000,
+        keepAliveIntervalMs: 15000,
+        emitOwnEvents: false,
+        generateHighQualityLinkPreview: false,
+        agent,
+      });
+
+      session.sock = socket;
+      socket.ev.on('creds.update', saveCreds);
+
+      socket.ev.on('connection.update', async (update: any) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+          session!.isInitializing = false;
+          session!.currentRawQr = qr;
+          try {
+            session!.currentQrDataUrl = await QRCode.toDataURL(qr, {
+              errorCorrectionLevel: 'M',
+              margin: 2,
+              scale: 8,
+              color: { dark: '#020617', light: '#ffffff' },
+            });
+          } catch (e: any) {
+            console.error(`[WhatsAppService] Tenant ${tenantId} QR conversion error:`, e.message);
+          }
+
+          const waiting = [...session!.qrResolvers];
+          session!.qrResolvers = [];
+          waiting.forEach((resolve) => resolve(qr));
+
+          Tenant.findByIdAndUpdate(tenantId, {
+            $set: {
+              'whatsapp.status': 'SCAN_QR_REQUIRED',
+              'whatsapp.qrCodeDataUrl': session!.currentQrDataUrl,
+              'whatsapp.qrCodeRaw': qr,
+            },
+          }).catch((e: any) => console.warn(`[WhatsAppService] Tenant DB QR warning:`, e.message));
+
+          console.log(`[WhatsAppService] Operator Tenant [${tenantId}] QR Code ready.`);
+        }
+
+        if (connection === 'open') {
+          session!.isInitializing = false;
+          session!.currentQrDataUrl = null;
+          session!.currentRawQr = null;
+
+          const rawId = socket.user?.id || '';
+          const phoneNum = rawId.split(':')[0] || rawId.split('@')[0];
+          const formattedPhone = phoneNum.startsWith('+') ? phoneNum : `+${phoneNum}`;
+
+          Tenant.findByIdAndUpdate(tenantId, {
+            $set: {
+              'whatsapp.status': 'CONNECTED',
+              'whatsapp.phone': formattedPhone,
+              'whatsapp.deviceInfo': 'Mac OS (Desktop)',
+              'whatsapp.pairedAt': new Date(),
+              'whatsapp.lastSeen': new Date(),
+            },
+            $unset: {
+              'whatsapp.qrCodeDataUrl': '',
+              'whatsapp.qrCodeRaw': '',
+            },
+          }).catch((e: any) => console.warn(`[WhatsAppService] Tenant DB connect warning:`, e.message));
+
+          console.log(`[WhatsAppService] ✓ Operator Tenant [${tenantId}] successfully paired: ${formattedPhone}`);
+        }
+
+        if (connection === 'close') {
+          session!.isInitializing = false;
+          const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+          if (statusCode === DisconnectReason.loggedOut) {
+            session!.currentQrDataUrl = null;
+            session!.currentRawQr = null;
+            session!.sock = null;
+            Tenant.findByIdAndUpdate(tenantId, {
+              $set: { 'whatsapp.status': 'DISCONNECTED' },
+              $unset: { 'whatsapp.phone': '', 'whatsapp.deviceInfo': '', 'whatsapp.qrCodeDataUrl': '', 'whatsapp.qrCodeRaw': '' },
+            }).catch(console.warn);
+          } else if (shouldReconnect) {
+            setTimeout(() => {
+              this.initTenantBaileysSocket(tenantId, false).catch(console.warn);
+            }, 3000);
+          }
+        }
+      });
+    } catch (err: any) {
+      session.isInitializing = false;
+      console.error(`[WhatsAppService] Tenant ${tenantId} socket initialization error:`, err.message);
+    }
+  }
 
   static async getTenantSessionConfig(tenantId: string): Promise<any> {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
 
-    const wa = tenant.whatsapp || {
-      status: 'NOT_CONNECTED',
-      phone: tenant.owner?.phone,
-    };
+    const session = this.tenantSessions.get(tenantId);
+    const isSocketConnected = Boolean(session?.sock?.user);
+
+    let activeStatus: 'DISCONNECTED' | 'SCAN_QR_REQUIRED' | 'CONNECTING' | 'CONNECTED';
+    if (isSocketConnected) {
+      activeStatus = 'CONNECTED';
+    } else if (session?.currentQrDataUrl || tenant.whatsapp?.qrCodeDataUrl) {
+      activeStatus = 'SCAN_QR_REQUIRED';
+    } else if (tenant.whatsapp?.status === 'CONNECTED') {
+      activeStatus = 'CONNECTED';
+    } else {
+      activeStatus = 'DISCONNECTED';
+    }
+
+    const rawId = session?.sock?.user?.id || '';
+    const phoneNum = rawId.split(':')[0] || rawId.split('@')[0];
+    const connectedPhone = phoneNum
+      ? (phoneNum.startsWith('+') ? phoneNum : `+${phoneNum}`)
+      : tenant.whatsapp?.phone || tenant.owner?.phone;
 
     return {
       enabled: true,
-      status: wa.status || 'NOT_CONNECTED',
-      phone: wa.phone || tenant.owner?.phone,
-      deviceInfo: wa.deviceInfo || 'WhatsApp Web for Operator',
-      pairedAt: wa.pairedAt,
-      lastSeen: wa.lastSeen || new Date(),
-      qrCodeDataUrl: wa.qrCodeDataUrl,
-      qrCodeRaw: wa.qrCodeRaw,
+      status: activeStatus,
+      phone: connectedPhone,
+      deviceInfo: isSocketConnected ? 'Mac OS (Desktop)' : (tenant.whatsapp?.deviceInfo || 'WhatsApp Web for Operator'),
+      pairedAt: tenant.whatsapp?.pairedAt,
+      lastSeen: tenant.whatsapp?.lastSeen || new Date(),
+      qrCodeDataUrl: session?.currentQrDataUrl || tenant.whatsapp?.qrCodeDataUrl,
+      qrCodeRaw: session?.currentRawQr || tenant.whatsapp?.qrCodeRaw,
       tenantSlug: tenant.slug,
       tenantName: tenant.displayName || tenant.name,
     };
@@ -1246,21 +1429,69 @@ export class WhatsAppService {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
 
-    const qrResult = await this.generateQrCode(true);
-
-    if (qrResult.qrDataUrl) {
-      if (!tenant.whatsapp) {
-        tenant.whatsapp = { status: 'SCAN_QR_REQUIRED' };
-      }
-      tenant.whatsapp.status = 'SCAN_QR_REQUIRED';
-      tenant.whatsapp.qrCodeDataUrl = qrResult.qrDataUrl;
-      tenant.whatsapp.qrCodeRaw = qrResult.rawCode;
-      await tenant.save();
-      console.log(`[WhatsAppService] Authentic Baileys WhatsApp Web QR Code generated for Operator: ${tenant.slug}`);
-      return { success: true, qrDataUrl: qrResult.qrDataUrl, qrRaw: qrResult.rawCode };
+    let session = this.tenantSessions.get(tenantId);
+    if (!session) {
+      session = { sock: null, currentQrDataUrl: null, currentRawQr: null, isInitializing: false, qrResolvers: [] };
+      this.tenantSessions.set(tenantId, session);
     }
 
-    return { success: false, qrDataUrl: '', qrRaw: '' };
+    if (session.currentQrDataUrl && session.currentRawQr) {
+      return { success: true, qrDataUrl: session.currentQrDataUrl, qrRaw: session.currentRawQr };
+    }
+
+    const qrPromise = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Tenant QR generation timed out')), 12000);
+      session!.qrResolvers.push((qr) => {
+        clearTimeout(timer);
+        resolve(qr);
+      });
+    });
+
+    this.initTenantBaileysSocket(tenantId, true).catch(console.warn);
+
+    try {
+      const rawQr = await qrPromise;
+      const qrDataUrl = await QRCode.toDataURL(rawQr, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        scale: 8,
+        color: { dark: '#020617', light: '#ffffff' },
+      });
+      session.currentQrDataUrl = qrDataUrl;
+      session.currentRawQr = rawQr;
+      return { success: true, qrDataUrl, qrRaw: rawQr };
+    } catch (err: any) {
+      if (session.currentQrDataUrl) {
+        return { success: true, qrDataUrl: session.currentQrDataUrl, qrRaw: session.currentRawQr || '' };
+      }
+      return { success: false, qrDataUrl: '', qrRaw: '' };
+    }
+  }
+
+  static async requestTenantPairingCode(tenantId: string, phone: string): Promise<{ success: boolean; pairingCode?: string; error?: string }> {
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return { success: false, error: 'Invalid international phone number format' };
+    }
+
+    let session = this.tenantSessions.get(tenantId);
+    if (!session?.sock) {
+      await this.initTenantBaileysSocket(tenantId, false);
+      session = this.tenantSessions.get(tenantId);
+    }
+
+    if (!session?.sock) {
+      return { success: false, error: 'Failed to initialize tenant WhatsApp socket' };
+    }
+
+    try {
+      await new Promise((r) => setTimeout(r, 1500));
+      const pairingCode = await session.sock.requestPairingCode(cleanPhone);
+      console.log(`[WhatsAppService] Authentic WhatsApp Web Pairing Code for Tenant [${tenantId}]: ${pairingCode}`);
+      return { success: true, pairingCode };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
   }
 
   static async confirmTenantPairing(
@@ -1275,7 +1506,7 @@ export class WhatsAppService {
     tenant.whatsapp = {
       status: 'CONNECTED',
       phone: targetPhone,
-      deviceInfo: deviceInfo || 'WhatsApp Business Mobile App (Android/iOS)',
+      deviceInfo: deviceInfo || 'Mac OS (Desktop)',
       pairedAt: new Date(),
       lastSeen: new Date(),
       qrCodeDataUrl: undefined,
@@ -1288,22 +1519,45 @@ export class WhatsAppService {
   }
 
   static async disconnectTenantSession(tenantId: string): Promise<any> {
+    const session = this.tenantSessions.get(tenantId);
+    if (session?.sock) {
+      try {
+        session.sock.ev.removeAllListeners('connection.update');
+        session.sock.ev.removeAllListeners('creds.update');
+        session.sock.end(undefined);
+      } catch (_) {}
+      session.sock = null;
+      session.currentQrDataUrl = null;
+      session.currentRawQr = null;
+    }
+    this.tenantSessions.delete(tenantId);
+
+    const tenantDir = path.join(TENANT_AUTH_BASE, `tenant_${tenantId}`);
+    if (fs.existsSync(tenantDir)) {
+      try {
+        const files = fs.readdirSync(tenantDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(tenantDir, file));
+        }
+      } catch (_) {}
+    }
+
     const tenant = await Tenant.findById(tenantId);
-    if (!tenant) throw new Error('Tenant not found');
-
-    tenant.whatsapp = {
-      status: 'DISCONNECTED',
-      phone: undefined,
-      deviceInfo: undefined,
-      pairedAt: undefined,
-      lastSeen: undefined,
-      qrCodeDataUrl: undefined,
-      qrCodeRaw: undefined,
-    };
-
-    await tenant.save();
-    console.log(`[WhatsAppService] Operator Tenant [${tenant.slug}] WhatsApp session disconnected.`);
-    return tenant.whatsapp;
+    if (tenant) {
+      tenant.whatsapp = {
+        status: 'DISCONNECTED',
+        phone: undefined,
+        deviceInfo: undefined,
+        pairedAt: undefined,
+        lastSeen: undefined,
+        qrCodeDataUrl: undefined,
+        qrCodeRaw: undefined,
+      };
+      await tenant.save();
+      console.log(`[WhatsAppService] Operator Tenant [${tenant.slug}] WhatsApp session disconnected.`);
+      return tenant.whatsapp;
+    }
+    return { status: 'DISCONNECTED' };
   }
 
   static async sendTenantCustomerNotification(
@@ -1319,6 +1573,26 @@ export class WhatsAppService {
       `🌐 *${tenantName} — Customer Notification*\n\n` +
       `${message}\n\n` +
       `📞 Support: ${tenant?.branding?.supportPhone || tenant?.owner?.phone || 'Customer Care'}`;
+
+    const session = this.tenantSessions.get(tenantId);
+    const cleanPhone = recipientPhone.replace(/[^0-9]/g, '');
+    const jid = `${cleanPhone}@s.whatsapp.net`;
+
+    if (session?.sock?.user) {
+      try {
+        await session.sock.sendMessage(jid, { text: formattedMessage });
+        console.log(`[WhatsAppService] ✓ Message sent via Tenant [${tenantId}] socket to [${recipientPhone}]`);
+      } catch (err: any) {
+        console.warn(`[WhatsAppService] Tenant socket send failed (${err.message})`);
+      }
+    } else if (this.sock?.user) {
+      try {
+        await this.sock.sendMessage(jid, { text: formattedMessage });
+        console.log(`[WhatsAppService] ✓ Message sent via Super Admin fallback socket to [${recipientPhone}]`);
+      } catch (err: any) {
+        console.warn(`[WhatsAppService] Super Admin fallback send failed (${err.message})`);
+      }
+    }
 
     try {
       await NotificationLog.create({

@@ -225,8 +225,9 @@ class ApiService {
   }
 
   // Super Admin Endpoints
-  async getSuperAdminDashboard() {
-    return this.request('/superadmin/dashboard');
+  async getSuperAdminDashboard(params?: { tenantId?: string; slug?: string }) {
+    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    return this.request(`/superadmin/dashboard${query}`);
   }
 
   async getGlobalAuditLogs(params?: { action?: string; targetResource?: string; limit?: number }) {
