@@ -643,40 +643,71 @@ export const ONTList: React.FC = () => {
           </div>
         )}
 
-        {/* Fleet Inventory Summary Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-4 border border-[#CBD5E1] rounded-2xl shadow-xs">
-          <div className="p-3 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
-            <span className="text-[11px] text-[#64748B] block font-semibold">Total ONTs in Fleet</span>
-            <span className="text-xl font-mono font-bold text-[#0F172A]">{devices.length}</span>
+        {/* Fleet Inventory Summary Bar (High-Density NOC Operations Cards) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Total Fleet */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1E56A0] via-[#16407B] to-[#11315E] text-white p-5 shadow-md">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {devices.length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-blue-200">TOTAL ONTs IN FLEET</p>
+              <p className="text-[11px] text-blue-300 font-medium">Provisioned CPE inventory</p>
+            </div>
+            <Radio className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
           </div>
-          <div className="p-3 bg-[#ECFDF5] rounded-xl border border-[#A7F3D0]">
-            <span className="text-[11px] text-[#047857] block font-semibold">Online Fleet</span>
-            <span className="text-xl font-mono font-bold text-[#047857]">
-              {devices.filter((d) => d.status === 'online').length}
-            </span>
+
+          {/* Card 2: Online Fleet */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {devices.filter((d) => d.status === 'online').length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-emerald-200">ONLINE ONT FLEET</p>
+              <p className="text-[11px] text-emerald-300 font-medium">
+                {devices.length > 0
+                  ? `${Math.round((devices.filter((d) => d.status === 'online').length / devices.length) * 100)}% operational`
+                  : '0% operational'}
+              </p>
+            </div>
+            <Zap className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
           </div>
-          <div className="p-3 bg-[#FEF2F2] rounded-xl border border-[#FECACA]">
-            <span className="text-[11px] text-[#B91C1C] block font-semibold">Offline Fleet</span>
-            <span className="text-xl font-mono font-bold text-[#B91C1C]">
-              {devices.filter((d) => d.status !== 'online').length}
-            </span>
+
+          {/* Card 3: Offline Fleet */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#DC2626] via-[#B91C1C] to-[#991B1B] text-white p-5 shadow-md">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {devices.filter((d) => d.status !== 'online').length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-rose-200">OFFLINE / UNREACHABLE</p>
+              <p className="text-[11px] text-rose-300 font-medium">Attention required</p>
+            </div>
+            <Power className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
           </div>
-          <div className="p-3 bg-[#EFF6FF] rounded-xl border border-[#BFDBFE] flex items-center justify-between">
-            <div>
-              <span className="text-[11px] text-[#1677FF] block font-semibold">Selected</span>
-              <span className="text-xl font-mono font-bold text-[#1677FF]">{selectedDeviceIds.length}</span>
+
+          {/* Card 4: Unassigned Pool / Selected */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0284C7] via-[#0369A1] to-[#075985] text-white p-5 shadow-md flex flex-col justify-between">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {devices.filter((d) => !d.customerId).length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-sky-200">UNASSIGNED POOL</p>
+              <p className="text-[11px] text-sky-300 font-medium">
+                {selectedDeviceIds.length > 0 ? `${selectedDeviceIds.length} row(s) selected` : 'Ready for onboarding'}
+              </p>
             </div>
             {selectedDeviceIds.length > 0 && (
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={() => setIsBulkDeleteOpen(true)}
-                className="font-bold"
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-1" />
-                <span>Delete Selected</span>
-              </Button>
+              <div className="relative z-10 pt-2">
+                <button
+                  onClick={() => setIsBulkDeleteOpen(true)}
+                  className="px-2.5 py-1 text-xs font-bold bg-white text-rose-700 hover:bg-rose-50 rounded-lg shadow-sm flex items-center space-x-1 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Selected ({selectedDeviceIds.length})</span>
+                </button>
+              </div>
             )}
+            <Server className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
           </div>
         </div>
 

@@ -434,7 +434,7 @@ export const TenantList: React.FC = () => {
   return (
     <Shell
       portalType="superadmin"
-      title="ISP Tenant & Operator Management"
+      title="ISP Tenant & Operator Multi-Tenant Management"
       breadcrumbs={[{ label: 'Tenants' }]}
       primaryAction={
         <Button
@@ -444,6 +444,7 @@ export const TenantList: React.FC = () => {
           }}
           variant="primary"
           size="sm"
+          className="bg-[#1877F2] hover:bg-blue-700 text-white font-bold"
         >
           <Plus className="w-4 h-4 mr-1.5" />
           <span>Provision New ISP Operator</span>
@@ -451,6 +452,57 @@ export const TenantList: React.FC = () => {
       }
     >
       <div className="space-y-4">
+        {/* Top 4 NOC Operations Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1E56A0] via-[#16407B] to-[#11315E] text-white p-5 shadow-md">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {tenants.length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-blue-200">TOTAL ISP OPERATORS</p>
+              <p className="text-[11px] text-blue-300 font-medium">Multi-tenant fleet instances</p>
+            </div>
+            <Building2 className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
+          </div>
+
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {tenants.filter((t) => t.status === 'active').length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-emerald-200">ACTIVE SUBSCRIPTIONS</p>
+              <p className="text-[11px] text-emerald-300 font-medium">
+                {tenants.length > 0
+                  ? `${Math.round((tenants.filter((t) => t.status === 'active').length / tenants.length) * 100)}% operational`
+                  : '0% operational'}
+              </p>
+            </div>
+            <ShieldCheck className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
+          </div>
+
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0284C7] via-[#0369A1] to-[#075985] text-white p-5 shadow-md">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {tenants.filter((t) => t.status === 'trial').length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-sky-200">TRIAL ONBOARDING</p>
+              <p className="text-[11px] text-sky-300 font-medium">New ISP tenant evaluations</p>
+            </div>
+            <Zap className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
+          </div>
+
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#D97706] via-[#B45309] to-[#92400E] text-white p-5 shadow-md">
+            <div className="relative z-10 space-y-1">
+              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
+                {tenants.filter((t) => t.status === 'suspended').length.toLocaleString()}
+              </h4>
+              <p className="text-xs uppercase tracking-wider font-bold text-amber-200">SUSPENDED / PAST DUE</p>
+              <p className="text-[11px] text-amber-300 font-medium">Requires administrator review</p>
+            </div>
+            <Globe className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
+          </div>
+        </div>
+
         {/* Filters & Search Toolbar */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 border border-[#E2E8F0] rounded-xl">
           <form onSubmit={handleSearchSubmit} className="w-full sm:w-80">
