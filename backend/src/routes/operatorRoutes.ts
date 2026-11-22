@@ -577,6 +577,18 @@ const handleDeviceInspection = async (req: AuthenticatedRequest, res: Response) 
       p.bearerService === 'INTERNET' || p.serviceType === 'INTERNET' || p.connectionType === 'PPPoE' || /INTERNET|PPP/i.test(p.name || '')
     ) || (device.wanProfiles || []).find((p: any) => !p.isProtected && p.serviceType !== 'TR069') || device.wanProfiles?.[0];
 
+    const allInspectClients = Array.isArray(d.connectedClients) ? d.connectedClients : [];
+    const wifi24InspectClients = allInspectClients.filter((c: any) =>
+      c.interfaceType === '2.4GHz' || String(c.connectionType || c.interface || '').includes('2.4') ||
+      (String(c.connectionType || c.interface || '').toLowerCase().includes('wi-fi') && !String(c.connectionType || c.interface || '').includes('5'))
+    );
+    const wifi5gInspectClients = allInspectClients.filter((c: any) =>
+      c.interfaceType === '5GHz' || String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0') || String(c.connectionType || c.interface || '').includes('5 GHz')
+    );
+    const ethInspectClients = allInspectClients.filter((c: any) =>
+      c.interfaceType === 'Ethernet' || String(c.connectionType || c.interface || '').toLowerCase().includes('eth') || String(c.connectionType || c.interface || '').toLowerCase().includes('lan')
+    );
+
     const inspect = {
       hardware: {
         serialNumber: device.serialNumber ?? null,
@@ -608,6 +620,7 @@ const handleDeviceInspection = async (req: AuthenticatedRequest, res: Response) 
           bandwidthMhz: device.wifi24?.bandwidthMhz ?? 20,
           enabled: device.wifi24?.enabled ?? true,
           txPowerPercent: device.wifi24?.txPowerPercent ?? 100,
+          connectedClients: wifi24InspectClients.length,
         },
         band5g: {
           ssid: device.wifi5g?.ssid ?? null,
@@ -616,6 +629,7 @@ const handleDeviceInspection = async (req: AuthenticatedRequest, res: Response) 
           bandwidthMhz: device.wifi5g?.bandwidthMhz ?? 80,
           enabled: device.wifi5g?.enabled ?? true,
           txPowerPercent: device.wifi5g?.txPowerPercent ?? 100,
+          connectedClients: wifi5gInspectClients.length,
         },
       },
       telemetry: {
@@ -679,8 +693,13 @@ const handleDeviceInspection = async (req: AuthenticatedRequest, res: Response) 
         uptimeSeconds: d.uptimeSeconds ?? 0,
       },
       lan: {
-        hostCount: d.lanHostCount ?? (d.connectedClients?.length || 0),
-        connectedClients: d.connectedClients || [],
+        hostCount: Math.max(d.lanHostCount || 0, allInspectClients.length),
+        totalClients: allInspectClients.length,
+        wifiClients: wifi24InspectClients.length + wifi5gInspectClients.length,
+        wifi24Clients: wifi24InspectClients.length,
+        wifi5gClients: wifi5gInspectClients.length,
+        lanClients: ethInspectClients.length,
+        connectedClients: allInspectClients,
       },
       capabilities: {
         editable: [
@@ -3798,15 +3817,14 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
       if ((rawMac && rawMac !== '00:00:00:00:00:00') || (rawIp && rawIp !== '0.0.0.0')) {
         const key = ((rawMac || rawIp) as string).toUpperCase();
-        const isEthernet = rawIface && /eth|lan/i.test(String(rawIface));
-        const is5G = rawIface && /5g/i.test(String(rawIface));
+        const friendlyName = resolveFriendlyDeviceName(rawName, rawMac, null);
+        const isWireless = CwmpVendorProfiles.isWirelessClient(rawMac, friendlyName, rawIface);
+        const is5G = (rawIface && /5g/i.test(String(rawIface))) || (rawMac && assocMacs.has(rawMac.toUpperCase()) && /5g/i.test(String(rawIface || '')));
         const ifaceClean = is5G
           ? '5GHz High-Speed'
-          : isEthernet
-          ? 'LAN Ethernet'
-          : '2.4GHz Primary';
-        
-        const friendlyName = resolveFriendlyDeviceName(rawName, rawMac, ifaceClean);
+          : isWireless
+          ? '2.4GHz Primary'
+          : 'LAN Ethernet';
 
         if (clientMap.has(key)) {
           const existing = clientMap.get(key);
@@ -3861,7 +3879,10 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
       if (rawMac && rawMac !== '00:00:00:00:00:00') {
         const key = rawMac.toUpperCase();
-        const band = (wlanIdx === '3' || wlanIdx === '5' || wlanIdx === '2' || wlanIdx === '4' || wlanIdx === '6') ? '5GHz High-Speed' : '2.4GHz Primary';
+        const wlanChanVal = parseInt(rawParams[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanIdx}.Channel`] || '', 10);
+        const wlanBandParam = rawParams[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanIdx}.X_TP_Band`] || '';
+        const isWlan5G = (wlanBandParam && /5g/i.test(wlanBandParam)) || (wlanIdx === '3' || wlanIdx === '4' || wlanIdx === '6') || (wlanChanVal >= 36);
+        const band = isWlan5G ? '5GHz High-Speed' : '2.4GHz Primary';
         if (clientMap.has(key)) {
           const existing = clientMap.get(key);
           existing.status = device.status === 'online' ? 'Online' : 'Offline';
@@ -4199,7 +4220,7 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
             radioPath: primary24?.sourcePaths?.channelPath || 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.',
             sourcePaths: primary24?.sourcePaths || {},
             txPowerPercent: d.wifi24?.txPowerPercent || 100,
-            connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (String(c.connectionType || c.interface || '').toLowerCase() === 'wi-fi' && !String(c.connectionType || c.interface || '').includes('5'))).length,
+            connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (!String(c.connectionType || c.interface || '').includes('5') && !String(c.connectionType || c.interface || '').toLowerCase().includes('eth'))).length,
             noiseDbm: d.wifi24?.noiseDbm ?? -92,
             signalQuality: d.wifi24?.signalQuality ?? (primary24?.ssid ? 'Good' : '—'),
             passwordConfigured: Boolean(primary24?.password || d.wifi24?.password),

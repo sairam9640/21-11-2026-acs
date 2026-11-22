@@ -971,9 +971,14 @@ export const ONTList: React.FC = () => {
                         <Wifi className="w-4 h-4 text-[#047857]" />
                         <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">4. Wi-Fi 2.4 GHz Band</h4>
                       </div>
-                      <Badge variant={inspectData.wifi?.band24?.enabled ? 'success' : 'neutral'}>
-                        {inspectData.wifi?.band24?.enabled ? 'Enabled' : 'Disabled'}
-                      </Badge>
+                      <div className="flex items-center space-x-1.5">
+                        <Badge variant={inspectData.wifi?.band24?.enabled ? 'success' : 'neutral'}>
+                          {inspectData.wifi?.band24?.enabled ? 'Enabled' : 'Disabled'}
+                        </Badge>
+                        <Badge variant="success">
+                          {inspectData.wifi?.band24?.connectedClients ?? 0} Connected
+                        </Badge>
+                      </div>
                     </div>
                     <div className="space-y-2 text-xs">
                       <div className="p-2.5 bg-white rounded-lg border border-[#E2E8F0] flex justify-between items-center">
@@ -997,9 +1002,14 @@ export const ONTList: React.FC = () => {
                         <Wifi className="w-4 h-4 text-[#6D28D9]" />
                         <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">5. Wi-Fi 5.0 GHz Band</h4>
                       </div>
-                      <Badge variant={inspectData.wifi?.band5g?.enabled ? 'purple' : 'neutral'}>
-                        {inspectData.wifi?.band5g?.enabled ? 'Enabled' : 'Disabled'}
-                      </Badge>
+                      <div className="flex items-center space-x-1.5">
+                        <Badge variant={inspectData.wifi?.band5g?.enabled ? 'purple' : 'neutral'}>
+                          {inspectData.wifi?.band5g?.enabled ? 'Enabled' : 'Disabled'}
+                        </Badge>
+                        <Badge variant="purple">
+                          {inspectData.wifi?.band5g?.connectedClients ?? 0} Connected
+                        </Badge>
+                      </div>
                     </div>
                     <div className="space-y-2 text-xs">
                       <div className="p-2.5 bg-white rounded-lg border border-[#E2E8F0] flex justify-between items-center">
@@ -1051,23 +1061,43 @@ export const ONTList: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 8. Connected LAN Clients */}
+                {/* 8. Connected LAN & Wi-Fi Client Devices */}
                 <div className="p-4 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] space-y-2">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center space-x-2">
                       <Monitor className="w-4 h-4 text-[#B45309]" />
-                      <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">8. Connected LAN Devices</h4>
+                      <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">8. Connected Client Devices</h4>
                     </div>
-                    <Badge variant="neutral">Count: {inspectData.lan?.hostCount || 0}</Badge>
+                    <div className="flex items-center space-x-1 flex-wrap gap-1">
+                      <Badge variant="neutral">Total: {inspectData.lan?.totalClients ?? inspectData.lan?.hostCount ?? 0}</Badge>
+                      <Badge variant="success">2.4G Wi-Fi: {inspectData.lan?.wifi24Clients ?? inspectData.wifi?.band24?.connectedClients ?? 0}</Badge>
+                      <Badge variant="purple">5G Wi-Fi: {inspectData.lan?.wifi5gClients ?? inspectData.wifi?.band5g?.connectedClients ?? 0}</Badge>
+                      {Boolean(inspectData.lan?.lanClients) && (
+                        <Badge variant="info">LAN: {inspectData.lan.lanClients}</Badge>
+                      )}
+                    </div>
                   </div>
                   {inspectData.lan?.connectedClients && inspectData.lan.connectedClients.length > 0 ? (
                     <div className="space-y-1.5">
-                      {inspectData.lan.connectedClients.map((cl: any, idx: number) => (
-                        <div key={idx} className="p-2 bg-white rounded-lg border border-[#E2E8F0] flex justify-between text-xs font-mono">
-                          <span className="text-[#1E293B]">{cl.hostname || 'Client Device'} ({cl.ip})</span>
-                          <span className="text-[#64748B]">{cl.mac} | {cl.interfaceType}</span>
-                        </div>
-                      ))}
+                      {inspectData.lan.connectedClients.map((cl: any, idx: number) => {
+                        const is5G = String(cl.interfaceType || cl.connectionType || '').includes('5');
+                        const isEth = String(cl.interfaceType || cl.connectionType || '').toLowerCase().includes('eth') || String(cl.interfaceType || cl.connectionType || '').toLowerCase().includes('lan');
+                        const badgeVariant = is5G ? 'purple' : isEth ? 'info' : 'success';
+                        const badgeLabel = is5G ? '5.0 GHz Wi-Fi' : isEth ? 'LAN Ethernet' : '2.4 GHz Wi-Fi';
+
+                        return (
+                          <div key={idx} className="p-2.5 bg-white rounded-lg border border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-mono">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-bold text-[#0F172A] font-sans">{cl.hostname || 'Client Device'}</span>
+                              <span className="text-[#1677FF]">({cl.ip})</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-[#64748B] text-[11px]">{cl.mac}</span>
+                              <Badge variant={badgeVariant as any}>{badgeLabel}</Badge>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="p-3 bg-white rounded-lg text-center text-xs text-[#94A3B8] italic">

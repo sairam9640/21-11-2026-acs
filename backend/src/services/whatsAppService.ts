@@ -612,12 +612,13 @@ export class WhatsAppService {
               console.error('[WhatsAppService] Error during 515 restart:', err.message);
             });
           } else if (shouldReconnect) {
-            // Keep currentQrDataUrl alive while reconnecting so the user can scan the QR code!
+            // Reset dead socket reference and schedule reconnect
             if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+            this.sock = null;
             this.reconnectTimer = setTimeout(() => {
-              if (!this.sock?.user) {
-                this.initBaileysSocket(false);
-              }
+              this.initBaileysSocket(false).catch((err) => {
+                console.error('[WhatsAppService] Error during auto-reconnect:', err.message);
+              });
             }, 3000);
           } else {
             this.sock = null;
@@ -1045,8 +1046,13 @@ export class WhatsAppService {
         sentViaRealEngine = true;
         console.log(`[WhatsAppService] ✓ Real WhatsApp OTP message sent to [${phone}] via live Baileys socket.`);
       } catch (sendErr: any) {
-        console.warn(`[WhatsAppService] Live socket send failed (${sendErr.message}), fallback notification recorded.`);
+        console.warn(`[WhatsAppService] Live socket send failed (${sendErr.message}), triggering auto-heal reconnect.`);
+        this.sock = null;
+        this.initBaileysSocket(false).catch(() => {});
       }
+    } else if (!sentViaRealEngine && !this.sock && session.status === 'CONNECTED') {
+      // Reconnect disconnected socket asynchronously
+      this.initBaileysSocket(false).catch(() => {});
     }
 
     if (!sentViaRealEngine) {

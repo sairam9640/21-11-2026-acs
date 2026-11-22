@@ -912,6 +912,64 @@ export class CwmpVendorProfiles {
     if (iface && (iface.includes('eth') || iface.includes('lan'))) return 'Ethernet Wired Client';
     return '2.4GHz Wireless Client';
   }
+
+  /**
+   * Deterministically classifies if a client device is Wi-Fi vs physical wired Ethernet
+   */
+  static isWirelessClient(mac?: string | null, friendlyName?: string | null, rawIface?: string | null): boolean {
+    if (rawIface && /wifi|wlan|wireless|802\.11/i.test(rawIface)) return true;
+    if (rawIface && /5g/i.test(rawIface)) return true;
+
+    if (mac) {
+      const cleanMac = mac.replace(/[: -]/g, '').toUpperCase();
+      if (cleanMac.length >= 6) {
+        const firstByte = parseInt(cleanMac.slice(0, 2), 16);
+        // Randomized MAC address (iOS Private Wi-Fi Address, Android MAC Randomization, Windows Random Hardware Addresses)
+        // These are EXCLUSIVELY generated for Wi-Fi interfaces!
+        if (!isNaN(firstByte) && (firstByte & 0x02) !== 0) return true;
+
+        const p3 = cleanMac.slice(0, 6);
+        // Wireless-only device OUIs (Smartphones, Tablets, Smart Watches, Smart Home IoT, Smart TVs)
+        const wirelessOUIs = new Set([
+          // Apple (iPhone, iPad, Watch)
+          'CCF735', '3C64CF', '74563C', 'F01898', 'BCD074', 'AC6784', '38F9D3', '40A6D9',
+          'A483E7', 'DCA904', 'F8FFC2', 'E8802E', '70ECE4', 'A860B6', 'FC183C', 'B8782E',
+          'D4619D', '20EE28', '689C70', 'F0D1A9', 'B0BE76', 'ACBC32', '2CF0EE',
+          // Samsung Galaxy & Smart Things
+          '085BD6', '5CE931', '5CE91E', '88665A', '34145F', '44783E', '8C7712', 'A0C589',
+          'B47C9C', 'C0BDD1', 'D0B76E', 'E8508B', 'F47B5E', 'FCA13E', '0007AB', '001247',
+          '0015B9', '00166C', '001A8A',
+          // Xiaomi / Redmi / POCO
+          'D84489', '94652D', '68DFDD', '7C49EB', 'ACF7F3', '34CE00', '286C07', '184F32',
+          '584498', '640980', '7811DC', '8035C1',
+          // OnePlus / Oppo / Realme
+          'A842A1', '6490C1', '74D21D', '9C2EA1', 'A4C3F0', 'C8D083', 'E0DCFF', 'F460E2', '2C5BB8',
+          // Vivo
+          '5076AF', '54A51B', '842AFD', 'C07E40', 'DC729B', 'E4AAEA',
+          // Smart IoT / MediaTek / Bilian / Espressif / Tuya
+          '40AE30', '240AC4', '2462AB', '246F28', '30AEA4', '3C71BF', '483FDA', '4C11AE',
+          '5CCF7F', '600194', '68C63A', '84F3EB', 'A4CF12', 'B4E62D', 'C44F33', 'CC50E3',
+          'D8A01D', 'DC4F22', '50C7BF', '704F57', '98DAC4', 'C006C3',
+          // Amazon & Google
+          '6045BD', '747548', 'AC63BE', 'B47C9E', 'F0F002', '00FC8B', '44650D', '6854FD',
+          '3C8CF8', 'F4F5D8', '94EBCD', '546009', '48D6D5', '001A11',
+        ]);
+
+        if (wirelessOUIs.has(p3)) return true;
+      }
+    }
+
+    if (friendlyName) {
+      if (/phone|smartphone|iphone|ipad|galaxy|realme|oppo|oneplus|redmi|xiaomi|poco|vivo|tapo|iot|alexa|echo|firetv|chromecast|nest|smart\s*plug|bulb|sensor|watch/i.test(friendlyName)) {
+        return true;
+      }
+    }
+
+    // If rawIface is missing or unknown, default to true
+    if (!rawIface || rawIface === 'unknown') return true;
+
+    return false;
+  }
 }
 
 export interface DiscoveredWifiInterface {

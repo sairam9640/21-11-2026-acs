@@ -493,29 +493,52 @@ authRouter.post('/operator/request-otp', async (req: AuthenticatedRequest, res: 
     // Generate dynamic 6-digit random OTP
     const dynamicOtp = Math.floor(100000 + Math.random() * 900000).toString();
     operatorUser.otpCode = dynamicOtp;
-    operatorUser.otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
+    operatorUser.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
     operatorUser.status = 'active';
     await operatorUser.save();
 
-    // Dispatch WhatsApp OTP via Baileys Multi-Device Engine
+    console.log(`[Operator Auth] 🔑 Dynamic OTP for ${operatorUser.email || operatorUser.phone} (${operatorUser.fullName}): ${dynamicOtp}`);
+
+    // 1. Dispatch WhatsApp OTP via Baileys Multi-Device Engine
     const dispatchPhone = operatorUser.phone || (last10Digits ? `+91${last10Digits}` : '+919999999999');
-    const waResult = await WhatsAppService.sendOtpMessage(
-      dispatchPhone,
-      dynamicOtp,
-      operatorUser.fullName,
-      targetTenant?.displayName || 'Primary ISP'
-    );
+    let waDelivered = false;
+    let waMessageId: string | undefined;
+    try {
+      const waResult = await WhatsAppService.sendOtpMessage(
+        dispatchPhone,
+        dynamicOtp,
+        operatorUser.fullName,
+        targetTenant?.displayName || 'Primary ISP'
+      );
+      waDelivered = waResult.success;
+      waMessageId = waResult.messageId;
+    } catch (waErr: any) {
+      console.warn('[Operator Auth] WhatsApp dispatch warning:', waErr.message);
+    }
+
+    // 2. Dispatch Email OTP fallback if email is available
+    let emailDelivered = false;
+    if (operatorUser.email) {
+      try {
+        const emailResult = await EmailService.sendOtpEmail(operatorUser.email, dynamicOtp, operatorUser.fullName);
+        emailDelivered = emailResult.success;
+      } catch (emErr: any) {
+        console.warn('[Operator Auth] Email OTP dispatch warning:', emErr.message);
+      }
+    }
 
     const maskedPhone = dispatchPhone.replace(/(\+\d{2})(\d{2})(\d+)(\d{2})/, '$1 $2******$4');
 
     return res.json({
       success: true,
-      message: `WhatsApp OTP sent successfully to ${maskedPhone}`,
+      message: `Login OTP sent successfully to ${maskedPhone}${operatorUser.email ? ' and ' + operatorUser.email : ''}`,
       destinationMasked: maskedPhone,
+      emailDelivered,
+      whatsappDelivered: waDelivered,
       operatorName: operatorUser.fullName,
       tenantName: targetTenant?.displayName || 'Primary ISP',
       tenantSlug: targetTenant?.slug || 'default',
-      messageId: waResult.messageId,
+      messageId: waMessageId,
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
@@ -565,13 +588,24 @@ authRouter.post('/operator/verify-otp', async (req: AuthenticatedRequest, res: R
       return res.status(404).json({ success: false, error: 'No operator user found matching this account' });
     }
 
-    const isOtpValid = operatorUser.otpCode === otp;
+    const cleanOtp = String(otp).trim();
+    let isOtpValid = Boolean(operatorUser.otpCode && operatorUser.otpCode === cleanOtp);
 
-    if (!isOtpValid) {
-      return res.status(401).json({ success: false, error: 'Invalid WhatsApp OTP code. Please enter the dynamic 6-digit code sent to your WhatsApp.' });
+    // Password Fallback: allow operators with configured password to authenticate
+    if (!isOtpValid && operatorUser.passwordHash) {
+      try {
+        const isPassMatch = await bcrypt.compare(cleanOtp, operatorUser.passwordHash);
+        if (isPassMatch) {
+          isOtpValid = true;
+        }
+      } catch {}
     }
 
-    if (operatorUser.otpExpiresAt && new Date() > operatorUser.otpExpiresAt) {
+    if (!isOtpValid) {
+      return res.status(401).json({ success: false, error: 'Invalid login OTP or password. Please enter the dynamic 6-digit code or your account password.' });
+    }
+
+    if (operatorUser.otpCode === cleanOtp && operatorUser.otpExpiresAt && new Date() > operatorUser.otpExpiresAt) {
       return res.status(401).json({ success: false, error: 'OTP has expired. Please request a new code.' });
     }
 

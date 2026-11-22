@@ -163,6 +163,10 @@ export interface IDevice extends Document {
 
   // LAN
   lanHostCount?: number;
+  totalClientsConnected?: number;
+  wifiClients24?: number;
+  wifiClients5?: number;
+  lanClients?: number;
 
   // Connected Devices
   connectedClients: IConnectedClient[];
@@ -363,6 +367,10 @@ const DeviceSchema = new Schema<IDevice>(
 
     // LAN
     lanHostCount: { type: Number },
+    totalClientsConnected: { type: Number },
+    wifiClients24: { type: Number },
+    wifiClients5: { type: Number },
+    lanClients: { type: Number },
 
     connectedClients: [{ type: Schema.Types.Mixed }],
 

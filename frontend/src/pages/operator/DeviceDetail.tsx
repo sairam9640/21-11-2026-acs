@@ -2032,7 +2032,7 @@ export const DeviceDetail: React.FC = () => {
                         </span>
                       </div>
                       <div className="flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#ECFDF5] text-[#047857] border border-[#A7F3D0]">
-                        <span>{workspace.wifi?.band24?.connectedClients ?? workspace.connectedDevices?.filter((c: any) => String(c.connectionType || '').includes('2.4')).length ?? 0} Connected Device{((workspace.wifi?.band24?.connectedClients ?? workspace.connectedDevices?.filter((c: any) => String(c.connectionType || '').includes('2.4')).length ?? 0) === 1 ? '' : 's')}</span>
+                        <span>{workspace.wifi?.band24?.connectedClients ?? workspace.connectedDevices?.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (!String(c.connectionType || c.interface || '').includes('5') && !String(c.connectionType || c.interface || '').toLowerCase().includes('eth'))).length ?? 0} Connected Device{((workspace.wifi?.band24?.connectedClients ?? workspace.connectedDevices?.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4')).length ?? 0) === 1 ? '' : 's')}</span>
                         <ChevronDown className="w-3 h-3 ml-0.5 opacity-70" />
                       </div>
                     </div>
@@ -2529,7 +2529,7 @@ export const DeviceDetail: React.FC = () => {
             {/* TAB CONTENT 3: CONNECTED DEVICES */}
             {activeTab === 'connected' && (() => {
               const allClients = workspace.connectedDevices || [];
-              const clients24 = allClients.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (String(c.connectionType || c.interface || '').toLowerCase().includes('wi-fi') && !String(c.connectionType || c.interface || '').includes('5')));
+              const clients24 = allClients.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (!String(c.connectionType || c.interface || '').includes('5') && !String(c.connectionType || c.interface || '').toLowerCase().includes('eth')));
               const clients5g = allClients.filter((c: any) => String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0') || String(c.connectionType || c.interface || '').includes('5 GHz'));
               const clientsEth = allClients.filter((c: any) => String(c.connectionType || c.interface || '').toLowerCase().includes('eth') || String(c.connectionType || c.interface || '').toLowerCase().includes('lan'));
 
@@ -2541,7 +2541,7 @@ export const DeviceDetail: React.FC = () => {
                   (c.mac && c.mac.toLowerCase().includes(clientSearchTerm.toLowerCase()));
 
                 if (!matchesSearch) return false;
-                if (clientFilterBand === '2.4G') return String(c.connectionType || c.interface || '').includes('2.4') || (String(c.connectionType || c.interface || '').toLowerCase().includes('wi-fi') && !String(c.connectionType || c.interface || '').includes('5'));
+                if (clientFilterBand === '2.4G') return String(c.connectionType || c.interface || '').includes('2.4') || (!String(c.connectionType || c.interface || '').includes('5') && !String(c.connectionType || c.interface || '').toLowerCase().includes('eth'));
                 if (clientFilterBand === '5G') return String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0') || String(c.connectionType || c.interface || '').includes('5 GHz');
                 if (clientFilterBand === 'ETH') return String(c.connectionType || c.interface || '').toLowerCase().includes('eth') || String(c.connectionType || c.interface || '').toLowerCase().includes('lan');
                 return true;
