@@ -1596,7 +1596,22 @@ export class WhatsAppService {
     const jid = this.formatJid(recipientPhone);
     let messageDelivered = false;
 
-    if (session?.sock?.user) {
+    // 1. Primary: Evolution API Engine
+    try {
+      const isEvoAvailable = await EvolutionApiClient.isAvailable();
+      if (isEvoAvailable) {
+        const evoRes = await EvolutionApiClient.sendText(recipientPhone, formattedMessage);
+        if (evoRes.success) {
+          messageDelivered = true;
+          console.log(`[WhatsAppService] ✓ Live chat message sent to [${recipientPhone}] via Evolution API.`);
+        }
+      }
+    } catch (evoErr: any) {
+      console.warn(`[WhatsAppService] Evolution API check error: ${evoErr.message}`);
+    }
+
+    // 2. Tenant Baileys Socket
+    if (!messageDelivered && session?.sock?.user) {
       try {
         await session.sock.sendMessage(jid, { text: formattedMessage });
         messageDelivered = true;
@@ -1604,16 +1619,30 @@ export class WhatsAppService {
       } catch (err: any) {
         console.warn(`[WhatsAppService] Tenant socket send failed (${err.message})`);
       }
-    } else if (this.sock?.user) {
-      try {
-        await this.sock.sendMessage(jid, { text: formattedMessage });
-        messageDelivered = true;
-        console.log(`[WhatsAppService] ✓ Message sent via Super Admin fallback socket to [${recipientPhone}] (JID: ${jid})`);
-      } catch (err: any) {
-        console.warn(`[WhatsAppService] Super Admin fallback send failed (${err.message})`);
+    }
+
+    // 3. Fallback: Super Admin Baileys Socket (Auto-heals if null)
+    if (!messageDelivered) {
+      if (!this.sock) {
+        console.log('[WhatsAppService] Super Admin socket null, triggering auto-heal reconnect...');
+        await this.initBaileysSocket(false).catch(() => {});
       }
-    } else {
-      console.warn(`[WhatsAppService] Neither tenant [${tenantId}] nor superadmin socket is currently connected.`);
+
+      if (this.sock) {
+        try {
+          await this.sock.sendMessage(jid, { text: formattedMessage });
+          messageDelivered = true;
+          console.log(`[WhatsAppService] ✓ Message sent via Super Admin fallback socket to [${recipientPhone}] (JID: ${jid})`);
+        } catch (err: any) {
+          console.warn(`[WhatsAppService] Super Admin fallback send failed (${err.message}), re-initializing socket...`);
+          this.sock = null;
+          this.initBaileysSocket(false).catch(() => {});
+        }
+      }
+    }
+
+    if (!messageDelivered) {
+      console.warn(`[WhatsAppService] ⚠️ Message could not be dispatched to [${recipientPhone}]. Both tenant and platform sockets are offline.`);
     }
 
     try {

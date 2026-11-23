@@ -622,7 +622,15 @@ export class WhatsAppBotService {
       timestamp: new Date(),
     });
 
-    await WhatsAppService.sendTenantCustomerNotification(tenantId, cleanPhone, messageText).catch(() => {});
+    const sendRes = await WhatsAppService.sendTenantCustomerNotification(tenantId, cleanPhone, messageText).catch((err) => {
+      console.warn(`[WhatsAppBotService] Failed to dispatch operator reply to [${cleanPhone}]: ${err.message}`);
+      return { success: false, messageId: '' };
+    });
+
+    if (sendRes?.success) {
+      chatMsg.status = 'DELIVERED';
+      await chatMsg.save().catch(() => {});
+    }
 
     await AuditLog.create({
       tenantId: tenant._id,
