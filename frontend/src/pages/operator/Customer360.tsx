@@ -830,13 +830,14 @@ export const Customer360: React.FC = () => {
                           const isEthernet = client.interfaceType === 'Ethernet';
                           const isOnline = client.connected !== false;
 
-                          const DeviceIcon = client.hostname?.match(/iphone|android|phone|galaxy|redmi|poco|pixel/i)
+                          const nameForCheck = (client.hostname || '').toLowerCase();
+                          const DeviceIcon = nameForCheck.match(/phone|iphone|galaxy|oppo|realme|vivo|xiaomi|redmi|poco|pixel|android|smartphone/i)
                             ? Smartphone
-                            : client.hostname?.match(/desktop|pc|laptop|macbook|dell|lenovo|hp|thinkpad/i)
+                            : nameForCheck.match(/desktop|pc|laptop|macbook|dell|lenovo|hp|thinkpad/i)
                             ? Laptop
-                            : client.hostname?.match(/tv|smart|roku|firestick|cast/i)
+                            : nameForCheck.match(/tv|smart|roku|firestick|cast/i)
                             ? HardDrive
-                            : Globe;
+                            : isEthernet ? Globe : Wifi;
 
                           return (
                             <tr key={idx} className="hover:bg-slate-50/80 transition-colors">

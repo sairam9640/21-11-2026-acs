@@ -882,6 +882,20 @@ export class CwmpService {
     const vendorName = informData.manufacturer || 'Generic GPON';
     const detectedVendor = CwmpVendorProfiles.detectVendor(vendorName, model, informData.oui, informData.productClass, xml);
 
+    // FILTER OUT DUMMY CRAWLERS & DISCOVERY SCANNERS:
+    // Drop known scanner probes (e.g. DISCOVERYSERVICE, Shodan, Censys, honeypot probes) to prevent corrupting inventory.
+    const isDummyScanner =
+      /discoveryservice|shodan|censys|shadowserver|zgrab|nmap|masscan|scanner|dummy_cpe/i.test(vendorName) ||
+      /discoveryservice|testcpe|dummy/i.test(model) ||
+      /discoveryservice/i.test(rawSerial) ||
+      /discoveryservice/i.test(informData.oui || '');
+
+    if (isDummyScanner) {
+      console.warn(`[CWMP ACS] ⛔ Blocked dummy scanner probe from [${clientIp}] (Vendor: ${vendorName}, Serial: ${rawSerial})`);
+      const faultXml = this.buildSoapFault('1', 9001, 'Request Denied: Unrecognized Device Hardware');
+      return { responseXml: faultXml, sessionId: `scanner_drop_${Date.now()}` };
+    }
+
     // STRICT SECURITY GATE: Verify Tenant Ownership vs Incoming Routing Path
     // Devices must strictly communicate within their assigned Tenant boundary.
     let isTenantMismatch = false;
@@ -4216,6 +4230,27 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     );
 
     return null;
+  }
+
+  static buildSoapFault(cwmpId = '1', faultCode = 9001, faultString = 'Request Denied: Unrecognized Device Hardware'): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Header>
+    <cwmp:ID soapenv:mustUnderstand="1">${cwmpId}</cwmp:ID>
+  </soapenv:Header>
+  <soapenv:Body>
+    <soapenv:Fault>
+      <faultcode>Client</faultcode>
+      <faultstring>CWMP fault</faultstring>
+      <detail>
+        <cwmp:Fault>
+          <FaultCode>${faultCode}</FaultCode>
+          <FaultString>${faultString}</FaultString>
+        </cwmp:Fault>
+      </detail>
+    </soapenv:Fault>
+  </soapenv:Body>
+</soapenv:Envelope>`;
   }
 
   static buildInformResponse(): string {

@@ -622,16 +622,6 @@ export const ONTList: React.FC = () => {
         <div className="flex items-center space-x-2">
           <Button
             size="sm"
-            variant="outline"
-            onClick={() => navigate('/operator/pending-mappings')}
-            className="flex items-center space-x-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-bold"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Pending Map ONTs</span>
-          </Button>
-
-          <Button
-            size="sm"
             variant="secondary"
             onClick={handleSyncFleet}
             isLoading={isSyncingFleet}

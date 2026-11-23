@@ -71,7 +71,6 @@ export const Shell: React.FC<ShellProps> = ({
     { label: 'NOC Dashboard', path: '/operator/dashboard', icon: LayoutDashboard },
     { label: 'Customer Directory', path: '/operator/customers', icon: Users },
     { label: 'ONT / CPE Fleet', path: '/operator/devices', icon: Radio },
-    { label: 'Pending Map ONTs', path: '/operator/pending-mappings', icon: Sparkles },
     { label: 'OLT & PON Ports', path: '/operator/network', icon: Server },
     { label: 'Fiber GIS Map', path: '/operator/gis', icon: MapPin },
     { label: 'Plan & Expiry Hub', path: '/operator/plans', icon: CalendarClock },

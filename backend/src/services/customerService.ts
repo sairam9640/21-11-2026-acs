@@ -10,6 +10,7 @@ import { WarehouseStockItem } from '../models/WarehouseStockItem.js';
 import { PaymentTransaction } from '../models/PaymentTransaction.js';
 import { FiberGisService } from './fiberGisService.js';
 import { DeviceManagementService } from './deviceManagementService.js';
+import { CwmpVendorProfiles } from './cwmpVendorProfiles.js';
 
 export interface ICustomerAssignedAssets {
   ont: {
@@ -446,7 +447,24 @@ export class CustomerService {
       }
 
       if (device.connectedClients && device.connectedClients.length > 0) {
-        const blockedCount = device.connectedClients.filter((c) => c.isBlocked).length;
+        device.connectedClients = (device.connectedClients as any[]).map((c: any) => {
+          const friendlyName = CwmpVendorProfiles.resolveFriendlyDeviceName(c.hostname, c.mac, c.interfaceType);
+          const isWireless = CwmpVendorProfiles.isWirelessClient(c.mac, friendlyName, c.interfaceType);
+          let finalIface = c.interfaceType;
+          if (c.interfaceType === '5GHz' || /5g/i.test(String(c.interfaceType))) {
+            finalIface = '5GHz';
+          } else if (isWireless) {
+            finalIface = '2.4GHz';
+          } else {
+            finalIface = 'Ethernet';
+          }
+          return {
+            ...c,
+            hostname: friendlyName,
+            interfaceType: finalIface,
+          };
+        });
+        const blockedCount = device.connectedClients.filter((c: any) => c.isBlocked).length;
         insights.push(`${device.connectedClients.length} active client devices connected (${blockedCount} blocked).`);
       }
     }

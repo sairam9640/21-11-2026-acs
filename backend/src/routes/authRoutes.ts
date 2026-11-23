@@ -251,9 +251,13 @@ authRouter.post('/superadmin/verify-otp', async (req: AuthenticatedRequest, res:
       return res.status(401).json({ success: false, error: 'Invalid OTP code or password. Please enter the 6-digit code received or your Super Admin password.' });
     }
 
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+    const userAgent = (req.headers['user-agent'] as string) || '';
+
     user.otpCode = undefined;
     user.otpExpiresAt = undefined;
     user.lastLoginAt = new Date();
+    (user as any).lastLoginIp = clientIp;
     await user.save();
 
     const token = generateToken({
@@ -271,6 +275,8 @@ authRouter.post('/superadmin/verify-otp', async (req: AuthenticatedRequest, res:
       targetResource: 'ControlPlane',
       targetId: user._id.toString(),
       correlationId: req.correlationId || `sa_login_${Date.now()}`,
+      ipAddress: clientIp,
+      userAgent,
     });
 
     return res.json({
@@ -609,10 +615,14 @@ authRouter.post('/operator/verify-otp', async (req: AuthenticatedRequest, res: R
       return res.status(401).json({ success: false, error: 'OTP has expired. Please request a new code.' });
     }
 
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+    const userAgent = (req.headers['user-agent'] as string) || '';
+
     // Clear OTP and record login
     operatorUser.otpCode = undefined;
     operatorUser.otpExpiresAt = undefined;
     operatorUser.lastLoginAt = new Date();
+    (operatorUser as any).lastLoginIp = clientIp;
     await operatorUser.save();
 
     // Resolve active tenant strictly from user profile or verified tenant slug
@@ -649,6 +659,8 @@ authRouter.post('/operator/verify-otp', async (req: AuthenticatedRequest, res: R
       targetResource: 'Tenant',
       targetId: activeTenant ? activeTenant._id.toString() : 'primary',
       correlationId: req.correlationId || `op_wa_login_${Date.now()}`,
+      ipAddress: clientIp,
+      userAgent,
     });
 
     return res.json({

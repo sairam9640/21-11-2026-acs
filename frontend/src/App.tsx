@@ -283,11 +283,7 @@ export function App() {
           />
           <Route
             path="/operator/pending-mappings"
-            element={
-              <ProtectedRoute allowedRoles={['operator_admin', 'noc_operator', 'super_admin']} portalType="operator">
-                <PendingOperatorMapping />
-              </ProtectedRoute>
-            }
+            element={<Navigate to="/operator/devices" replace />}
           />
           <Route
             path="/operator/devices/:id"
