@@ -577,7 +577,34 @@ const handleDeviceInspection = async (req: AuthenticatedRequest, res: Response) 
       p.bearerService === 'INTERNET' || p.serviceType === 'INTERNET' || p.connectionType === 'PPPoE' || /INTERNET|PPP/i.test(p.name || '')
     ) || (device.wanProfiles || []).find((p: any) => !p.isProtected && p.serviceType !== 'TR069') || device.wanProfiles?.[0];
 
-    const allInspectClients = Array.isArray(d.connectedClients) ? d.connectedClients : [];
+    const rawParams = d.rawParameters || {};
+    // Dynamic 5GHz SSID & Channel resolution from rawParameters (TP-Link WLAN 3 is 5GHz, WLAN 1 is 2.4GHz)
+    const rawSsid5g = rawParams['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.SSID'] ||
+                      rawParams['Device.WiFi.SSID.2.SSID'];
+    const rawChan5g = rawParams['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.Channel'] ||
+                      rawParams['Device.WiFi.Radio.2.Channel'];
+    const resolved5gSsid = (rawSsid5g && !/guest|iot/i.test(rawSsid5g)) ? rawSsid5g : (device.wifi5g?.ssid ?? null);
+    const resolved5gChan = (rawChan5g && parseInt(rawChan5g, 10) >= 36) ? parseInt(rawChan5g, 10) : (device.wifi5g?.channel ?? 44);
+
+    let allInspectClients = Array.isArray(d.connectedClients) ? d.connectedClients : [];
+    allInspectClients = allInspectClients.map((c: any) => {
+      const friendlyName = CwmpVendorProfiles.resolveFriendlyDeviceName(c.hostname, c.mac, c.interfaceType);
+      const isWireless = CwmpVendorProfiles.isWirelessClient(c.mac, friendlyName, c.interfaceType);
+      let finalIface = c.interfaceType;
+      if (c.interfaceType === '5GHz' || /5g/i.test(String(c.interfaceType))) {
+        finalIface = '5GHz';
+      } else if (isWireless) {
+        finalIface = '2.4GHz';
+      } else {
+        finalIface = 'Ethernet';
+      }
+      return {
+        ...c,
+        hostname: friendlyName,
+        interfaceType: finalIface,
+      };
+    });
+
     const wifi24InspectClients = allInspectClients.filter((c: any) =>
       c.interfaceType === '2.4GHz' || String(c.connectionType || c.interface || '').includes('2.4') ||
       (String(c.connectionType || c.interface || '').toLowerCase().includes('wi-fi') && !String(c.connectionType || c.interface || '').includes('5'))
@@ -623,9 +650,9 @@ const handleDeviceInspection = async (req: AuthenticatedRequest, res: Response) 
           connectedClients: wifi24InspectClients.length,
         },
         band5g: {
-          ssid: device.wifi5g?.ssid ?? null,
+          ssid: resolved5gSsid,
           securityMode: device.wifi5g?.securityMode ?? 'WPA2-PSK',
-          channel: device.wifi5g?.channel ?? 44,
+          channel: resolved5gChan,
           bandwidthMhz: device.wifi5g?.bandwidthMhz ?? 80,
           enabled: device.wifi5g?.enabled ?? true,
           txPowerPercent: device.wifi5g?.txPowerPercent ?? 100,
