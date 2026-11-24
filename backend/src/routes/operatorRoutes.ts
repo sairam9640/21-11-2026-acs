@@ -586,7 +586,38 @@ const handleDeviceInspection = async (req: AuthenticatedRequest, res: Response) 
     const resolved5gSsid = (rawSsid5g && !/guest|iot/i.test(rawSsid5g)) ? rawSsid5g : (device.wifi5g?.ssid ?? null);
     const resolved5gChan = (rawChan5g && parseInt(rawChan5g, 10) >= 36) ? parseInt(rawChan5g, 10) : (device.wifi5g?.channel ?? 44);
 
-    let allInspectClients = Array.isArray(d.connectedClients) ? d.connectedClients : [];
+    let allInspectClients = Array.isArray(d.connectedClients) ? [...d.connectedClients] : [];
+    if (allInspectClients.length === 0 && rawParams) {
+      const rawKeys = Object.keys(rawParams);
+      const hostIndices = Array.from(new Set(
+        rawKeys.map(k => {
+          const m = k.match(/(?:LANDevice\.\d+\.Hosts\.Host|Device\.Hosts\.Host)\.(\d+)\./i);
+          return m ? parseInt(m[1], 10) : null;
+        }).filter((v): v is number => v !== null)
+      )).sort((a, b) => a - b);
+
+      for (const idx of hostIndices) {
+        const macKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(MACAddress|PhysAddress)$`, 'i').test(k));
+        const ipKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(IPAddress|IPv4Address\\.1\\.IPAddress)$`, 'i').test(k));
+        const nameKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(HostName|UserHostName|DeviceName)$`, 'i').test(k));
+        const ifaceKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(InterfaceType|Layer1Interface)$`, 'i').test(k));
+        const rawMac = macKey ? rawParams[macKey] : null;
+        const rawIp = ipKey ? rawParams[ipKey] : null;
+        const rawName = nameKey ? rawParams[nameKey] : null;
+        const rawIface = ifaceKey ? rawParams[ifaceKey] : null;
+
+        if (rawMac && rawMac !== '00:00:00:00:00:00') {
+          const friendly = CwmpVendorProfiles.resolveFriendlyDeviceName(rawName, rawMac, rawIface);
+          allInspectClients.push({
+            name: friendly,
+            hostname: friendly,
+            mac: rawMac.toUpperCase(),
+            ip: rawIp || '192.168.0.x',
+            interfaceType: rawIface || '2.4GHz',
+          });
+        }
+      }
+    }
     allInspectClients = allInspectClients.map((c: any) => {
       const friendlyName = CwmpVendorProfiles.resolveFriendlyDeviceName(c.hostname, c.mac, c.interfaceType);
       const isWireless = CwmpVendorProfiles.isWirelessClient(c.mac, friendlyName, c.interfaceType);
@@ -1702,6 +1733,14 @@ operatorRouter.get('/devices/:id/wan/profiles', async (req: AuthenticatedRequest
     const device = await Device.findOne({ $or: [{ _id: Types.ObjectId.isValid(id) ? id : undefined }, { serialNumber: id }] });
     if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
 
+    const customer = await Customer.findOne({
+      $or: [{ deviceId: device._id }, { assignedOntSerial: device.serialNumber }]
+    }).lean();
+
+    const pppoeUser = (device as any).pppoeUsername || (customer as any)?.wanConfig?.pppoeUsername || (customer as any)?.pppoeUsername || '';
+    const pppoePass = (device as any).pppoePassword || (customer as any)?.wanConfig?.pppoePassword || (customer as any)?.pppoePassword || '';
+    const resolvedWanVlan = (device as any).wanVlan || (customer as any)?.wanConfig?.vlanId || 100;
+
     if (!device.wanProfiles || device.wanProfiles.length === 0) {
       const raw = device.rawParameters || {};
       const connPrefixes = Array.from(new Set(
@@ -1719,14 +1758,14 @@ operatorRouter.get('/devices/:id/wan/profiles', async (req: AuthenticatedRequest
           const isVoip = /VOIP|VOICE/i.test(name) || /VOIP|VOICE/i.test(serviceList);
           const serviceType = isTr069 ? 'TR069' : (isVoip ? 'VOIP' : 'INTERNET');
           const vlanRaw = raw[`${prefix}.X_CT-COM_VlanID`] || raw[`${prefix}.X_CT_COM_VlanID`] || raw[`${prefix}.X_HW_VLAN`] || raw[`${prefix}.VLANID`];
-          const vlan = vlanRaw ? parseInt(String(vlanRaw), 10) : 100;
+          const vlan = vlanRaw ? parseInt(String(vlanRaw), 10) : resolvedWanVlan;
           return {
             name,
             connectionType: isPpp ? 'PPPoE' : 'IP_Routed',
             serviceType,
             cpeObjectPath: `${prefix}.`,
             status: raw[`${prefix}.ConnectionStatus`] || (device.status === 'online' ? 'Connected' : 'Connecting'),
-            pppoeUsername: raw[`${prefix}.Username`] || '',
+            pppoeUsername: raw[`${prefix}.Username`] || pppoeUser,
             ipAddress: raw[`${prefix}.ExternalIPAddress`] || device.ipAddress || null,
             vlanId: vlan,
             vlanEnabled: Boolean(vlanRaw),
@@ -1735,6 +1774,30 @@ operatorRouter.get('/devices/:id/wan/profiles', async (req: AuthenticatedRequest
         }) as any;
         await device.save();
       }
+    }
+
+    // Ensure an active customer INTERNET PPPoE profile exists even if CPE TR-098 tree omits it
+    const hasInternetProf = (device.wanProfiles || []).some(
+      (p: any) => p.connectionType === 'PPPoE' || p.serviceType === 'INTERNET' || /INTERNET|PPP/i.test(p.name || '')
+    );
+    if (!hasInternetProf || (device.wanProfiles || []).length === 0) {
+      const pppProfile = {
+        name: `1_INTERNET_R_VID_${resolvedWanVlan}`,
+        connectionType: 'PPPoE',
+        serviceType: 'INTERNET',
+        bearerService: 'INTERNET',
+        linkMode: 'PPP',
+        cpeObjectPath: 'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.',
+        status: device.status === 'online' ? 'Connected' : 'Connecting',
+        pppoeUsername: pppoeUser,
+        pppoePassword: pppoePass,
+        ipAddress: device.ipAddress || null,
+        vlanId: resolvedWanVlan,
+        vlanEnabled: true,
+        isDefault: (device.wanProfiles || []).length === 0,
+      };
+      device.wanProfiles = [...(device.wanProfiles || []), pppProfile] as any;
+      await device.save();
     }
     const is2Port = /4410|PLATINUM[-_ ]?4410|GX[-_ ]?4410|EARTH|1010|1001/i.test(String(device.modelName || ''));
     
@@ -4372,9 +4435,9 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           { name: 'Reboot', protocol: 'TR-069/USP', description: 'Dispatch graceful CPE device reboot RPC', permission: 'DEVICE_ADMIN' },
           { name: 'FactoryReset', protocol: 'TR-069', description: 'Restore ONT firmware parameters to factory defaults', permission: 'DEVICE_SUPERADMIN' },
         ],
-        // Reconcile any stale commands older than configured timeout (default 180s)
+        // Reconcile any stale commands older than configured timeout (default 900s / 15 mins)
         queue: (await (async () => {
-          const timeoutSeconds = parseInt(process.env.CWMP_TASK_TIMEOUT_SECONDS || '180', 10);
+          const timeoutSeconds = parseInt(process.env.CWMP_TASK_TIMEOUT_SECONDS || '900', 10);
           const staleThreshold = new Date(Date.now() - timeoutSeconds * 1000);
 
           // Handle sending commands that timed out
@@ -4521,6 +4584,19 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           }
           return { exists: false };
         })(),
+        auditLogs: (await AuditLog.find({
+          $or: [
+            { targetId: device._id.toString() },
+            { targetIdentifier: device.serialNumber },
+          ],
+        }).sort({ timestamp: -1 }).limit(50).lean()).map((log: any) => ({
+          timestamp: log.timestamp,
+          user: log.actorEmail || 'operator@isp.local',
+          action: log.action,
+          correlationId: log.correlationId || `audit_${log._id}`,
+          result: log.status || 'SUCCESS',
+          details: log.details || log.metadata || null,
+        })),
       },
     });
   } catch (error: any) {

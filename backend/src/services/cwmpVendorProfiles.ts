@@ -42,8 +42,8 @@ export class CwmpVendorProfiles {
     const text = ((manufacturer || '') + ' ' + (modelName || '') + ' ' + (oui || '') + ' ' + (productClass || '') + ' ' + (rawXml || '')).toLowerCase();
     let detected: CpeVendor = 'CHINA_TELECOM';
 
-    // 1. Syrotech ONTs (SY-GPON series)
-    if (/syrotech|sy-gpon|syro/i.test(text)) {
+    // 1. Syrotech ONTs (SY-GPON series, 1110WD, GXD, Luna platform)
+    if (/syrotech|sy-gpon|syro|1110wd|gxd|r28080/i.test(text) || oui === '3894E0' || oui === '7CA96B' || oui === '5447E8' || oui === 'B8B7DB' || oui === '989DB2') {
       detected = 'SYROTECH';
     }
     // 2. Realtek / OEM Realtek chipsets (OUI 00E04C, XPON+1GE, etc.)
@@ -256,8 +256,12 @@ export class CwmpVendorProfiles {
       ...explicitHostParams,
       // Universal WAN Connection Subtree (Discovers all active PPP and IP connection slots without leaf path mismatches)
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.',
-      // Management Server
+      // Management Server & Connection Request Authentication
       'InternetGatewayDevice.ManagementServer.ConnectionRequestURL',
+      'InternetGatewayDevice.ManagementServer.ConnectionRequestUsername',
+      'InternetGatewayDevice.ManagementServer.ConnectionRequestPassword',
+      'InternetGatewayDevice.ManagementServer.PeriodicInformInterval',
+      'InternetGatewayDevice.ManagementServer.PeriodicInformEnable',
     ];
   }
 
@@ -274,6 +278,11 @@ export class CwmpVendorProfiles {
           'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.RXPower',
           'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.RXPower',
           'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_CTC_EPONInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_GXD_OpticalInfo.RxPower',
+          'InternetGatewayDevice.DeviceInfo.X_CT-COM_OpticalInfo.RxPower',
         ];
 
       case 'HUAWEI':
@@ -939,6 +948,11 @@ export class CwmpVendorProfiles {
           '00215D': 'Lenovo ThinkPad Laptop',
           '54EE75': 'Lenovo Legion / IdeaPad',
           '8CDCD4': 'Lenovo Laptop PC',
+          // Additional Common Mobile & Client OUIs
+          '9078B2': 'Vivo / Oppo Smartphone',
+          '50A009': 'Apple / 5GHz Wi-Fi Device',
+          'D6C331': 'Android Smartphone',
+          'C6BB89': 'Android Smartphone',
         };
 
         if (brandMap[p3]) {
@@ -946,10 +960,10 @@ export class CwmpVendorProfiles {
         }
 
         if (isRandomized) {
-          return `Smartphone / Tablet (Private Wi-Fi ${mac.slice(-5).toUpperCase()})`;
+          return `Android / iOS Mobile (${mac.slice(-5).toUpperCase()})`;
         }
 
-        return `Wireless Client (${mac.slice(-5).toUpperCase()})`;
+        return `Wi-Fi Client (${mac.slice(-5).toUpperCase()})`;
       }
     }
 

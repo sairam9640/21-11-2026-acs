@@ -18,6 +18,8 @@ export interface CwmpInformData {
   hardwareVersion?: string;
   macAddress?: string;
   connectionRequestUrl?: string;
+  connectionRequestUsername?: string;
+  connectionRequestPassword?: string;
   wanIp?: string;
   pppoeUsername?: string;
   opticalRxPower?: number;
@@ -250,6 +252,14 @@ export class CwmpService {
     data.connectionRequestUrl =
       this.getFirstParam(pMap, ['Device.ManagementServer.ConnectionRequestURL', 'InternetGatewayDevice.ManagementServer.ConnectionRequestURL']) ||
       CwmpXmlParser.extractTag(xml, 'ConnectionRequestURL');
+
+    data.connectionRequestUsername =
+      this.getFirstParam(pMap, ['Device.ManagementServer.ConnectionRequestUsername', 'InternetGatewayDevice.ManagementServer.ConnectionRequestUsername']) ||
+      CwmpXmlParser.extractTag(xml, 'ConnectionRequestUsername');
+
+    data.connectionRequestPassword =
+      this.getFirstParam(pMap, ['Device.ManagementServer.ConnectionRequestPassword', 'InternetGatewayDevice.ManagementServer.ConnectionRequestPassword']) ||
+      CwmpXmlParser.extractTag(xml, 'ConnectionRequestPassword');
 
     data.wanIp = this.getFirstParam(pMap, [
       'Device.IP.Interface.1.IPv4Address.1.IPAddress',
@@ -618,9 +628,8 @@ export class CwmpService {
       }
     }
 
-    // 3. Registered Hardware Owner (Validated ONLY under its registered Tenant Slug or verified mapping)
-    // If an ONT is registered to Tenant A, it must communicate under Tenant A's dedicated slug.
-    if (cpeContext?.serialAliases && cpeContext.serialAliases.length > 0 && incomingSlug) {
+    // 3. Registered Hardware Owner (Validated across tenants if ONT is pre-registered or assigned to a customer)
+    if (cpeContext?.serialAliases && cpeContext.serialAliases.length > 0) {
       const existingDevice = await Device.findOne({
         serialNumber: { $in: cpeContext.serialAliases },
         tenantId: { $exists: true, $ne: null },
@@ -628,15 +637,26 @@ export class CwmpService {
 
       if (existingDevice?.tenantId) {
         const t = await Tenant.findById(existingDevice.tenantId);
-        if (t && (t.slug === incomingSlug || t.subdomain?.toLowerCase() === incomingSlug)) {
-          return t;
-        }
+        if (t) return t;
+      }
+
+      // Check if assigned to a customer in any tenant
+      const customer = await Customer.findOne({
+        assignedOntSerial: { $in: cpeContext.serialAliases },
+        tenantId: { $exists: true, $ne: null },
+      });
+      if (customer?.tenantId) {
+        const t = await Tenant.findById(customer.tenantId);
+        if (t) return t;
       }
     }
 
-    // 4. Strict Multi-Tenant Enforcement:
-    // Root ACS access without a valid dedicated slug MUST NEVER auto-assign to any tenant.
-    // Unmatched CPEs return null and are placed into the Pending Quarantine Pool for Super Admin manual review.
+    // 4. Default / Single Active Tenant Fallback for direct IP /cwmp connections
+    const activeTenants = await Tenant.find({ status: 'active' }).limit(2);
+    if (activeTenants.length === 1) {
+      return activeTenants[0];
+    }
+
     return null;
   }
 
@@ -1070,6 +1090,9 @@ export class CwmpService {
         if (informData.hardwareVersion) device.hardwareVersion = informData.hardwareVersion;
         if (informData.macAddress) device.macAddress = informData.macAddress;
         if (informData.productClass) device.modelName = informData.productClass;
+        if (informData.connectionRequestUrl) device.connectionRequestUrl = informData.connectionRequestUrl;
+        if ((informData as any).connectionRequestUsername) device.connectionRequestUsername = (informData as any).connectionRequestUsername;
+        if ((informData as any).connectionRequestPassword) device.connectionRequestPassword = (informData as any).connectionRequestPassword;
 
         device.lastRawInformXml = xml;
         if (!device.rawParameters) device.rawParameters = {};
@@ -1201,6 +1224,9 @@ export class CwmpService {
           customerId: undefined,
           assigned: false,
           cwmpSessionId: sessionId,
+          connectionRequestUrl: informData.connectionRequestUrl,
+          connectionRequestUsername: (informData as any).connectionRequestUsername,
+          connectionRequestPassword: (informData as any).connectionRequestPassword,
           lastRawInformXml: xml,
           rawParameters: {},
           wanProfiles: initialWanProfiles,

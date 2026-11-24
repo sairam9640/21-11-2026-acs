@@ -179,6 +179,9 @@ export interface IDevice extends Document {
   pendingCommandsCount: number;
   cwmpUsername?: string;
   cwmpPassword?: string;
+  connectionRequestUrl?: string;
+  connectionRequestUsername?: string;
+  connectionRequestPassword?: string;
   acsUrl?: string;
   pendingConfig?: {
     status: 'PENDING_PUSH' | 'APPLIED' | 'FAILED';
@@ -389,6 +392,9 @@ const DeviceSchema = new Schema<IDevice>(
     pendingCommandsCount: { type: Number, default: 0 },
     cwmpUsername: { type: String },
     cwmpPassword: { type: String },
+    connectionRequestUrl: { type: String },
+    connectionRequestUsername: { type: String },
+    connectionRequestPassword: { type: String },
     acsUrl: { type: String },
     // Firmware capability flags
     addObjectNotSupported: { type: Boolean, default: false },

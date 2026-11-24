@@ -3248,7 +3248,13 @@ export const DeviceDetail: React.FC = () => {
             {/* TAB CONTENT 13: AUDIT TRAILS */}
             {activeTab === 'audit' && (
               <div className="bg-white border border-[#E2E8F0] rounded-2xl p-5 space-y-4">
-                <h3 className="text-sm font-bold text-[#0F172A]">Immutable Device Security Audit Trail</h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-[#0F172A]">Immutable Device Security Audit Trail</h3>
+                    <p className="text-xs text-[#64748B] mt-0.5">Real-time governance records of configuration dispatches, RPC invocations, and operator actions</p>
+                  </div>
+                  <Badge variant="purple">TR-069 Security Governance</Badge>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs font-mono">
                     <thead className="bg-[#F8FAFC] text-[#64748B] border-b border-[#E2E8F0]">
@@ -3261,20 +3267,32 @@ export const DeviceDetail: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#EEF2F7]">
-                      <tr className="hover:bg-[#F8FAFC]">
-                        <td className="p-3 text-[#64748B]">2026-08-23 23:10:20</td>
-                        <td className="p-3 text-[#0F172A]">operator@isp.local</td>
-                        <td className="p-3 text-[#1677FF]">DEVICE_CONFIG_UPDATED</td>
-                        <td className="p-3 text-[#94A3B8]">cfg_1787508622100</td>
-                        <td className="p-3"><Badge variant="success">SUCCESS</Badge></td>
-                      </tr>
-                      <tr className="hover:bg-[#F8FAFC]">
-                        <td className="p-3 text-[#64748B]">2026-08-23 23:08:45</td>
-                        <td className="p-3 text-[#0F172A]">operator@isp.local</td>
-                        <td className="p-3 text-[#6D28D9]">DEVICE_INSPECTED</td>
-                        <td className="p-3 text-[#94A3B8]">inspect_1787508525000</td>
-                        <td className="p-3"><Badge variant="success">SUCCESS</Badge></td>
-                      </tr>
+                      {workspace.auditLogs && workspace.auditLogs.length > 0 ? (
+                        workspace.auditLogs.map((log: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-[#F8FAFC]">
+                            <td className="p-3 text-[#64748B] whitespace-nowrap">
+                              {log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}
+                            </td>
+                            <td className="p-3 text-[#0F172A] font-semibold">{log.user || 'system'}</td>
+                            <td className="p-3">
+                              <span className="text-[#1677FF] font-bold">{log.action}</span>
+                            </td>
+                            <td className="p-3 text-[#94A3B8] font-mono text-[11px]">{log.correlationId || '—'}</td>
+                            <td className="p-3">
+                              <Badge variant={log.result === 'FAILED' || log.result === 'ERROR' ? 'danger' : 'success'}>
+                                {log.result || 'SUCCESS'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-[#64748B]">
+                            <p className="font-sans font-medium text-sm">No device audit logs recorded yet.</p>
+                            <p className="font-sans text-xs mt-1 text-[#94A3B8]">Any parameter writes, reboots, or diagnostics will be immutably recorded here.</p>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
