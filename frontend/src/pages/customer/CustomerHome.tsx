@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wifi, Smartphone, Activity, HelpCircle, Bot, CheckCircle2, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Wifi, Smartphone, Activity, HelpCircle, Bot, CheckCircle2, ArrowRight, ShieldCheck, Gauge } from 'lucide-react';
 import { MobileShell } from '../../components/layout/MobileShell.js';
 import { StateWrapper } from '../../components/ui/StateWrapper.js';
 import { Badge } from '../../components/ui/Badge.js';
 import { Button } from '../../components/ui/Button.js';
 import { api } from '../../services/api.js';
+import { SpeedtestWidget } from '../../components/SpeedtestWidget.js';
 
 export const CustomerHome: React.FC = () => {
   const [data, setData] = useState<any>(null);
@@ -81,6 +82,20 @@ export const CustomerHome: React.FC = () => {
                 <span className="text-[10px] text-[#64748B]">{data?.connectedDevicesCount || 3} active clients</span>
               </button>
             </div>
+          </div>
+
+          {/* Customer Live Speedtest Section */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex items-center space-x-2">
+                <Gauge className="w-4 h-4 text-[#1677FF]" />
+                <h3 className="text-xs font-bold text-[#0F172A]">Live Fiber Speedtest</h3>
+              </div>
+              <span className="text-[10px] font-mono font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                Core VPS Server
+              </span>
+            </div>
+            <SpeedtestWidget compact={true} />
           </div>
 
           {/* AI Self-Troubleshooting Banner */}

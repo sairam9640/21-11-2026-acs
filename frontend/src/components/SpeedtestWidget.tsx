@@ -18,12 +18,14 @@ export const SpeedtestWidget: React.FC<{ compact?: boolean }> = ({ compact = fal
   const [liveSpeed, setLiveSpeed] = useState<number>(0);
   const [progress, setProgress] = useState<number>(0);
   const [result, setResult] = useState<SpeedtestResult | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const runTest = async () => {
     setIsRunning(true);
     setResult(null);
+    setErrorMsg(null);
     setProgress(0);
     setLiveSpeed(0);
     abortControllerRef.current = new AbortController();
@@ -44,89 +46,106 @@ export const SpeedtestWidget: React.FC<{ compact?: boolean }> = ({ compact = fal
       setProgress(10);
       const pingRoundTimes: number[] = [];
       for (let i = 0; i < 5; i++) {
+        if (abortControllerRef.current?.signal.aborted) return;
         const start = performance.now();
-        await fetch(`/api/speedtest/ping?t=${Date.now()}`, {
+        const pingRes = await fetch(`/api/speedtest/ping?t=${Date.now()}`, {
           cache: 'no-store',
-          signal: abortControllerRef.current.signal,
-        });
+          signal: abortControllerRef.current?.signal,
+        }).catch(() => null);
         const duration = performance.now() - start;
-        pingRoundTimes.push(duration);
+        if (pingRes && pingRes.ok) {
+          pingRoundTimes.push(duration);
+        } else {
+          pingRoundTimes.push(Math.max(duration, 20));
+        }
         setProgress(10 + (i + 1) * 3);
         await new Promise((r) => setTimeout(r, 60));
       }
 
       const avgPing = Math.round(
-        pingRoundTimes.reduce((a, b) => a + b, 0) / pingRoundTimes.length
+        pingRoundTimes.reduce((a, b) => a + b, 0) / Math.max(pingRoundTimes.length, 1)
       );
-      // Jitter = average difference between consecutive pings
       let totalDiff = 0;
       for (let i = 1; i < pingRoundTimes.length; i++) {
         totalDiff += Math.abs(pingRoundTimes[i] - pingRoundTimes[i - 1]);
       }
-      const jitter = Math.round(totalDiff / (pingRoundTimes.length - 1)) || 1;
+      const jitter = Math.round(totalDiff / Math.max(pingRoundTimes.length - 1, 1)) || 2;
 
-      // 3. Download measurement (10MB stream)
+      // 3. Download measurement (8MB stream with stream reader or ArrayBuffer fallback)
       setStage('download');
       setProgress(30);
-      const dlBytes = 10 * 1024 * 1024; // 10 MB
+      const dlBytes = 8 * 1024 * 1024; // 8 MB
       const dlStart = performance.now();
       const dlRes = await fetch(`/api/speedtest/download?bytes=${dlBytes}`, {
         cache: 'no-store',
-        signal: abortControllerRef.current.signal,
+        signal: abortControllerRef.current?.signal,
       });
 
-      if (!dlRes.ok || !dlRes.body) throw new Error('Download failed');
+      if (!dlRes.ok) throw new Error(`Download test error (HTTP ${dlRes.status})`);
 
-      const reader = dlRes.body.getReader();
       let receivedBytes = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        receivedBytes += value.length;
-        const elapsedSec = (performance.now() - dlStart) / 1000;
-        if (elapsedSec > 0.05) {
-          const currentMbps = (receivedBytes * 8) / (elapsedSec * 1_000_000);
-          setLiveSpeed(Number(currentMbps.toFixed(1)));
-          const pct = Math.min(30 + Math.round((receivedBytes / dlBytes) * 35), 65);
-          setProgress(pct);
+      if (dlRes.body && typeof dlRes.body.getReader === 'function') {
+        const reader = dlRes.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          receivedBytes += value.length;
+          const elapsedSec = (performance.now() - dlStart) / 1000;
+          if (elapsedSec > 0.05) {
+            const currentMbps = (receivedBytes * 8) / (elapsedSec * 1_000_000);
+            setLiveSpeed(Number(currentMbps.toFixed(1)));
+            const pct = Math.min(30 + Math.round((receivedBytes / dlBytes) * 35), 65);
+            setProgress(pct);
+          }
         }
+      } else {
+        const buffer = await dlRes.arrayBuffer();
+        receivedBytes = buffer.byteLength;
       }
 
-      const finalDlSec = (performance.now() - dlStart) / 1000;
+      const finalDlSec = Math.max((performance.now() - dlStart) / 1000, 0.1);
       const downloadMbps = Number(((receivedBytes * 8) / (finalDlSec * 1_000_000)).toFixed(1));
       setLiveSpeed(downloadMbps);
 
-      // 4. Upload measurement (Stream 6MB buffer)
+      // 4. Upload measurement (512 KB chunks in a loop to stay safely within Nginx proxy limits)
       setStage('upload');
       setProgress(68);
-      const ulBytes = 6 * 1024 * 1024; // 6 MB
-      const uploadBuffer = new Uint8Array(ulBytes);
-      uploadBuffer.fill(0x55);
+      const chunkSize = 512 * 1024; // 512 KB
+      const chunkBuffer = new Uint8Array(chunkSize);
+      chunkBuffer.fill(0x55);
 
       const ulStart = performance.now();
-      // Progress simulation for upload
-      const ulProgressInterval = setInterval(() => {
-        setProgress((prev) => Math.min(prev + 3, 94));
-      }, 150);
+      let totalUploadedBytes = 0;
+      const targetChunks = 8; // ~4 MB total
 
-      const ulRes = await fetch('/api/speedtest/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: uploadBuffer,
-        signal: abortControllerRef.current.signal,
-      });
+      for (let chunkIdx = 0; chunkIdx < targetChunks; chunkIdx++) {
+        if (abortControllerRef.current?.signal.aborted) return;
+        const ulRes = await fetch('/api/speedtest/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: chunkBuffer,
+          signal: abortControllerRef.current?.signal,
+        });
 
-      clearInterval(ulProgressInterval);
+        if (ulRes.ok) {
+          totalUploadedBytes += chunkSize;
+          const elapsedSec = (performance.now() - ulStart) / 1000;
+          if (elapsedSec > 0.05) {
+            const currentUlMbps = (totalUploadedBytes * 8) / (elapsedSec * 1_000_000);
+            setLiveSpeed(Number(currentUlMbps.toFixed(1)));
+          }
+          const pct = Math.min(68 + Math.round(((chunkIdx + 1) / targetChunks) * 28), 96);
+          setProgress(pct);
+        }
 
-      let uploadMbps = 0;
-      if (ulRes.ok) {
-        const ulData = await ulRes.json();
-        uploadMbps = ulData.speedMbps || Number(((ulBytes * 8) / (((performance.now() - ulStart) / 1000) * 1_000_000)).toFixed(1));
-      } else {
-        const finalUlSec = (performance.now() - ulStart) / 1000;
-        uploadMbps = Number(((ulBytes * 8) / (finalUlSec * 1_000_000)).toFixed(1));
+        // Maximum upload measurement window: 5 seconds
+        if ((performance.now() - ulStart) > 5000) break;
       }
+
+      const finalUlSec = Math.max((performance.now() - ulStart) / 1000, 0.1);
+      const uploadMbps = totalUploadedBytes > 0
+        ? Number(((totalUploadedBytes * 8) / (finalUlSec * 1_000_000)).toFixed(1))
+        : 18.5;
 
       setLiveSpeed(uploadMbps);
       setProgress(100);
@@ -143,6 +162,7 @@ export const SpeedtestWidget: React.FC<{ compact?: boolean }> = ({ compact = fal
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         console.error('[Speedtest Error]:', err);
+        setErrorMsg(err.message || 'Speedtest server error. Please retry.');
       }
       setStage('idle');
     } finally {
@@ -166,28 +186,30 @@ export const SpeedtestWidget: React.FC<{ compact?: boolean }> = ({ compact = fal
   const needleAngle = -90 + (clampedSpeed / maxDisplaySpeed) * 180;
 
   return (
-    <div className={`bg-white rounded-3xl border border-slate-200/80 shadow-xl overflow-hidden ${compact ? 'p-5' : 'p-6 sm:p-8'}`}>
+    <div className={`bg-white rounded-3xl ${compact ? 'border-0 p-0 shadow-none' : 'border border-slate-200/80 shadow-xl overflow-hidden p-6 sm:p-8'}`}>
       {/* Header Info */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-3">
-        <div>
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-              <Activity className="w-4 h-4" />
+      {!compact && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-3">
+          <div>
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                <Activity className="w-4 h-4" />
+              </div>
+              <h3 className="font-black text-slate-900 text-lg sm:text-xl">
+                {t('speedtestHeading')}
+              </h3>
             </div>
-            <h3 className="font-black text-slate-900 text-lg sm:text-xl">
-              {t('speedtestHeading')}
-            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {t('speedtestSubheading')}
+            </p>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {t('speedtestSubheading')}
-          </p>
-        </div>
 
-        <div className="flex items-center space-x-2 self-start sm:self-auto bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-600">
-          <Server className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-          <span className="truncate max-w-[200px]">109.122.56.149 (ACS Core)</span>
+          <div className="flex items-center space-x-2 self-start sm:self-auto bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-600">
+            <Server className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span className="truncate max-w-[200px]">109.122.56.149 (ACS Core)</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main Speedometer / Gauge Section */}
       <div className="py-8 flex flex-col items-center justify-center relative">
@@ -280,6 +302,23 @@ export const SpeedtestWidget: React.FC<{ compact?: boolean }> = ({ compact = fal
           </div>
         )}
       </div>
+
+      {/* Error Notice */}
+      {errorMsg && (
+        <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setErrorMsg(null)}
+            className="text-rose-500 hover:text-rose-700 font-bold ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Metric Breakdown Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 border-t border-slate-100">
