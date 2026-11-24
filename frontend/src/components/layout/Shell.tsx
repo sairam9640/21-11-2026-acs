@@ -33,6 +33,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
+import { useLanguage } from '../../context/LanguageContext.js';
 import { Button } from '../ui/Button.js';
 
 export interface ShellProps {
@@ -53,39 +54,40 @@ export const Shell: React.FC<ShellProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const { user, tenant, isImpersonating, exitImpersonation, logout } = useAuth();
+  const { lang, setLang, t } = useLanguage();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const superAdminNav = [
-    { label: 'Executive Dashboard', path: '/superadmin/dashboard', icon: LayoutDashboard },
-    { label: 'Pending Operator Mapping', path: '/superadmin/pending-mappings', icon: Radio },
-    { label: 'Tenant Management', path: '/superadmin/tenants', icon: Building2 },
-    { label: 'Users & Global Roles', path: '/superadmin/users', icon: Users },
-    { label: 'Plans & Revenue', path: '/superadmin/plans', icon: BarChart3 },
-    { label: 'System Health & Queues', path: '/superadmin/health', icon: Activity },
-    { label: 'Global Incidents', path: '/superadmin/incidents', icon: AlertTriangle },
-    { label: 'Audit Log Explorer', path: '/superadmin/audit', icon: Shield },
-    { label: 'Platform Settings', path: '/superadmin/settings', icon: Settings },
+    { label: lang === 'te' ? 'ఎగ్జిక్యూటివ్ డ్యాష్‌బోర్డ్' : 'Executive Dashboard', path: '/superadmin/dashboard', icon: LayoutDashboard },
+    { label: lang === 'te' ? 'పెండింగ్ ఆపరేటర్ మ్యాపింగ్' : 'Pending Operator Mapping', path: '/superadmin/pending-mappings', icon: Radio },
+    { label: lang === 'te' ? 'టెనెంట్ నిర్వహణ' : 'Tenant Management', path: '/superadmin/tenants', icon: Building2 },
+    { label: lang === 'te' ? 'యూజర్లు & గ్లోబల్ రోల్స్' : 'Users & Global Roles', path: '/superadmin/users', icon: Users },
+    { label: lang === 'te' ? 'ప్లాన్లు & రాబడి' : 'Plans & Revenue', path: '/superadmin/plans', icon: BarChart3 },
+    { label: lang === 'te' ? 'సిస్టమ్ ఆరోగ్యం & క్యూలు' : 'System Health & Queues', path: '/superadmin/health', icon: Activity },
+    { label: lang === 'te' ? 'గ్లోబల్ సమస్యలు' : 'Global Incidents', path: '/superadmin/incidents', icon: AlertTriangle },
+    { label: lang === 'te' ? 'ఆడిట్ లాగ్ ఎక్స్‌ప్లోరర్' : 'Audit Log Explorer', path: '/superadmin/audit', icon: Shield },
+    { label: lang === 'te' ? 'ప్లాట్‌ఫారమ్ సెట్టింగులు' : 'Platform Settings', path: '/superadmin/settings', icon: Settings },
   ];
 
   const operatorNav = [
-    { label: 'NOC Dashboard', path: '/operator/dashboard', icon: LayoutDashboard },
-    { label: 'Customer Directory', path: '/operator/customers', icon: Users },
-    { label: 'ONT / CPE Fleet', path: '/operator/devices', icon: Radio },
-    { label: 'OLT & PON Ports', path: '/operator/network', icon: Server },
-    { label: 'Fiber GIS Map', path: '/operator/gis', icon: MapPin },
-    { label: 'Plan & Expiry Hub', path: '/operator/plans', icon: CalendarClock },
-    { label: 'Payment Gateways', path: '/operator/payments/gateways', icon: CreditCard },
-    { label: 'Reconciliation', path: '/operator/payments/reconciliation', icon: CreditCard },
-    { label: 'WhatsApp Live Chat', path: '/operator/whatsapp-chat', icon: MessageSquare },
-    { label: 'Warehouse Spares', path: '/operator/inventory/warehouse', icon: Layers },
-    { label: 'Approvals Gate', path: '/operator/approvals', icon: CheckSquare },
-    { label: 'Automation Rules', path: '/operator/automation', icon: Zap },
-    { label: 'Alerts & Incidents', path: '/operator/incidents', icon: AlertTriangle },
-    { label: 'Support Tickets', path: '/operator/tickets', icon: Ticket },
-    { label: 'Field Technicians', path: '/operator/technicians', icon: Wrench },
-    { label: 'AI Command Center', path: '/operator/ai', icon: Bot },
-    { label: 'Executive Analytics', path: '/operator/analytics', icon: TrendingUp },
-    { label: 'Operator Settings', path: '/operator/settings', icon: Settings },
+    { label: t('navNoc'), path: '/operator/dashboard', icon: LayoutDashboard },
+    { label: t('navCustomers'), path: '/operator/customers', icon: Users },
+    { label: t('navDevices'), path: '/operator/devices', icon: Radio },
+    { label: t('navOlt'), path: '/operator/network', icon: Server },
+    { label: t('navGis'), path: '/operator/gis', icon: MapPin },
+    { label: t('navPlans'), path: '/operator/plans', icon: CalendarClock },
+    { label: t('navGateways'), path: '/operator/payments/gateways', icon: CreditCard },
+    { label: t('navReconciliation'), path: '/operator/payments/reconciliation', icon: CreditCard },
+    { label: t('navWhatsapp'), path: '/operator/whatsapp-chat', icon: MessageSquare },
+    { label: t('navWarehouse'), path: '/operator/inventory/warehouse', icon: Layers },
+    { label: t('navApprovals'), path: '/operator/approvals', icon: CheckSquare },
+    { label: t('navAutomation'), path: '/operator/automation', icon: Zap },
+    { label: t('navIncidents'), path: '/operator/incidents', icon: AlertTriangle },
+    { label: t('navTickets'), path: '/operator/tickets', icon: Ticket },
+    { label: t('navTechs'), path: '/operator/technicians', icon: Wrench },
+    { label: t('navAi'), path: '/operator/ai', icon: Bot },
+    { label: t('navAnalytics'), path: '/operator/analytics', icon: TrendingUp },
+    { label: t('navSettings'), path: '/operator/settings', icon: Settings },
   ];
 
   const customerNav = [
@@ -206,7 +208,7 @@ export const Shell: React.FC<ShellProps> = ({
               <button
                 onClick={handleLogout}
                 className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
-                title="Sign Out"
+                title={t('signOut') || 'Sign Out'}
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -247,6 +249,32 @@ export const Shell: React.FC<ShellProps> = ({
             </div>
 
             <div className="flex items-center space-x-3">
+              {/* Language Switcher Pill */}
+              <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setLang('en')}
+                  className={`px-2 py-1 text-[11px] font-bold rounded-md transition ${
+                    lang === 'en'
+                      ? 'bg-white text-blue-600 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  EN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLang('te')}
+                  className={`px-2 py-1 text-[11px] font-bold rounded-md transition ${
+                    lang === 'te'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  తెలుగు
+                </button>
+              </div>
+
               <div className="relative">
                 <button
                   onClick={() => navigate(portalType === 'superadmin' ? '/superadmin/incidents' : '/operator/incidents')}

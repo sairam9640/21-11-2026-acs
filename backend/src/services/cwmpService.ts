@@ -414,8 +414,23 @@ export class CwmpService {
       const rawName = pMap.get(`${prefix}.Name`) || '';
       const user = pMap.get(`${prefix}.Username`) || '';
       const extIp = pMap.get(`${prefix}.ExternalIPAddress`) || '';
-      const vlanRaw = pMap.get(`${prefix}.X_CT-COM_VlanID`) || pMap.get(`${prefix}.X_CT_COM_VlanID`) || pMap.get(`${prefix}.X_HW_VLAN`) || pMap.get(`${prefix}.X_ZTE-COM_VLAN`) || pMap.get(`${prefix}.VLANID`);
-      const vlan = vlanRaw ? parseInt(vlanRaw, 10) : undefined;
+      const slotMatch = prefix.match(/WANConnectionDevice\.(\d+)\./i);
+      const slotNum = slotMatch ? slotMatch[1] : '1';
+
+      const vlanRaw = pMap.get(`${prefix}.X_CT-COM_VlanID`) ||
+                      pMap.get(`${prefix}.X_CT_COM_VlanID`) ||
+                      pMap.get(`${prefix}.X_HW_VLAN`) ||
+                      pMap.get(`${prefix}.X_ZTE-COM_VLAN`) ||
+                      pMap.get(`${prefix}.VLANID`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`);
+      const vlan = vlanRaw ? parseInt(String(vlanRaw), 10) : undefined;
+      const rawEponMode = pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`) ||
+                          pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`);
+      const isVlanTagMode = rawEponMode !== undefined ? String(rawEponMode) === '1' : Boolean(vlan && vlan > 0);
+
       const status = pMap.get(`${prefix}.ConnectionStatus`) || (extIp && extIp !== '0.0.0.0' ? 'Connected' : 'Connecting');
       const serviceRaw = pMap.get(`${prefix}.X_CT-COM_ServiceList`) || pMap.get(`${prefix}.X_CT_COM_ServiceList`) || pMap.get(`${prefix}.X_HW_SERVICELIST`) || pMap.get(`${prefix}.ServiceList`) || '';
 
@@ -424,8 +439,6 @@ export class CwmpService {
       const isInternet = /INTERNET/i.test(rawName) || /INTERNET/i.test(serviceRaw) || (!isTr069 && !isVoip);
       const resolvedService = isTr069 ? 'TR069' : (isVoip ? 'VOIP' : 'INTERNET');
 
-      const slotMatch = prefix.match(/WANConnectionDevice\.(\d+)\./i);
-      const slotNum = slotMatch ? slotMatch[1] : '1';
       const fallbackName = `${slotNum}_${resolvedService}_R${vlan ? `_VID_${vlan}` : ''}`;
       const gateway = pMap.get(`${prefix}.DefaultGateway`) || '';
       const mask = pMap.get(`${prefix}.SubnetMask`) || '';
@@ -434,12 +447,14 @@ export class CwmpService {
         name: rawName || fallbackName,
         connectionType: 'PPPoE',
         type: 'PPPoE',
+        mode: 'Route',
         linkMode: 'PPP',
         cpeObjectPath: `${prefix}.`,
         pppoeUsername: user,
         ipAddress: extIp || null,
-        vlanId: vlan || (isTr069 ? 100 : 100),
-        vlanEnabled: vlan !== undefined,
+        vlanId: vlan,
+        vlanMode: isVlanTagMode ? 'TAG' : 'UNTAG',
+        vlanEnabled: isVlanTagMode && Boolean(vlan),
         status,
         serviceType: resolvedService,
         serviceUsage: {
@@ -461,8 +476,27 @@ export class CwmpService {
       const rawName = pMap.get(`${prefix}.Name`) || '';
       const addrType = pMap.get(`${prefix}.AddressingType`) || 'DHCP';
       const extIp = pMap.get(`${prefix}.ExternalIPAddress`) || '';
-      const vlanRaw = pMap.get(`${prefix}.X_CT-COM_VlanID`) || pMap.get(`${prefix}.X_CT_COM_VlanID`) || pMap.get(`${prefix}.X_HW_VLAN`) || pMap.get(`${prefix}.X_ZTE-COM_VLAN`) || pMap.get(`${prefix}.VLANID`);
-      const vlan = vlanRaw ? parseInt(vlanRaw, 10) : undefined;
+      const slotMatch = prefix.match(/WANConnectionDevice\.(\d+)\./i);
+      const slotNum = slotMatch ? slotMatch[1] : '1';
+
+      const vlanRaw = pMap.get(`${prefix}.X_CT-COM_VlanID`) ||
+                      pMap.get(`${prefix}.X_CT_COM_VlanID`) ||
+                      pMap.get(`${prefix}.X_HW_VLAN`) ||
+                      pMap.get(`${prefix}.X_ZTE-COM_VLAN`) ||
+                      pMap.get(`${prefix}.VLANID`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`);
+      const vlan = vlanRaw ? parseInt(String(vlanRaw), 10) : undefined;
+      const rawEponMode = pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`) ||
+                          pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`);
+      const isVlanTagMode = rawEponMode !== undefined ? String(rawEponMode) === '1' : Boolean(vlan && vlan > 0);
+
+      const connType = pMap.get(`${prefix}.ConnectionType`) || '';
+      const isBridged = connType === 'IP_Bridged' || /bridge/i.test(rawName);
+      const mode = isBridged ? 'Bridge' : 'Route';
+
       const status = pMap.get(`${prefix}.ConnectionStatus`) || (extIp && extIp !== '0.0.0.0' ? 'Connected' : 'Connecting');
       const serviceRaw = pMap.get(`${prefix}.X_CT-COM_ServiceList`) || pMap.get(`${prefix}.X_CT_COM_ServiceList`) || pMap.get(`${prefix}.X_HW_SERVICELIST`) || pMap.get(`${prefix}.ServiceList`) || '';
 
@@ -471,19 +505,19 @@ export class CwmpService {
       const isInternet = /INTERNET/i.test(rawName) || /INTERNET/i.test(serviceRaw);
       const resolvedService = isTr069 ? 'TR069' : (isVoip ? 'VOIP' : (isInternet ? 'INTERNET' : 'OTHER'));
 
-      const slotMatch = prefix.match(/WANConnectionDevice\.(\d+)\./i);
-      const slotNum = slotMatch ? slotMatch[1] : '1';
-      const fallbackName = `${slotNum}_${resolvedService}_IP${vlan ? `_VID_${vlan}` : ''}`;
+      const fallbackName = `${slotNum}_${resolvedService}_${isBridged ? 'B' : 'IP'}${vlan ? `_VID_${vlan}` : ''}`;
 
       wanProfiles.push({
         name: rawName || fallbackName,
-        connectionType: addrType === 'Static' ? 'Static' : 'IP_Routed',
+        connectionType: isBridged ? 'Bridge' : (addrType === 'Static' ? 'Static' : 'DHCP'),
         type: addrType,
+        mode,
         linkMode: 'IP',
         cpeObjectPath: `${prefix}.`,
         ipAddress: extIp || null,
-        vlanId: vlan || 100,
-        vlanEnabled: vlan !== undefined,
+        vlanId: vlan,
+        vlanMode: isVlanTagMode ? 'TAG' : 'UNTAG',
+        vlanEnabled: isVlanTagMode && Boolean(vlan),
         status,
         serviceType: resolvedService,
         serviceUsage: {
@@ -491,7 +525,7 @@ export class CwmpService {
           voip: Boolean(isVoip),
           tr069: Boolean(isTr069),
           iptvDhcp: false,
-          iptvBridge: false,
+          iptvBridge: isBridged,
           other: false,
         },
         enabled: pMap.get(`${prefix}.Enable`) !== '0',
@@ -2455,7 +2489,7 @@ ${stringElements}
 
     // 3. Ingest active WAN parameters across ALL connection instances
     const allWanParams = names.filter((n) =>
-      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|VLANID|DNSServers|DefaultGateway|SubnetMask)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.X_CT-COM_WANEponLinkConfig\.(?:VLANIDMark|Mode)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)/i.test(n) &&
+      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|VLANID|DNSServers|DefaultGateway|SubnetMask)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:X_CT-COM_WANEponLinkConfig|X_CT-COM_WANGponLinkConfig|X_CT-COM_WANLinkConfig)\.(?:VLANIDMark|Mode|802_1pMark)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.VLANID|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)/i.test(n) &&
       !n.endsWith('.')
     );
     for (const p of allWanParams) {
@@ -2833,22 +2867,27 @@ ${stringElements}
         }));
 
         // STRICT TR-069 ORDERING FOR ONT PROVISIONING:
-        // 1. ConnectionType immediately (if applicable / IP_Routed)
+        // 1. ConnectionType immediately (IP_Routed vs IP_Bridged)
         // 2. Enable (true)
-        // 3. Credentials (Username, Password)
-        // 4. VLAN (X_CT-COM_WANEponLinkConfig.Mode = 2, VLANIDMark = <VID> or VLANID = <VID>)
-        // 5. Remaining attributes (NATEnabled, DNSServers, etc.)
+        // 3. NATEnabled (true for Route, false for Bridge)
+        // 4. Credentials (Username, Password)
+        // 5. VLAN (X_CT-COM_WANEponLinkConfig.Mode = 1 (Tag) or 2 (Untag), VLANIDMark = <VID>)
+        // 6. Remaining attributes (DNSServers, etc.)
         const orderedParams: Array<{ name: string; value: any; type: string }> = [];
+
+        const isBridged = targetProfile.mode === 'Bridge' || targetProfile.connectionType === 'Bridge' || Boolean(targetProfile.bridgeMode);
 
         // 1. ConnectionType (only valid on WANIPConnection, omitted on WANPPPConnection to prevent Fault 9005)
         if (!isPpp) {
+          const connTypeVal = isBridged ? 'IP_Bridged' : 'IP_Routed';
           const connTypeExisting = normalizedParams.find((p: any) => p.name.endsWith('.ConnectionType'));
           if (connTypeExisting) {
+            connTypeExisting.value = connTypeVal;
             orderedParams.push(connTypeExisting);
           } else {
             orderedParams.push({
               name: `${resolvedCpePath}ConnectionType`,
-              value: 'IP_Routed',
+              value: connTypeVal,
               type: 'xsd:string',
             });
           }
@@ -2866,18 +2905,32 @@ ${stringElements}
           });
         }
 
-        // 3. Credentials (Username & Password)
+        // 3. NATEnabled (Crucial for Realtek/Syrotech Luna Route mode)
+        if (!isPpp) {
+          const natVal = isBridged ? false : (targetProfile.natEnabled !== false);
+          const natExisting = normalizedParams.find((p: any) => p.name.endsWith('.NATEnabled'));
+          if (natExisting) {
+            natExisting.value = natVal;
+            orderedParams.push(natExisting);
+          } else {
+            orderedParams.push({
+              name: `${resolvedCpePath}NATEnabled`,
+              value: natVal,
+              type: 'xsd:boolean',
+            });
+          }
+        }
+
+        // 4. Credentials (Username & Password)
         const userExisting = normalizedParams.find((p: any) => p.name.endsWith('.Username'));
         const passExisting = normalizedParams.find((p: any) => p.name.endsWith('.Password'));
         if (userExisting) orderedParams.push(userExisting);
         if (passExisting) orderedParams.push(passExisting);
 
-        // 4. VLAN parameters
+        // 5. VLAN parameters
         const rawKeys = Object.keys(device.rawParameters || {});
-        const hasEponLinkConfig = rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANEponLinkConfig'));
-        const hasEponMode = rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig.Mode'));
-        const hasGponLinkConfig = rawKeys.some(k => k.includes('X_CT-COM_WANGponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANGponLinkConfig'));
-        const hasGponMode = rawKeys.some(k => k.includes('X_CT-COM_WANGponLinkConfig.Mode'));
+        const hasEponLinkConfig = rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig'));
+        const hasGponLinkConfig = rawKeys.some(k => k.includes('X_CT-COM_WANGponLinkConfig'));
 
         const vlanParams = normalizedParams.filter((p: any) =>
           p.name.includes('WANEponLinkConfig') ||
@@ -2886,27 +2939,28 @@ ${stringElements}
           p.name.includes('X_CT-COM_WANGponLinkConfig') ||
           p.name.endsWith('.VLANID') ||
           p.name.endsWith('.VLANIDMark') ||
+          p.name.endsWith('.802_1pMark') ||
           p.name.endsWith('.X_HW_VLAN')
         );
+
         for (const vp of vlanParams) {
-          if (vp.name.includes('X_CT-COM_WANEponLinkConfig.Mode') && !hasEponMode) {
-            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
-            continue;
-          }
-          if (vp.name.includes('X_CT-COM_WANEponLinkConfig') && !hasEponLinkConfig) {
-            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
-            continue;
-          }
-          if (vp.name.includes('X_CT-COM_WANGponLinkConfig.Mode') && !hasGponMode) {
-            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
-            continue;
-          }
-          if (vp.name.includes('X_CT-COM_WANGponLinkConfig') && !hasGponLinkConfig) {
-            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
-            continue;
-          }
+          // Suppress candidate .VLANID if not in rawKeys to avoid Fault 9005
           if (rawKeys.length > 0 && vp.name.endsWith('.VLANID') && !rawKeys.some(k => k.includes(vp.name))) {
             console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' (not in device tree) after AddObject.`);
+            continue;
+          }
+          if (vp.name.includes('X_CT-COM_WANEponLinkConfig') && hasGponLinkConfig && !hasEponLinkConfig) {
+            const gponName = vp.name.replace('X_CT-COM_WANEponLinkConfig', 'X_CT-COM_WANGponLinkConfig');
+            if (!orderedParams.some((o: any) => o.name === gponName)) {
+              orderedParams.push({ ...vp, name: gponName });
+            }
+            continue;
+          }
+          if (vp.name.includes('X_CT-COM_WANGponLinkConfig') && hasEponLinkConfig && !hasGponLinkConfig) {
+            const eponName = vp.name.replace('X_CT-COM_WANGponLinkConfig', 'X_CT-COM_WANEponLinkConfig');
+            if (!orderedParams.some((o: any) => o.name === eponName)) {
+              orderedParams.push({ ...vp, name: eponName });
+            }
             continue;
           }
           if (!orderedParams.some((o: any) => o.name === vp.name)) {
@@ -3853,10 +3907,16 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
                       pMap.get(`${prefix}.X_HW_VLAN`) || 
                       pMap.get(`${prefix}.VLANID`) || 
                       pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`) ||
+                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`) ||
                       rawMap[`${prefix}.X_CT-COM_VlanID`] || 
                       rawMap[`${prefix}.X_HW_VLAN`] || 
                       rawMap[`${prefix}.VLANID`] || 
-                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`];
+                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`] ||
+                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`] ||
+                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`] ||
+                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`];
       if (vlanRaw) {
         const v = parseInt(String(vlanRaw), 10);
         if (!isNaN(v) && v > 0) connVlan = v;
@@ -3865,13 +3925,24 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         const m = connName.match(/VID_(\d+)/i);
         if (m) connVlan = parseInt(m[1], 10);
       }
-      if (!connVlan && slotNum === '2') {
-        connVlan = (device as any).wanVlan || 480;
-      } else if (!connVlan && slotNum === '3') {
-        connVlan = 1849;
-      } else if (!connVlan && isPpp) {
-        connVlan = (device as any).wanVlan || 480;
+      const existingProfile = (device.wanProfiles || []).find((p: any) => p.cpeObjectPath === `${prefix}.` || p.name === connName);
+      if (!connVlan && existingProfile?.vlanId) {
+        connVlan = Number(existingProfile.vlanId);
       }
+      if (!connVlan && isPpp && (device as any).wanVlan) {
+        connVlan = (device as any).wanVlan;
+      }
+
+      // Resolve mode (Bridge vs Route) and VLAN mode (TAG vs UNTAG)
+      const rawConnType = pMap.get(`${prefix}.ConnectionType`) || rawMap[`${prefix}.ConnectionType`] || '';
+      const isBridged = rawConnType === 'IP_Bridged' || /bridge/i.test(connName) || existingProfile?.mode === 'Bridge';
+      const resolvedMode = isBridged ? 'Bridge' : 'Route';
+
+      const rawEponMode = pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`) ||
+                          rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`] ||
+                          pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`) ||
+                          rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`];
+      const isVlanTagMode = rawEponMode !== undefined ? String(rawEponMode) === '1' : (existingProfile?.vlanMode === 'TAG' || Boolean(connVlan));
 
       // Resolve service type
       const serviceList = pMap.get(`${prefix}.X_CT-COM_ServiceList`) || pMap.get(`${prefix}.X_CT_COM_ServiceList`) || pMap.get(`${prefix}.X_HW_SERVICELIST`) || pMap.get(`${prefix}.ServiceList`) || rawMap[`${prefix}.X_CT-COM_ServiceList`] || '';
@@ -3880,29 +3951,29 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       const isInternet = /INTERNET/i.test(connName) || /INTERNET/i.test(serviceList) || isPpp || (!isTr069 && !isVoip);
       const resolvedService = isTr069 ? 'TR069' : (isVoip ? 'VOIP' : 'INTERNET');
 
-      const fallbackName = `${slotNum}_${resolvedService}_${isPpp ? 'R' : 'IP'}${connVlan ? `_VID_${connVlan}` : ''}`;
+      const fallbackName = `${slotNum}_${resolvedService}_${isPpp ? 'R' : (isBridged ? 'B' : 'IP')}${connVlan ? `_VID_${connVlan}` : ''}`;
 
       discoveredWanProfiles.push({
         name: connName || fallbackName,
         enableWan: connEnable,
-        connectionType: isPpp ? 'PPPoE' : 'IP_Routed',
+        connectionType: isPpp ? 'PPPoE' : (isBridged ? 'Bridge' : 'IP_Routed'),
         serviceType: resolvedService,
         serviceUsage: {
           internet: isInternet,
           voip: isVoip,
           tr069: /TR069/i.test(connName + serviceList),
           iptvDhcp: /IPTV/i.test(connName + serviceList),
-          iptvBridge: /BRIDGE/i.test(connName + serviceList),
+          iptvBridge: isBridged || /BRIDGE/i.test(connName + serviceList),
           other: false,
         },
         bearerService: resolvedService,
         transMode: 'PON',
-        mode: 'Route',
+        mode: resolvedMode,
         linkMode: isPpp ? 'PPP' : 'IP',
+        vlanId: connVlan || undefined,
+        vlanMode: isVlanTagMode ? 'TAG' : 'UNTAG',
+        vlanEnabled: isVlanTagMode && Boolean(connVlan),
         ipAssignment: isPpp ? 'DHCP' : 'DHCP',
-        vlanMode: connVlan ? 'TAG' : 'UNTAG',
-        vlanEnabled: Boolean(connVlan),
-        vlanId: connVlan || (isTr069 ? 100 : (slotNum === '2' ? 480 : 100)),
         isProtected: isTr069,
         cpeObjectPath: `${prefix}.`,
         pppoeUsername: connUser,

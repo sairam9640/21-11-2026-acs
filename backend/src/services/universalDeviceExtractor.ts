@@ -159,8 +159,18 @@ export function extractWANConnections(item: any): ExtractedWanConnection[] {
   for (const wKey in wanDevices) {
     const connDevs = wanDevices[wKey]?.WANConnectionDevice || {};
     for (const cKey in connDevs) {
+      const connDev = connDevs[cKey] || {};
+      const slotVlan =
+        connDev['X_CT-COM_WANEponLinkConfig']?.VLANIDMark?._value ||
+        connDev.X_CT_COM_WANEponLinkConfig?.VLANIDMark?._value ||
+        connDev['X_CT-COM_WANGponLinkConfig']?.VLANIDMark?._value ||
+        connDev.X_CT_COM_WANGponLinkConfig?.VLANIDMark?._value ||
+        connDev['X_CT-COM_WANLinkConfig']?.VLANIDMark?._value ||
+        connDev.X_CT_COM_WANLinkConfig?.VLANIDMark?._value ||
+        connDev.VLANID?._value;
+
       // Check WANPPPConnection (PPPoE)
-      const pppConns = connDevs[cKey]?.WANPPPConnection || {};
+      const pppConns = connDev.WANPPPConnection || {};
       for (const pKey in pppConns) {
         const conn = pppConns[pKey];
         if (conn && conn._object !== false) {
@@ -168,7 +178,8 @@ export function extractWANConnections(item: any): ExtractedWanConnection[] {
             conn.X_CT_COM_VLAN?._value ||
             conn['X_CT-COM_VLAN']?._value ||
             conn.VLANID?._value ||
-            conn.X_HW_VLAN?._value;
+            conn.X_HW_VLAN?._value ||
+            slotVlan;
           connections.push({
             type: 'WANPPPConnection',
             serviceType:
@@ -189,7 +200,7 @@ export function extractWANConnections(item: any): ExtractedWanConnection[] {
       }
 
       // Check WANIPConnection (DHCP / Static / IPoE / Bridge / TR069)
-      const ipConns = connDevs[cKey]?.WANIPConnection || {};
+      const ipConns = connDev.WANIPConnection || {};
       for (const iKey in ipConns) {
         const conn = ipConns[iKey];
         if (conn && conn._object !== false) {
@@ -197,7 +208,8 @@ export function extractWANConnections(item: any): ExtractedWanConnection[] {
             conn.X_CT_COM_VLAN?._value ||
             conn['X_CT-COM_VLAN']?._value ||
             conn.VLANID?._value ||
-            conn.X_HW_VLAN?._value;
+            conn.X_HW_VLAN?._value ||
+            slotVlan;
           connections.push({
             type: 'WANIPConnection',
             serviceType:

@@ -74,6 +74,40 @@ export const translations: Translations = {
   // Footer
   footerRights: { en: 'All Rights Reserved. Carrier-Grade Broadband Management.', te: 'సర్వ హక్కులు ప్రత్యేకించబడ్డాయి. టెలికాం బ్రాడ్‌బ్యాండ్ మేనేజ్‌మెంట్.' },
   footerTagline: { en: 'Engineered for ISP Operators, LCOs, and High-Speed Fiber Networks.', te: 'ఐఎస్పీ ఆపరేటర్లు, LCOలు మరియు హై-స్పీడ్ ఫైబర్ నెట్‌వర్క్‌ల కోసం రూపొందించబడింది.' },
+
+  // Portal Navigation Items
+  navNoc: { en: 'NOC Dashboard', te: 'NOC డ్యాష్‌బోర్డ్' },
+  navCustomers: { en: 'Customer Directory', te: 'కస్టమర్ల వివరాలు' },
+  navDevices: { en: 'ONT / CPE Fleet', te: 'రౌటర్లు (ONT / CPE)' },
+  navOlt: { en: 'OLT & PON Ports', te: 'OLT & PON పోర్టులు' },
+  navGis: { en: 'Fiber GIS Map', te: 'ఫైబర్ మ్యాప్ (GIS)' },
+  navPlans: { en: 'Plan & Expiry Hub', te: 'ప్లాన్లు & గడువు వివరాలు' },
+  navGateways: { en: 'Payment Gateways', te: 'పేమెంట్ గేట్‌వేలు' },
+  navReconciliation: { en: 'Reconciliation', te: 'ఖాతా సరిపోల్చడం (రీకాన్)' },
+  navWhatsapp: { en: 'WhatsApp Live Chat', te: 'వాట్సాప్ లైవ్ చాట్' },
+  navWarehouse: { en: 'Warehouse Spares', te: 'గోడౌన్ స్పేర్ భాగాలు' },
+  navApprovals: { en: 'Approvals Gate', te: 'ఆమోదాల విభాగం' },
+  navAutomation: { en: 'Automation Rules', te: 'ఆటోమేషన్ నిబంధనలు' },
+  navIncidents: { en: 'Alerts & Incidents', te: 'హెచ్చరికలు & సమస్యలు' },
+  navTickets: { en: 'Support Tickets', te: 'సపోర్ట్ టిక్కెట్లు' },
+  navTechs: { en: 'Field Technicians', te: 'ఫీల్డ్ టెక్నీషియన్లు' },
+  navAi: { en: 'AI Command Center', te: 'AI కమాండ్ సెంటర్' },
+  navAnalytics: { en: 'Executive Analytics', te: 'ఎగ్జిక్యూటివ్ అనలిటిక్స్' },
+  navSettings: { en: 'Operator Settings', te: 'ఆపరేటర్ సెట్టింగులు' },
+
+  // Common UI Actions & Status
+  actionSave: { en: 'Save Changes', te: 'మార్పులను భద్రపరుచు' },
+  actionCancel: { en: 'Cancel', te: 'రద్దు చేయి' },
+  actionDelete: { en: 'Delete', te: 'తొలగించు' },
+  actionEdit: { en: 'Edit', te: 'సవరించు' },
+  actionRefresh: { en: 'Refresh Live State', te: 'లైవ్ స్టేటస్ రిఫ్రెష్ చేయి' },
+  statusOnline: { en: 'Online', te: 'ఆన్‌లైన్' },
+  statusOffline: { en: 'Offline', te: 'ఆఫ్‌లైన్' },
+  statusConnected: { en: 'Connected', te: 'కనెక్ట్ అయింది' },
+  statusDisconnected: { en: 'Disconnected', te: 'డిస్‌కనెక్ట్ అయింది' },
+  statusProvisioning: { en: 'Provisioning', te: 'కాన్ఫిగర్ అవుతోంది' },
+  statusStandby: { en: 'Standby', te: 'సిద్ధంగా ఉంది' },
+  signOut: { en: 'Sign Out', te: 'లాగౌట్' },
 };
 
 interface LanguageContextType {

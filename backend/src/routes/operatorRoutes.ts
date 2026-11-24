@@ -1072,20 +1072,27 @@ operatorRouter.put('/devices/:id/configuration', async (req: AuthenticatedReques
           const rawKeys = Object.keys(device?.rawParameters || {});
           const hasEponMode = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.Mode`));
           const hasEponVlan = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`));
+          const hasGponMode = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.X_CT-COM_WANGponLinkConfig.Mode`));
+          const hasGponVlan = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.X_CT-COM_WANGponLinkConfig.VLANIDMark`));
           const hasConnVlan = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.WANPPPConnection.1.VLANID`));
           const hasSlotVlan = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.VLANID`));
 
           if (hasEponMode && hasEponVlan) {
-            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.Mode`, 2, 'xsd:int']);
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.Mode`, 1, 'xsd:int']);
             tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, v, 'xsd:int']);
           } else if (hasEponVlan) {
             tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, v, 'xsd:int']);
+          } else if (hasGponMode && hasGponVlan) {
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANGponLinkConfig.Mode`, 1, 'xsd:int']);
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANGponLinkConfig.VLANIDMark`, v, 'xsd:int']);
+          } else if (hasGponVlan) {
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANGponLinkConfig.VLANIDMark`, v, 'xsd:int']);
           } else if (hasConnVlan) {
             tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.WANPPPConnection.1.VLANID`, v, 'xsd:int']);
           } else if (hasSlotVlan) {
             tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.VLANID`, v, 'xsd:int']);
           } else {
-            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.WANPPPConnection.1.VLANID`, v, 'xsd:int']);
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, v, 'xsd:int']);
           }
         }
       }
@@ -1842,20 +1849,36 @@ operatorRouter.get('/devices/:id/wan/profiles', async (req: AuthenticatedRequest
         canonicalName = isManagement ? (wan1LiveName || '2_TR069_R_VID_100') : (wan2LiveName || '3_INTERNET_R_VID_480');
       }
 
-      const rawSlotVlan = raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`];
+      const prefix = p.cpeObjectPath ? p.cpeObjectPath.replace(/\.$/, '') : '';
+      const rawSlotVlan = raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`] ||
+                          raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`] ||
+                          raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`] ||
+                          raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`] ||
+                          (prefix ? raw[`${prefix}.X_CT-COM_VlanID`] : undefined) ||
+                          (prefix ? raw[`${prefix}.VLANID`] : undefined);
       let resolvedVlanId = rawSlotVlan ? parseInt(String(rawSlotVlan), 10) : p.vlanId;
-      if (!resolvedVlanId || isNaN(Number(resolvedVlanId)) || (slotNum === '2' && resolvedVlanId === 100)) {
+      if (!resolvedVlanId || isNaN(Number(resolvedVlanId))) {
         const vidMatch = String(canonicalName).match(/VID_(\d+)/i);
         if (vidMatch) {
           resolvedVlanId = Number(vidMatch[1]);
         } else if (isManagement) {
           resolvedVlanId = 100;
-        } else if (slotNum === '2' || isPppoe) {
-          resolvedVlanId = (device as any).wanVlan || 480;
-        } else if (slotNum === '3') {
-          resolvedVlanId = 1849;
+        } else if (isPppoe && (device as any).wanVlan) {
+          resolvedVlanId = (device as any).wanVlan;
         }
       }
+
+      // Check live connection mode and VLAN mode
+      const liveConnType = (prefix ? raw[`${prefix}.ConnectionType`] : undefined) ||
+                           raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.WANIPConnection.1.ConnectionType`] ||
+                           raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.WANPPPConnection.1.ConnectionType`] ||
+                           p.connectionType || '';
+      const isLiveBridged = liveConnType === 'IP_Bridged' || /bridge/i.test(canonicalName) || p.mode === 'Bridge';
+      const resolvedMode = isLiveBridged ? 'Bridge' : 'Route';
+
+      const rawEponMode = raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`] ||
+                          raw[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`];
+      const isTagMode = rawEponMode !== undefined ? String(rawEponMode) === '1' : (p.vlanMode === 'TAG' || (resolvedVlanId && resolvedVlanId > 0));
 
       const rawKeys = Object.keys(device?.rawParameters || {});
       const confirmedPppKey = rawKeys.find(k => /WANConnectionDevice\.\d+\.WANPPPConnection\.\d+\./i.test(k));
@@ -1885,24 +1908,24 @@ operatorRouter.get('/devices/:id/wan/profiles', async (req: AuthenticatedRequest
         index: idx,
         name: canonicalName,
         transMode: p.transMode || 'PON',
-        mode: p.mode || (p.connectionType === 'Bridge' ? 'Bridge' : 'Route'),
+        mode: resolvedMode,
         enableWan: p.enableWan !== false,
         bearerService: resolvedBearer,
         linkMode: isPppoe ? 'PPP' : (p.linkMode || 'IP'),
         ipProtocol: p.ipProtocol || 'IPv4',
         ipAssignment: isPppoe ? 'DHCP' : (p.ipAssignment || (p.connectionType === 'Static' ? 'Static' : 'DHCP')),
-        connectionType: isPppoe ? 'PPPoE' : (p.connectionType || 'IP_Routed'),
+        connectionType: isPppoe ? 'PPPoE' : (isLiveBridged ? 'Bridge' : (p.connectionType || 'IP_Routed')),
         serviceType: resolvedBearer,
         serviceUsage: p.serviceUsage || {
           internet: resolvedBearer === 'INTERNET',
           voip: resolvedBearer === 'VOIP' || resolvedBearer === 'VOICE',
           tr069: isManagement,
           iptvDhcp: resolvedBearer === 'IPTV',
-          iptvBridge: false,
+          iptvBridge: isLiveBridged,
           other: resolvedBearer === 'OTHER',
         },
-        vlanMode: p.vlanMode || (resolvedVlanId ? 'TAG' : 'UNTAG'),
-        vlanEnabled: p.vlanEnabled !== undefined ? Boolean(p.vlanEnabled) : Boolean(resolvedVlanId),
+        vlanMode: isTagMode ? 'TAG' : 'UNTAG',
+        vlanEnabled: isTagMode && Boolean(resolvedVlanId),
         vlanId: resolvedVlanId,
         vlanPriority8021p: p.vlanPriority8021p !== undefined ? Number(p.vlanPriority8021p) : 0,
         multicastVlanId: p.multicastVlanId !== undefined ? Number(p.multicastVlanId) : (isManagement ? 0 : -1),
@@ -2047,8 +2070,10 @@ const handleAddWanProfile = async (req: AuthenticatedRequest, res: Response) => 
 
     if (!device.wanProfiles) device.wanProfiles = [];
 
-    const isVlanOn = Boolean(vlanEnabled);
+    const isVlanOn = Boolean(vlanEnabled || req.body.vlanMode === 'TAG' || (vlanId && req.body.vlanMode !== 'UNTAG' && req.body.vlanMode !== 'TRANSPARENT'));
     const parsedVlanId = isVlanOn && vlanId !== undefined && vlanId !== '' && !isNaN(Number(vlanId)) ? Number(vlanId) : undefined;
+    const resolvedMode = req.body.mode || (connectionType === 'Bridge' ? 'Bridge' : 'Route');
+    const isBridged = resolvedMode === 'Bridge';
 
     const resolvedServiceType = serviceType || req.body.bearerService || 'INTERNET';
     const isVoip = resolvedServiceType === 'VOIP' || resolvedServiceType === 'VOICE' || req.body.bearerService === 'VOIP';
@@ -2060,7 +2085,7 @@ const handleAddWanProfile = async (req: AuthenticatedRequest, res: Response) => 
       connectionType: isVoip && connectionType === 'PPPoE' ? 'DHCP' : (connectionType || (isVoip ? 'DHCP' : 'PPPoE')),
       serviceType: isVoip ? 'VOIP' : resolvedServiceType,
       bearerService: isVoip ? 'VOICE' : (req.body.bearerService || (isTr069 ? 'TR069' : 'INTERNET')),
-      mode: req.body.mode || (connectionType === 'Bridge' ? 'Bridge' : 'Route'),
+      mode: resolvedMode,
       linkMode: req.body.linkMode || (isVoip || isTr069 ? 'IP' : (connectionType === 'PPPoE' ? 'PPP' : 'IP')),
       ipAssignment: req.body.ipAssignment || (connectionType === 'Static' ? 'Static' : 'DHCP'),
       serviceUsage: serviceUsage || {
@@ -2068,9 +2093,10 @@ const handleAddWanProfile = async (req: AuthenticatedRequest, res: Response) => 
         voip: isVoip,
         tr069: isTr069,
         iptvDhcp: resolvedServiceType === 'IPTV',
-        iptvBridge: false,
+        iptvBridge: isBridged,
         other: false,
       },
+      vlanMode: isVlanOn ? 'TAG' : (req.body.vlanMode || 'UNTAG'),
       vlanEnabled: isVlanOn,
       vlanId: parsedVlanId,
       vlanPriority8021p: Number(vlanPriority8021p) || 0,
@@ -2082,7 +2108,7 @@ const handleAddWanProfile = async (req: AuthenticatedRequest, res: Response) => 
       ipProtocol,
       mldpProxy: Boolean(mldpProxy),
       mtu: Number(mtu) || 1492,
-      natEnabled: Boolean(natEnabled),
+      natEnabled: isBridged ? false : (natEnabled !== undefined ? Boolean(natEnabled) : true),
       firewallEnabled: Boolean(firewallEnabled),
       wanPortBindings: Array.isArray(wanPortBindings) ? wanPortBindings : ['WAN1'],
       lanPortBindings: Array.isArray(lanPortBindings) ? lanPortBindings : ['LAN1', 'LAN2', 'LAN3', 'LAN4'],
@@ -2251,13 +2277,15 @@ const handleEditWanProfile = async (req: AuthenticatedRequest, res: Response) =>
     if (req.body.linkMode !== undefined) currentProfile.linkMode = req.body.linkMode;
     if (req.body.ipAssignment !== undefined) currentProfile.ipAssignment = req.body.ipAssignment;
     if (serviceUsage !== undefined) currentProfile.serviceUsage = serviceUsage;
-    if (vlanEnabled !== undefined) {
-      currentProfile.vlanEnabled = Boolean(vlanEnabled);
-      if (!currentProfile.vlanEnabled) {
+    if (req.body.vlanMode !== undefined) currentProfile.vlanMode = req.body.vlanMode;
+    if (vlanEnabled !== undefined || req.body.vlanMode !== undefined) {
+      const isTag = req.body.vlanMode === 'TAG' || Boolean(vlanEnabled);
+      currentProfile.vlanEnabled = isTag;
+      if (!isTag && req.body.vlanMode === 'UNTAG') {
         currentProfile.vlanId = undefined;
       }
     }
-    if (vlanId !== undefined && (currentProfile.vlanEnabled || vlanEnabled)) {
+    if (vlanId !== undefined && (currentProfile.vlanEnabled || vlanEnabled || req.body.vlanMode === 'TAG')) {
       currentProfile.vlanId = vlanId !== '' && !isNaN(Number(vlanId)) ? Number(vlanId) : undefined;
     }
     if (vlanPriority8021p !== undefined) currentProfile.vlanPriority8021p = Number(vlanPriority8021p);
