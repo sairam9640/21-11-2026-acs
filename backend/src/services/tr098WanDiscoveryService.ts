@@ -537,12 +537,22 @@ export async function buildDynamicTr098WanParams(
     const slotMatch = basePath.match(/WANConnectionDevice\.(\d+)\./i);
     const slotNum = slotMatch ? slotMatch[1] : '1';
 
-    const isCtComVlanSupported = Object.keys(rawParams || {}).some((k) => k.includes('X_CT-COM_WANEponLinkConfig'));
-    if (isCtComVlanSupported || isCtComDevice) {
-      // Target the specific slot's EPON link config for VLAN Mode and VLAN ID
+    const rawKeys = Object.keys(rawParams || {});
+    const isCtComVlanSupported = rawKeys.some((k) => k.includes('X_CT-COM_WANEponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANEponLinkConfig'));
+    const isEponModeSupported = rawKeys.some((k) => k.includes('X_CT-COM_WANEponLinkConfig.Mode'));
+
+    if (isCtComVlanSupported && isEponModeSupported) {
+      // Target the specific slot's EPON link config for VLAN Mode and VLAN ID only if both are supported
       rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`, 2, 'xsd:int']);
       rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, Number(profile.vlanId), 'xsd:int']);
-    } else if (Object.keys(rawParams || {}).some((k) => k.includes(`${basePath}.VLANID`))) {
+    } else if (isCtComVlanSupported) {
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, Number(profile.vlanId), 'xsd:int']);
+    } else if (rawKeys.some((k) => k.includes(`${basePath}.VLANID`))) {
+      rawCandidateParams.push([`${basePath}.VLANID`, Number(profile.vlanId), 'xsd:int']);
+    } else if (rawKeys.some((k) => k.includes(`${basePath}.X_HW_VLAN`))) {
+      rawCandidateParams.push([`${basePath}.X_HW_VLAN`, Number(profile.vlanId), 'xsd:int']);
+    } else {
+      // Standard TR-098 fallback
       rawCandidateParams.push([`${basePath}.VLANID`, Number(profile.vlanId), 'xsd:int']);
     }
   }

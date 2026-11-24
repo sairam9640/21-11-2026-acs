@@ -1068,8 +1068,24 @@ operatorRouter.put('/devices/:id/configuration', async (req: AuthenticatedReques
           auditChanges['wan.vlanId'] = { old: targetWan.vlanId, new: v };
           targetWan.vlanId = v;
           (device as any).wanVlan = v;
-          tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.Mode`, 2, 'xsd:int']);
-          tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, v, 'xsd:int']);
+          const rawKeys = Object.keys(device?.rawParameters || {});
+          const hasEponMode = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.Mode`));
+          const hasEponVlan = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`));
+          const hasConnVlan = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.WANPPPConnection.1.VLANID`));
+          const hasSlotVlan = rawKeys.some(k => k.includes(`WANConnectionDevice.${targetSlot}.VLANID`));
+
+          if (hasEponMode && hasEponVlan) {
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.Mode`, 2, 'xsd:int']);
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, v, 'xsd:int']);
+          } else if (hasEponVlan) {
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, v, 'xsd:int']);
+          } else if (hasConnVlan) {
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.WANPPPConnection.1.VLANID`, v, 'xsd:int']);
+          } else if (hasSlotVlan) {
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.VLANID`, v, 'xsd:int']);
+          } else {
+            tr069ParamValues.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${targetSlot}.WANPPPConnection.1.VLANID`, v, 'xsd:int']);
+          }
         }
       }
     }

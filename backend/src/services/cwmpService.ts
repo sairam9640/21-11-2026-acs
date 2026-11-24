@@ -1900,6 +1900,10 @@ ${stringElements}
               let targetName = vName;
 
               // Suppress unsupported vendor VLAN parameters if not present in CPE rawParameters
+              if (targetName.includes('X_CT-COM_WANEponLinkConfig.Mode') && !rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig.Mode'))) {
+                console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${targetName}' before SetParameterValues dispatch.`);
+                continue;
+              }
               if (targetName.includes('X_CT-COM_WANEponLinkConfig') && !rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig'))) {
                 console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${targetName}' before SetParameterValues dispatch.`);
                 continue;
@@ -2834,6 +2838,10 @@ ${stringElements}
         if (passExisting) orderedParams.push(passExisting);
 
         // 4. VLAN parameters
+        const rawKeys = Object.keys(device.rawParameters || {});
+        const hasEponLinkConfig = rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANEponLinkConfig'));
+        const hasEponMode = rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig.Mode'));
+
         const vlanParams = normalizedParams.filter((p: any) =>
           p.name.includes('WANEponLinkConfig') ||
           p.name.includes('X_CT-COM_WANEponLinkConfig') ||
@@ -2842,6 +2850,14 @@ ${stringElements}
           p.name.endsWith('.X_HW_VLAN')
         );
         for (const vp of vlanParams) {
+          if (vp.name.includes('X_CT-COM_WANEponLinkConfig.Mode') && !hasEponMode) {
+            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
+            continue;
+          }
+          if (vp.name.includes('X_CT-COM_WANEponLinkConfig') && !hasEponLinkConfig) {
+            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
+            continue;
+          }
           if (!orderedParams.some((o: any) => o.name === vp.name)) {
             orderedParams.push(vp);
           }
