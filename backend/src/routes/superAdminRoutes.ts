@@ -641,6 +641,51 @@ superAdminRouter.patch('/tenants/:id/status', async (req: AuthenticatedRequest, 
 });
 
 /**
+ * Super Admin: Upgrade / Downgrade Operator Subscription Plan & Limits
+ */
+superAdminRouter.patch('/tenants/:id/plan', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { planName, maxCustomers, maxDevices, maxTechnicians, monthlyFee, billingCycle, features, status } = req.body;
+    const tenant = await Tenant.findById(req.params.id);
+    if (!tenant) return res.status(404).json({ success: false, error: 'Tenant not found' });
+
+    const beforeState = { ...tenant.plan };
+
+    if (planName) tenant.plan.name = planName;
+    if (maxCustomers != null) tenant.plan.maxCustomers = Number(maxCustomers);
+    if (maxDevices != null) tenant.plan.maxDevices = Number(maxDevices);
+    if (maxTechnicians != null) tenant.plan.maxTechnicians = Number(maxTechnicians);
+    if (monthlyFee != null) tenant.plan.monthlyFee = Number(monthlyFee);
+    if (billingCycle) tenant.plan.billingCycle = billingCycle;
+    if (Array.isArray(features)) tenant.plan.features = features;
+    if (status) tenant.status = status;
+
+    await tenant.save();
+
+    await recordAuditLog({
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      actorRole: req.user!.role,
+      action: 'TENANT_SUBSCRIPTION_PLAN_UPDATED',
+      targetResource: 'Tenant',
+      targetId: tenant._id.toString(),
+      targetIdentifier: tenant.slug,
+      beforeState,
+      afterState: tenant.plan,
+      correlationId: req.correlationId || `sa_plan_${Date.now()}`,
+    });
+
+    return res.json({
+      success: true,
+      message: `Operator ${tenant.displayName || tenant.name} plan successfully updated to ${tenant.plan.name} (${tenant.plan.maxDevices} Devices limit)`,
+      tenant,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 6.5.1 Tenant Update / Edit Operator Data
  */
 superAdminRouter.put('/tenants/:id', async (req: AuthenticatedRequest, res: Response) => {

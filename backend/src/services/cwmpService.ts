@@ -3480,7 +3480,10 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       const pVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.KeyPassphrase`) ||
                    pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.PreSharedKey`) ||
                    pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.KeyPassphrase`) ||
-                   pMap.get(`Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`);
+                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_CT-COM_KeyPassphrase`) ||
+                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_HW_KeyPassphrase`) ||
+                   pMap.get(`Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`) ||
+                   pMap.get(`Device.WiFi.AccessPoint.${i}.Security.PreSharedKey`);
       const secVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.BeaconType`) ||
                      pMap.get(`Device.WiFi.AccessPoint.${i}.Security.ModeEnabled`);
 
@@ -3488,17 +3491,19 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       const is5G = (bVal && /5g/i.test(bVal)) || (!isNaN(chanNum) && chanNum >= 36) || (i === 3 && isNaN(chanNum));
       const is24G = (bVal && /2\.4|2g/i.test(bVal)) || (!isNaN(chanNum) && chanNum >= 1 && chanNum <= 14) || (i === 1 && isNaN(chanNum));
 
+      const isValidPassword = pVal && pVal.trim() && !/^\*+$/.test(pVal.trim());
+
       if (is5G) {
         if (!ssid5g || (isEnabled && (i === 3 || i === 2 || !/guest|iot/i.test(sVal)))) {
           ssid5g = sVal;
-          if (pVal) pass5g = pVal;
+          if (isValidPassword) pass5g = pVal.trim();
           if (cVal) chan5g = cVal;
           if (secVal) beacon5g = secVal;
         }
       } else if (is24G) {
         if (!ssid24 || (isEnabled && (i === 1 || !/guest|iot/i.test(sVal)))) {
           ssid24 = sVal;
-          if (pVal) pass24 = pVal;
+          if (isValidPassword) pass24 = pVal.trim();
           if (cVal) chan24 = cVal;
           if (secVal) beacon24 = secVal;
         }
@@ -3507,23 +3512,28 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
 
     if (!ssid24) {
       ssid24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID', 'Device.WiFi.SSID.1.SSID']) || '';
-      pass24 = this.getFirstParam(pMap, [
+      const rawP24 = this.getFirstParam(pMap, [
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_CT-COM_KeyPassphrase',
         'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
-      ]) || '';
+      ]);
+      if (rawP24 && rawP24.trim() && !/^\*+$/.test(rawP24.trim())) pass24 = rawP24.trim();
       chan24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel', 'Device.WiFi.Radio.1.Channel']) || '';
       beacon24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.BeaconType', 'Device.WiFi.AccessPoint.1.Security.ModeEnabled']) || '';
     }
     if (!ssid5g) {
       ssid5g = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.SSID', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.SSID', 'Device.WiFi.SSID.2.SSID']) || '';
-      pass5g = this.getFirstParam(pMap, [
+      const rawP5g = this.getFirstParam(pMap, [
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.PreSharedKey',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.KeyPassphrase',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
         'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
-      ]) || '';
+      ]);
+      if (rawP5g && rawP5g.trim() && !/^\*+$/.test(rawP5g.trim())) pass5g = rawP5g.trim();
       chan5g = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.Channel', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Channel', 'Device.WiFi.Radio.2.Channel']) || '';
       beacon5g = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.BeaconType', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.BeaconType', 'Device.WiFi.AccessPoint.2.Security.ModeEnabled']) || '';
     }
@@ -3619,7 +3629,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       };
     } else {
       if (ssid24) device.wifi24.ssid = ssid24;
-      if (pass24) device.wifi24.password = pass24;
+      if (pass24 && pass24.trim() && !/^\*+$/.test(pass24.trim())) device.wifi24.password = pass24.trim();
       if (chan24) {
         const c = parseInt(chan24, 10);
         if (!isNaN(c)) device.wifi24.channel = c;
@@ -3630,7 +3640,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     if (!device.wifi5g) {
       device.wifi5g = {
         ssid: ssid5g || '',
-        password: pass5g || '',
+        password: (pass5g && pass5g.trim() && !/^\*+$/.test(pass5g.trim())) ? pass5g.trim() : (device.wifi24?.password || ''),
         enabled: true,
         channel: chan5g ? parseInt(chan5g, 10) || 44 : 44,
         channelAuto: true,
@@ -3640,7 +3650,8 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       };
     } else {
       if (ssid5g) device.wifi5g.ssid = ssid5g;
-      if (pass5g) device.wifi5g.password = pass5g;
+      if (pass5g && pass5g.trim() && !/^\*+$/.test(pass5g.trim())) device.wifi5g.password = pass5g.trim();
+      else if (!device.wifi5g.password && device.wifi24?.password) device.wifi5g.password = device.wifi24.password;
       if (chan5g) {
         const c = parseInt(chan5g, 10);
         if (!isNaN(c)) device.wifi5g.channel = c;

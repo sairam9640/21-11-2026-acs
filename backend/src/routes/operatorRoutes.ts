@@ -4069,30 +4069,33 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
         // Prioritize updated MongoDB SSID configuration over raw unrefreshed CWMP cache
         const ssidVal = (idx === 1 && d.wifi24?.ssid) ? d.wifi24.ssid :
-                        ((idx === 2 || idx === 5) && d.wifi5g?.ssid) ? d.wifi5g.ssid :
-                        (ssidKey ? rawParams[ssidKey] : (idx === 1 ? d.wifi24?.ssid : (idx === 2 || idx === 5) ? d.wifi5g?.ssid : null));
+                        ((idx === 2 || idx === 3 || idx === 5) && d.wifi5g?.ssid) ? d.wifi5g.ssid :
+                        (ssidKey ? rawParams[ssidKey] : (idx === 1 ? d.wifi24?.ssid : (idx === 2 || idx === 3 || idx === 5) ? d.wifi5g?.ssid : null));
 
-        const chanVal = chanKey ? parseInt(String(rawParams[chanKey]), 10) : (idx === 1 ? d.wifi24?.channel : idx === 2 ? d.wifi5g?.channel : undefined);
-        
-        let passVal = (keyKey && rawParams[keyKey] && String(rawParams[keyKey]).trim() ? String(rawParams[keyKey]).trim() : null) ||
-                      (idx === 1 ? d.wifi24?.password : (idx === 2 || idx === 5) ? d.wifi5g?.password : null) ||
-                      (customerObj?.wanConfig?.wifiPassword || null);
-
-        const beaconVal = beaconKey ? rawParams[beaconKey] : (idx === 1 ? d.wifi24?.securityMode : 'WPA2-PSK');
-        const isEnabled = (idx === 1 && d.wifi24?.enabled !== undefined)
-          ? Boolean(d.wifi24.enabled)
-          : ((idx === 2 || idx === 5) && d.wifi5g?.enabled !== undefined)
-          ? Boolean(d.wifi5g.enabled)
-          : (enableKey ? (rawParams[enableKey] === '1' || rawParams[enableKey] === true || rawParams[enableKey] === 'true') : true);
+        const chanVal = chanKey ? parseInt(String(rawParams[chanKey]), 10) : (idx === 1 ? d.wifi24?.channel : (idx === 2 || idx === 3 || idx === 5) ? d.wifi5g?.channel : undefined);
 
         const explicitBand = CwmpVendorProfiles.determineWifiBand(rawParams, idx, String(ssidVal || ''));
         const detectedBand = explicitBand !== 'UNKNOWN'
           ? explicitBand
           : idx === 1
           ? '2.4GHz'
-          : (idx === 3 || idx === 5)
+          : (idx === 3 || idx === 5 || idx === 2)
           ? '5GHz'
           : '2.4GHz';
+
+        const is5gInstance = detectedBand === '5GHz' || idx === 3 || idx === 5 || idx === 2;
+        const is24gInstance = detectedBand === '2.4GHz' || idx === 1;
+
+        let passVal = (keyKey && rawParams[keyKey] && String(rawParams[keyKey]).trim() && !/^\*+$/.test(String(rawParams[keyKey]).trim()) ? String(rawParams[keyKey]).trim() : null) ||
+                      (is5gInstance ? (d.wifi5g?.password || d.wifi24?.password) : (d.wifi24?.password || d.wifi5g?.password)) ||
+                      (customerObj?.wanConfig?.wifiPassword || null);
+
+        const beaconVal = beaconKey ? rawParams[beaconKey] : (idx === 1 ? d.wifi24?.securityMode : 'WPA2-PSK');
+        const isEnabled = (idx === 1 && d.wifi24?.enabled !== undefined)
+          ? Boolean(d.wifi24.enabled)
+          : ((idx === 2 || idx === 3 || idx === 5) && d.wifi5g?.enabled !== undefined)
+          ? Boolean(d.wifi5g.enabled)
+          : (enableKey ? (rawParams[enableKey] === '1' || rawParams[enableKey] === true || rawParams[enableKey] === 'true') : true);
 
         const resolvedSsid = ssidVal ? decodeXmlEntities(ssidVal) : (idx === 1 ? d.wifi24?.ssid : (idx === 3 || idx === 5 || idx === 2) ? d.wifi5g?.ssid : `WLAN-${idx}`);
 

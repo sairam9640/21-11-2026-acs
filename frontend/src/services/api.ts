@@ -437,6 +437,13 @@ class ApiService {
     });
   }
 
+  async updateTenantPlan(id: string, payload: any) {
+    return this.request(`/superadmin/tenants/${id}/plan`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async getCwmpStatus() {
     return this.request('/operator/cwmp/status');
   }

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Building2, Shield, Users, Radio, Wrench, AlertTriangle, CheckCircle2, ArrowLeft, ExternalLink, Power } from 'lucide-react';
+import { Building2, Shield, Users, Radio, Wrench, AlertTriangle, CheckCircle2, ArrowLeft, ExternalLink, Power, Sparkles, Sliders, Check } from 'lucide-react';
 import { Shell } from '../../components/layout/Shell.js';
 import { StateWrapper } from '../../components/ui/StateWrapper.js';
 import { Badge } from '../../components/ui/Badge.js';
 import { Button } from '../../components/ui/Button.js';
+import { Modal } from '../../components/ui/Modal.js';
 import { api } from '../../services/api.js';
 import { useAuth } from '../../context/AuthContext.js';
 
@@ -13,6 +14,18 @@ export const TenantDetail: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [isSavingPlan, setIsSavingPlan] = useState(false);
+  const [planSuccessMsg, setPlanSuccessMsg] = useState<string | null>(null);
+  const [planForm, setPlanForm] = useState({
+    planName: 'Growth Plan',
+    maxCustomers: 5000,
+    maxDevices: 5000,
+    maxTechnicians: 10,
+    monthlyFee: 4999,
+    billingCycle: 'monthly' as 'monthly' | 'quarterly' | 'annually',
+  });
+
   const navigate = useNavigate();
   const { impersonateTenant } = useAuth();
 
@@ -24,6 +37,16 @@ export const TenantDetail: React.FC = () => {
     setIsLoading(false);
     if (res.success) {
       setData(res);
+      if (res.tenant?.plan) {
+        setPlanForm({
+          planName: res.tenant.plan.name || 'Growth Plan',
+          maxCustomers: res.tenant.plan.maxCustomers || 5000,
+          maxDevices: res.tenant.plan.maxDevices || 5000,
+          maxTechnicians: res.tenant.plan.maxTechnicians || 10,
+          monthlyFee: res.tenant.plan.monthlyFee || 4999,
+          billingCycle: res.tenant.plan.billingCycle || 'monthly',
+        });
+      }
     } else {
       setError(res.error || 'Failed to fetch tenant detail');
     }
@@ -44,6 +67,40 @@ export const TenantDetail: React.FC = () => {
     }
   };
 
+  const handleApplyPreset = (name: string, devices: number, fee: number) => {
+    setPlanForm({
+      ...planForm,
+      planName: name,
+      maxCustomers: devices,
+      maxDevices: devices,
+      monthlyFee: fee,
+    });
+  };
+
+  const handleSavePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id) return;
+    setIsSavingPlan(true);
+    setPlanSuccessMsg(null);
+    try {
+      const res: any = await api.updateTenantPlan(id, planForm);
+      setIsSavingPlan(false);
+      if (res.success) {
+        setPlanSuccessMsg(res.message || 'Operator subscription plan updated successfully!');
+        setTimeout(() => {
+          setIsPlanModalOpen(false);
+          setPlanSuccessMsg(null);
+        }, 1500);
+        fetchDetail();
+      } else {
+        alert(res.error || 'Failed to update plan');
+      }
+    } catch (err: any) {
+      setIsSavingPlan(false);
+      alert(err.message || 'Error updating plan');
+    }
+  };
+
   const tenant = data?.tenant;
   const usage = data?.usage || {};
 
@@ -54,6 +111,15 @@ export const TenantDetail: React.FC = () => {
       breadcrumbs={[{ label: 'Tenants', href: '/superadmin/tenants' }, { label: tenant?.displayName || 'Detail' }]}
       primaryAction={
         <div className="flex items-center space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsPlanModalOpen(true)}
+            className="border-purple-300 text-purple-700 hover:bg-purple-50 font-bold"
+          >
+            <Sparkles className="w-3.5 h-3.5 mr-1 text-purple-600" />
+            <span>Upgrade / Downgrade Plan</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -100,8 +166,16 @@ export const TenantDetail: React.FC = () => {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
                 <div>
-                  <span className="text-[#94A3B8]">Plan Tier</span>
-                  <p className="font-semibold text-[#1E293B]">{tenant.plan?.name || 'Enterprise'}</p>
+                  <span className="text-[#94A3B8] block">Plan Tier</span>
+                  <div className="flex items-center space-x-1.5 mt-0.5">
+                    <p className="font-bold text-[#1E293B]">{tenant.plan?.name || 'Enterprise'}</p>
+                    <button
+                      onClick={() => setIsPlanModalOpen(true)}
+                      className="text-[10px] text-purple-600 hover:text-purple-800 font-bold underline cursor-pointer"
+                    >
+                      Change
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <span className="text-[#94A3B8]">Monthly Billing</span>
@@ -234,6 +308,173 @@ export const TenantDetail: React.FC = () => {
           </div>
         )}
       </StateWrapper>
+
+      {/* Plan Upgrade / Downgrade Modal */}
+      <Modal
+        isOpen={isPlanModalOpen}
+        onClose={() => setIsPlanModalOpen(false)}
+        title={`Upgrade / Downgrade Plan — ${tenant?.displayName || 'Operator'}`}
+      >
+        <form onSubmit={handleSavePlan} className="space-y-4">
+          {planSuccessMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center space-x-2">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{planSuccessMsg}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-bold text-slate-700 block mb-1.5">Preset Platform Tiers</label>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => handleApplyPreset('Starter Tier', 1000, 1999)}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  planForm.planName === 'Starter Tier'
+                    ? 'border-purple-600 bg-purple-50 text-purple-900 font-bold'
+                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <span>Starter</span>
+                  <span className="font-mono font-bold">₹1,999/m</span>
+                </div>
+                <span className="text-[10px] text-slate-500 block">1,000 ONT Devices</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleApplyPreset('Growth Tier', 5000, 4999)}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  planForm.planName === 'Growth Tier'
+                    ? 'border-purple-600 bg-purple-50 text-purple-900 font-bold'
+                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <span>Growth</span>
+                  <span className="font-mono font-bold">₹4,999/m</span>
+                </div>
+                <span className="text-[10px] text-slate-500 block">5,000 ONT Devices</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleApplyPreset('Enterprise Pro', 25000, 14999)}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  planForm.planName === 'Enterprise Pro'
+                    ? 'border-purple-600 bg-purple-50 text-purple-900 font-bold'
+                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <span>Enterprise</span>
+                  <span className="font-mono font-bold">₹14,999/m</span>
+                </div>
+                <span className="text-[10px] text-slate-500 block">25,000 ONT Devices</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleApplyPreset('Carrier Unlimited', 100000, 39999)}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  planForm.planName === 'Carrier Unlimited'
+                    ? 'border-purple-600 bg-purple-50 text-purple-900 font-bold'
+                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <span>Carrier Pro</span>
+                  <span className="font-mono font-bold">₹39,999/m</span>
+                </div>
+                <span className="text-[10px] text-slate-500 block">100,000 ONT Devices</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3 pt-2 border-t border-slate-200">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">Plan Tier Name</label>
+              <input
+                type="text"
+                value={planForm.planName}
+                onChange={(e) => setPlanForm({ ...planForm, planName: e.target.value })}
+                className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Max Devices (ONTs)</label>
+                <input
+                  type="number"
+                  value={planForm.maxDevices}
+                  onChange={(e) => setPlanForm({ ...planForm, maxDevices: parseInt(e.target.value, 10) || 1000 })}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Max Subscribers</label>
+                <input
+                  type="number"
+                  value={planForm.maxCustomers}
+                  onChange={(e) => setPlanForm({ ...planForm, maxCustomers: parseInt(e.target.value, 10) || 1000 })}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Monthly Billing Fee (₹)</label>
+                <input
+                  type="number"
+                  value={planForm.monthlyFee}
+                  onChange={(e) => setPlanForm({ ...planForm, monthlyFee: parseInt(e.target.value, 10) || 0 })}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Billing Frequency</label>
+                <select
+                  value={planForm.billingCycle}
+                  onChange={(e) => setPlanForm({ ...planForm, billingCycle: e.target.value as any })}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="annually">Annually</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsPlanModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              isLoading={isSavingPlan}
+              className="bg-purple-600 hover:bg-purple-500 text-white font-bold"
+            >
+              Save & Apply Plan Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </Shell>
   );
 };
