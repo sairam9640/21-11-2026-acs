@@ -247,7 +247,11 @@ export class WhatsAppBotService {
         // 1. View Wi-Fi Details
         const wifi24 = device?.wifi24 || device?.wifi24g || { ssid: 'Not Configured', password: '••••••••' };
         const wifi5g = device?.wifi5g || { ssid: 'Not Configured', password: '••••••••' };
-        const pass = wifi5g.password || wifi24.password || customer.wanConfig?.pppoePassword || 'Masked / Protected by CPE';
+        const pass = (wifi24.password && !/^\*+$/.test(wifi24.password.trim()))
+          ? wifi24.password
+          : (wifi5g.password && !/^\*+$/.test(wifi5g.password.trim()))
+          ? wifi5g.password
+          : 'Protected by CPE (Masked)';
 
         replyText =
           `📶 *Your Current Wi-Fi Configuration:*\n\n` +

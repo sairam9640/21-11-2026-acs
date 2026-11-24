@@ -484,12 +484,20 @@ export async function buildDynamicTr098WanParams(
   const isTr069 = profile.bearerService === 'TR069' || profile.serviceType === 'TR069' || profile.serviceUsage?.tr069;
 
   // Service List & IP Connection Parameters (only valid on WANIPConnection, omit on WANPPPConnection to prevent Fault 9005)
+  const isCtComDevice = Boolean(
+    /huawei|zte|china|ct-com|fiberhome/i.test(`${device?.manufacturer || ''} ${device?.modelName || ''}`) ||
+    Object.keys(rawParams || {}).some((k) => k.includes('X_CT-COM_'))
+  );
+
   if (!isPppoe) {
     const sType = String(profile.serviceType || profile.bearerService || '').toUpperCase();
     const resolvedServiceList = isVoice ? 'VOICE' :
       (isTr069) ? 'TR069' :
       (sType === 'IPTV' || profile.serviceUsage?.iptvDhcp) ? 'IPTV' : 'INTERNET';
-    rawCandidateParams.push([`${basePath}.X_CT-COM_ServiceList`, resolvedServiceList, 'xsd:string']);
+    const isServiceListSupported = Object.keys(rawParams || {}).some((k) => k.includes('X_CT-COM_ServiceList'));
+    if (isServiceListSupported || isCtComDevice) {
+      rawCandidateParams.push([`${basePath}.X_CT-COM_ServiceList`, resolvedServiceList, 'xsd:string']);
+    }
     rawCandidateParams.push([`${basePath}.ConnectionType`, profile.connectionType === 'Bridge' || profile.bridgeMode ? 'IP_Bridged' : 'IP_Routed', 'xsd:string']);
     if (profile.connectionType === 'Static' || profile.ipAssignment === 'Static') {
       rawCandidateParams.push([`${basePath}.AddressingType`, 'Static', 'xsd:string']);
@@ -529,9 +537,14 @@ export async function buildDynamicTr098WanParams(
     const slotMatch = basePath.match(/WANConnectionDevice\.(\d+)\./i);
     const slotNum = slotMatch ? slotMatch[1] : '1';
 
-    // Target the specific slot's EPON link config for VLAN Mode and VLAN ID
-    rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`, 2, 'xsd:int']);
-    rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, Number(profile.vlanId), 'xsd:int']);
+    const isCtComVlanSupported = Object.keys(rawParams || {}).some((k) => k.includes('X_CT-COM_WANEponLinkConfig'));
+    if (isCtComVlanSupported || isCtComDevice) {
+      // Target the specific slot's EPON link config for VLAN Mode and VLAN ID
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`, 2, 'xsd:int']);
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, Number(profile.vlanId), 'xsd:int']);
+    } else if (Object.keys(rawParams || {}).some((k) => k.includes(`${basePath}.VLANID`))) {
+      rawCandidateParams.push([`${basePath}.VLANID`, Number(profile.vlanId), 'xsd:int']);
+    }
   }
 
   // Dynamic LAN Port & SSID Binding (X_CT-COM_LanInterface)
@@ -585,7 +598,8 @@ export async function buildDynamicTr098WanParams(
       }
     }
 
-    if (lanInterfaces.length > 0) {
+    const isCtComSupported = Object.keys(rawParams || {}).some((k) => k.includes('X_CT-COM_LanInterface'));
+    if (lanInterfaces.length > 0 && isCtComSupported) {
       const boundLanStr = Array.from(new Set(lanInterfaces)).join(',');
       rawCandidateParams.push([`${basePath}.X_CT-COM_LanInterface`, boundLanStr, 'xsd:string']);
     }

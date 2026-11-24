@@ -195,6 +195,8 @@ export class CwmpVendorProfiles {
     const wlan5gParams = isDual ? [
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.SSID`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.PreSharedKey.1.KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.PreSharedKey.1.PreSharedKey`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.Channel`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.BeaconType`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.Enable`,
@@ -202,10 +204,14 @@ export class CwmpVendorProfiles {
 
     // Explicit baseline host queries for devices that do not support wildcard partial paths
     const explicitHostParams: string[] = [];
-    for (let h = 1; h <= 12; h++) {
+    for (let h = 1; h <= 16; h++) {
       explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
       explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
+      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.HostName`);
+      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.UserHostName`);
       explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.InterfaceType`);
+      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.Active`);
+      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.LeaseTimeRemaining`);
     }
 
     // Comprehensive Universal TR-098 Baseline (Using standard TR-069 subtrees to prevent Fault 9005):
@@ -221,6 +227,8 @@ export class CwmpVendorProfiles {
       // Wi-Fi 2.4 GHz (Guaranteed universal on all TR-098 Wi-Fi CPEs; secondary bands discovered via GPN / rawParameters)
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.BeaconType',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Enable',
@@ -230,7 +238,13 @@ export class CwmpVendorProfiles {
       ...wlan5gParams,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.TotalAssociations`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.AssociatedDevice.`,
-      // Secondary / Multi-Band WLAN Association Hooks (TP-Link 3, Generic 5)
+      // Secondary / Multi-Band WLAN Association Hooks (TP-Link 3, Generic 2 & 5)
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.SSID',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.KeyPassphrase',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.SSID',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.TotalAssociations',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.AssociatedDevice.',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.TotalAssociations',
@@ -711,16 +725,47 @@ export class CwmpVendorProfiles {
     iface?: string | null
   ): string {
     if (rawName && typeof rawName === 'string') {
-      const clean = rawName.replace(/["']/g, '').trim();
-      if (
-        clean &&
-        !/^client[-_]?\d+$/i.test(clean) &&
-        !/^host[-_]?\d+$/i.test(clean) &&
-        !/^unknown$/i.test(clean) &&
-        !/^(device|host|wireless client|wired client|lan client)\s*\([a-f0-9:]+\)$/i.test(clean) &&
-        clean !== '0.0.0.0'
-      ) {
-        return clean;
+      let clean = rawName
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/["']/g, '')
+        .trim();
+
+      if (clean && !/^unknown$/i.test(clean) && clean !== '0.0.0.0') {
+        if (/^android-[a-f0-9]+$/i.test(clean)) {
+          return `Android Smartphone (${mac ? mac.slice(-5).toUpperCase() : clean.slice(-4)})`;
+        }
+        if (/^(galaxy|samsung)[-_ ]/i.test(clean)) {
+          return `Samsung Galaxy (${clean.replace(/^samsung[-_ ]/i, '')})`;
+        }
+        if (/^(oneplus|nord)[-_ ]/i.test(clean)) {
+          return `OnePlus (${clean})`;
+        }
+        if (/^(redmi|poco|xiaomi)[-_ ]/i.test(clean)) {
+          return `Xiaomi (${clean})`;
+        }
+        if (/^(vivo|oppo|realme)[-_ ]/i.test(clean)) {
+          return `${clean.toUpperCase()}`;
+        }
+        if (/iphone/i.test(clean)) {
+          return clean.includes("'") ? clean : `${clean.replace(/iphone/i, '').replace(/[-_]/g, ' ').trim()} iPhone`.trim();
+        }
+        if (/ipad/i.test(clean)) {
+          return clean;
+        }
+        if (/desktop|laptop|thinkpad|macbook/i.test(clean)) {
+          return `PC / Laptop (${clean})`;
+        }
+        if (
+          !/^client[-_]?\d+$/i.test(clean) &&
+          !/^host[-_]?\d+$/i.test(clean) &&
+          !/^(device|host|wireless client|wired client|lan client)\s*\([a-f0-9:]+\)$/i.test(clean)
+        ) {
+          return clean;
+        }
       }
     }
 

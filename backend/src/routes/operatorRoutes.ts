@@ -3886,6 +3886,17 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
     }
 
     // 3. Dynamic extraction from WLANConfiguration.*.AssociatedDevice.* & AccessPoint.*.AssociatedDevice.*
+    const macToHostnameMap = new Map<string, string>();
+    for (const key of rawKeys) {
+      if (/Hosts\.Host\.\d+\.(HostName|UserHostName|DeviceName)$/i.test(key) && rawParams[key]) {
+        const prefix = key.substring(0, key.lastIndexOf('.'));
+        const m = rawParams[`${prefix}.MACAddress`] || rawParams[`${prefix}.PhysAddress`];
+        if (m) {
+          macToHostnameMap.set(String(m).replace(/[: -]/g, '').toUpperCase(), String(rawParams[key]).trim());
+        }
+      }
+    }
+
     const assocDeviceKeys = rawKeys.filter(k => /AssociatedDevice\.\d+\./i.test(k));
     const assocIndices = Array.from(new Set(
       assocDeviceKeys.map(k => {
@@ -3906,6 +3917,8 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
       if (rawMac && rawMac !== '00:00:00:00:00:00') {
         const key = rawMac.toUpperCase();
+        const cleanMac = rawMac.replace(/[: -]/g, '').toUpperCase();
+        const dhcpHostName = macToHostnameMap.get(cleanMac) || null;
         const wlanChanVal = parseInt(rawParams[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanIdx}.Channel`] || '', 10);
         const wlanBandParam = rawParams[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanIdx}.X_TP_Band`] || '';
         const isWlan5G = (wlanBandParam && /5g/i.test(wlanBandParam)) || (wlanIdx === '3' || wlanIdx === '4' || wlanIdx === '6') || (wlanChanVal >= 36);
@@ -3915,12 +3928,16 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           existing.status = device.status === 'online' ? 'Online' : 'Offline';
           existing.connectionType = band;
           existing.interface = `${band} Wi-Fi`;
+          if (dhcpHostName && (!existing.name || existing.name.startsWith('Wireless') || existing.name.startsWith('Mobile') || existing.name.startsWith('host-') || existing.name.startsWith('client-'))) {
+            existing.name = resolveFriendlyDeviceName(dhcpHostName, rawMac, band);
+            existing.hostname = dhcpHostName;
+          }
           if (rawRssi) existing.signal = `${rawRssi} dBm`;
         } else {
-          const friendlyName = resolveFriendlyDeviceName(null, rawMac, band);
+          const friendlyName = resolveFriendlyDeviceName(dhcpHostName, rawMac, band);
           clientMap.set(key, {
             name: friendlyName,
-            hostname: `wifi-client-${devIdx}.lan`,
+            hostname: dhcpHostName || `wifi-client-${devIdx}.lan`,
             ip: rawIp || `192.168.0.${110 + parseInt(devIdx, 10)}`,
             mac: rawMac.toUpperCase(),
             connectionType: band,

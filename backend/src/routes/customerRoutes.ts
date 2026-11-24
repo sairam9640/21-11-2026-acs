@@ -5,9 +5,11 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
 import { Customer } from '../models/Customer.js';
 import { Device } from '../models/Device.js';
+import { DeviceCommand } from '../models/DeviceCommand.js';
 import { Ticket } from '../models/Ticket.js';
 import { DeviceManagementService } from '../services/deviceManagementService.js';
 import { CustomerPortalService } from '../services/customerPortalService.js';
+import { triggerGenieAcsConnectionRequest } from '../services/connectionRequestService.js';
 
 export const customerRouter = Router();
 
@@ -269,6 +271,121 @@ customerRouter.get('/knowledge-base/search', async (req: AuthenticatedRequest, r
     return res.json({ success: true, articles });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 12.6 Customer Self-Service ONT / CPE Reboot
+ */
+customerRouter.post('/device/reboot', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const customer = await Customer.findOne({
+      tenantId: new Types.ObjectId(req.tenantId),
+      $or: [{ phone: req.user!.email }, { email: req.user!.email }, { _id: req.user!.id }],
+    }) || await Customer.findOne({ tenantId: new Types.ObjectId(req.tenantId) });
+
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer account not found' });
+
+    const device = customer.assignedDeviceId
+      ? await Device.findById(customer.assignedDeviceId)
+      : await Device.findOne({ customerId: customer._id });
+
+    if (!device) return res.status(404).json({ success: false, error: 'No ONT/CPE router assigned to your subscription' });
+
+    // Check if a reboot command is already queued or active
+    const existing = await DeviceCommand.findOne({
+      deviceId: device._id,
+      action: { $in: ['REBOOT_DEVICE', 'Reboot'] },
+      status: { $in: ['pending', 'queued', 'sending', 'sent'] },
+    });
+    if (existing) {
+      return res.json({
+        success: true,
+        message: 'Reboot command is already queued. Your router will restart shortly.',
+        commandId: existing._id,
+      });
+    }
+
+    const command = await DeviceCommand.create({
+      tenantId: customer.tenantId,
+      deviceId: device._id,
+      customerId: customer._id,
+      action: 'REBOOT_DEVICE',
+      parameters: { reason: 'Customer Self-Service Reboot via Subscriber Portal' },
+      requestedBy: {
+        userId: customer._id.toString(),
+        email: customer.email || customer.phone || customer.accountNumber,
+        role: 'customer',
+      },
+      status: 'pending',
+      queuedAt: new Date(),
+    });
+
+    // Instant Connection Request trigger to speed up execution
+    triggerGenieAcsConnectionRequest(device.serialNumber).catch(() => {});
+
+    return res.json({
+      success: true,
+      message: 'Reboot command queued successfully. Your Wi-Fi router will restart within 30-60 seconds.',
+      commandId: command._id,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * 12.7 Customer ONT Telemetry & Raw Parameters Inspection
+ */
+customerRouter.get('/device/parameters', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const customer = await Customer.findOne({
+      tenantId: new Types.ObjectId(req.tenantId),
+      $or: [{ phone: req.user!.email }, { email: req.user!.email }, { _id: req.user!.id }],
+    }) || await Customer.findOne({ tenantId: new Types.ObjectId(req.tenantId) });
+
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer account not found' });
+
+    const device = customer.assignedDeviceId
+      ? await Device.findById(customer.assignedDeviceId).lean()
+      : await Device.findOne({ customerId: customer._id }).lean();
+
+    if (!device) return res.status(404).json({ success: false, error: 'No ONT device assigned' });
+
+    const devAny = device as any;
+    const rawParams = devAny.rawParameters || {};
+    const rawKeys = Object.keys(rawParams).sort();
+
+    const parameterList = rawKeys.map((path) => ({
+      path,
+      value: rawParams[path] !== undefined && rawParams[path] !== null ? String(rawParams[path]) : '',
+      type: typeof rawParams[path] === 'number' ? 'unsignedInt' : typeof rawParams[path] === 'boolean' ? 'boolean' : 'string',
+    }));
+
+    return res.json({
+      success: true,
+      device: {
+        id: devAny._id,
+        serialNumber: devAny.serialNumber,
+        macAddress: devAny.macAddress,
+        manufacturer: devAny.manufacturer,
+        modelName: devAny.modelName,
+        softwareVersion: devAny.softwareVersion,
+        hardwareVersion: devAny.hardwareVersion,
+        status: devAny.status,
+        lastInform: devAny.lastInform,
+        opticalRxPower: devAny.currentRxPowerDbm ?? devAny.opticalRxPower,
+        opticalTxPower: devAny.currentTxPowerDbm ?? devAny.opticalTxPower,
+        opticalStatus: devAny.opticalStatus,
+        wifi24: devAny.wifi24,
+        wifi5g: devAny.wifi5g,
+        connectedClients: devAny.connectedClients || [],
+      },
+      parameters: parameterList,
+      totalParameters: parameterList.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

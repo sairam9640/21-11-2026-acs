@@ -32,6 +32,7 @@ import {
   AlertTriangle,
   Trash2,
   Sparkles,
+  RotateCcw,
 } from 'lucide-react';
 import { Shell } from '../../components/layout/Shell.js';
 import { StateWrapper } from '../../components/ui/StateWrapper.js';
@@ -95,6 +96,12 @@ export const ONTList: React.FC = () => {
   // Delete Device Confirmation Modal
   const [deviceToDelete, setDeviceToDelete] = useState<any | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+
+  // Reboot ONT Confirmation Modal State
+  const [deviceToReboot, setDeviceToReboot] = useState<any | null>(null);
+  const [rebootingDeviceId, setRebootingDeviceId] = useState<string | null>(null);
+  const [rebootSubmitting, setRebootSubmitting] = useState(false);
+  const [rebootSuccessToast, setRebootSuccessToast] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
@@ -201,6 +208,27 @@ export const ONTList: React.FC = () => {
       fetchDevices();
     } catch (_) {}
     setDeleteSubmitting(false);
+  };
+
+  const handleOpenRebootModal = (d: any) => {
+    setDeviceToReboot(d);
+  };
+
+  const handleConfirmReboot = async () => {
+    if (!deviceToReboot) return;
+    setRebootSubmitting(true);
+    setRebootingDeviceId(deviceToReboot._id);
+    try {
+      await api.rebootDevice(deviceToReboot._id);
+      setRebootSuccessToast(`Reboot RPC queued for ONT ${deviceToReboot.serialNumber}. Device will restart shortly.`);
+      setTimeout(() => setRebootSuccessToast(null), 6000);
+      setDeviceToReboot(null);
+    } catch (err: any) {
+      alert(`Failed to reboot ONT: ${err.message || 'CPE communication failure'}`);
+    } finally {
+      setRebootSubmitting(false);
+      setRebootingDeviceId(null);
+    }
   };
 
   const handleOpenInspect = async (d: any) => {
@@ -583,6 +611,22 @@ export const ONTList: React.FC = () => {
 
           <Button
             size="sm"
+            variant="secondary"
+            className="border-amber-300 text-amber-800 hover:bg-amber-50"
+            disabled={rebootingDeviceId === d._id || d.status !== 'online'}
+            isLoading={rebootingDeviceId === d._id}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenRebootModal(d);
+            }}
+            title={d.status === 'online' ? "Reboot ONT Device" : "Device is Offline - Reboot unavailable"}
+          >
+            <RotateCcw className="w-3.5 h-3.5 mr-1 text-amber-600" />
+            <span>Reboot</span>
+          </Button>
+
+          <Button
+            size="sm"
             variant="outline"
             disabled={summoningDeviceId === d._id}
             isLoading={summoningDeviceId === d._id}
@@ -635,6 +679,13 @@ export const ONTList: React.FC = () => {
       }
     >
       <div className="space-y-4">
+        {rebootSuccessToast && (
+          <div className="p-4 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl text-[#065F46] text-xs font-bold flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+            <span>{rebootSuccessToast}</span>
+          </div>
+        )}
+
         {summonSuccessToast && (
           <div className="p-4 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl text-[#065F46] text-xs font-bold flex items-center space-x-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -803,6 +854,18 @@ export const ONTList: React.FC = () => {
                     <Button size="sm" variant="outline" onClick={handleRefreshTelemetry} isLoading={isRefreshing}>
                       <RefreshCw className="w-3.5 h-3.5 mr-1" />
                       <span>Refresh Telemetry</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="border-amber-300 text-amber-800 hover:bg-amber-50"
+                      disabled={rebootingDeviceId === inspectDevice?._id || inspectDevice?.status !== 'online'}
+                      isLoading={rebootingDeviceId === inspectDevice?._id}
+                      onClick={() => handleOpenRebootModal(inspectDevice)}
+                      title={inspectDevice?.status === 'online' ? "Reboot ONT Device" : "Device is Offline - Reboot unavailable"}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                      <span>Reboot ONT</span>
                     </Button>
                     <Button size="sm" variant="primary" onClick={handleOpenEditConfig}>
                       <Edit3 className="w-3.5 h-3.5 mr-1" />
@@ -1078,7 +1141,7 @@ export const ONTList: React.FC = () => {
                         return (
                           <div key={idx} className="p-2.5 bg-white rounded-lg border border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-mono">
                             <div className="flex items-center space-x-2">
-                              <span className="font-bold text-[#0F172A] font-sans">{cl.hostname || 'Client Device'}</span>
+                              <span className="font-bold text-[#0F172A] font-sans">{cl.name || cl.hostname || 'Client Device'}</span>
                               <span className="text-[#1677FF]">({cl.ip})</span>
                             </div>
                             <div className="flex items-center space-x-2">
@@ -1455,6 +1518,42 @@ export const ONTList: React.FC = () => {
             <Button variant="danger" isLoading={deleteSubmitting} onClick={handleConfirmDelete}>
               <Power className="w-4 h-4 mr-1.5" />
               <span>Confirm & Delete ONT</span>
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Reboot Device Modal */}
+      <Modal
+        isOpen={Boolean(deviceToReboot)}
+        onClose={() => setDeviceToReboot(null)}
+        title={`Reboot ONT — ${deviceToReboot?.serialNumber || ''}`}
+        subtitle={`Remote Graceful Restart RPC | Protocol: ${deviceToReboot?.protocol || 'TR-069'}`}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start space-x-3">
+            <RotateCcw className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-[#0F172A]">Dispatch Remote Device Reboot?</p>
+              <p className="text-xs text-[#64748B] mt-1">
+                This will dispatch a graceful reboot command via ACS CWMP/USP to ONT <code className="font-bold text-amber-800 font-mono">{deviceToReboot?.serialNumber}</code> ({deviceToReboot?.modelName || 'CPE Router'}). The router will restart and re-establish its TR-069 session in 30–60 seconds.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-3 border-t border-[#E2E8F0]">
+            <Button variant="outline" onClick={() => setDeviceToReboot(null)} disabled={rebootSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className="bg-amber-600 hover:bg-amber-500 text-white font-bold"
+              isLoading={rebootSubmitting}
+              onClick={handleConfirmReboot}
+            >
+              <RotateCcw className="w-4 h-4 mr-1.5" />
+              <span>Confirm Reboot</span>
             </Button>
           </div>
         </div>

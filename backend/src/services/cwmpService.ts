@@ -3347,12 +3347,25 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
             const isIpTarget = targetConn.includes('WANIPConnection');
             const connSubPath = isIpTarget ? `${basePath}WANIPConnection.1.` : `${basePath}WANPPPConnection.1.`;
 
+            // Detect whether this CPE hardware genuinely supports China Telecom proprietary X_CT-COM_ parameters
+            const isCtComDevice = Boolean(
+              /huawei|zte|china|ct-com|fiberhome/i.test(`${device?.manufacturer || ''} ${device?.modelName || ''} ${session?.vendor || ''}`) ||
+              Object.keys(device?.rawParameters || {}).some((k) => k.includes('X_CT-COM_'))
+            );
+
             const fallbackParams: { name: string; value: any; type: string }[] = [
               { name: `${connSubPath}Enable`, value: false, type: 'xsd:boolean' },
-              { name: `${connSubPath}X_CT-COM_LanInterface`, value: '', type: 'xsd:string' },
-              { name: `${connSubPath}X_CT-COM_ServiceList`, value: '', type: 'xsd:string' },
-              { name: `${basePath}X_CT-COM_WANEponLinkConfig.VLANIDMark`, value: 0, type: 'xsd:int' },
             ];
+
+            // Only send X_CT-COM vendor extensions if confirmed supported on this hardware (avoids Fault 9005 on TP-Link, Netlink, Genexis)
+            if (isCtComDevice) {
+              fallbackParams.push(
+                { name: `${connSubPath}X_CT-COM_LanInterface`, value: '', type: 'xsd:string' },
+                { name: `${connSubPath}X_CT-COM_ServiceList`, value: '', type: 'xsd:string' },
+                { name: `${basePath}X_CT-COM_WANEponLinkConfig.VLANIDMark`, value: 0, type: 'xsd:int' }
+              );
+            }
+
             if (!isIpTarget) {
               fallbackParams.push({ name: `${connSubPath}Username`, value: '', type: 'xsd:string' });
               fallbackParams.push({ name: `${connSubPath}Password`, value: '', type: 'xsd:string' });
@@ -3501,6 +3514,9 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
                    pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.KeyPassphrase`) ||
                    pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_CT-COM_KeyPassphrase`) ||
                    pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_HW_KeyPassphrase`) ||
+                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_TP_PreSharedKey`) ||
+                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.WPA.PreSharedKey`) ||
+                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey`) ||
                    pMap.get(`Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`) ||
                    pMap.get(`Device.WiFi.AccessPoint.${i}.Security.PreSharedKey`);
       const secVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.BeaconType`) ||
@@ -3535,7 +3551,10 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_TP_PreSharedKey',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_CT-COM_KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.WPA.PreSharedKey',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey',
         'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
       ]);
       if (rawP24 && rawP24.trim() && !/^\*+$/.test(rawP24.trim())) pass24 = rawP24.trim();
@@ -3548,8 +3567,12 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.PreSharedKey',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.X_TP_PreSharedKey',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.PreSharedKey',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase',
         'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
       ]);
       if (rawP5g && rawP5g.trim() && !/^\*+$/.test(rawP5g.trim())) pass5g = rawP5g.trim();
@@ -3659,7 +3682,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     if (!device.wifi5g) {
       device.wifi5g = {
         ssid: ssid5g || '',
-        password: (pass5g && pass5g.trim() && !/^\*+$/.test(pass5g.trim())) ? pass5g.trim() : (device.wifi24?.password || ''),
+        password: (pass5g && pass5g.trim() && !/^\*+$/.test(pass5g.trim())) ? pass5g.trim() : '',
         enabled: true,
         channel: chan5g ? parseInt(chan5g, 10) || 44 : 44,
         channelAuto: true,
@@ -3670,7 +3693,6 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     } else {
       if (ssid5g) device.wifi5g.ssid = ssid5g;
       if (pass5g && pass5g.trim() && !/^\*+$/.test(pass5g.trim())) device.wifi5g.password = pass5g.trim();
-      else if (!device.wifi5g.password && device.wifi24?.password) device.wifi5g.password = device.wifi24.password;
       if (chan5g) {
         const c = parseInt(chan5g, 10);
         if (!isNaN(c)) device.wifi5g.channel = c;
@@ -3977,7 +3999,8 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         }
         return {
           ...c,
-          hostname: friendlyName,
+          hostname: c.hostname || friendlyName,
+          name: friendlyName,
           interfaceType: finalIface,
         };
       });
