@@ -2374,6 +2374,29 @@ ${stringElements}
       SupportedParameterCache.bulkWrite(cacheUpdates).catch(() => {});
     }
 
+    // Resolve any in-flight GET_PARAMETER_NAMES or GetParameterNames command for this device
+    if (session?.serialNumber) {
+      Device.findOne({ serialNumber: session.serialNumber }).then(async (dev) => {
+        if (dev) {
+          await DeviceCommand.updateMany(
+            {
+              deviceId: dev._id,
+              action: { $in: ['CUSTOM_RPC', 'GET_PARAMETER_NAMES', 'GetParameterNames'] },
+              status: { $in: ['sent', 'sending', 'queued', 'pending', 'verifying'] },
+            },
+            {
+              $set: {
+                status: 'success',
+                completedAt: new Date(),
+                result: `Discovered ${names.length} parameter paths from CPE.`,
+              },
+            }
+          );
+          console.log(`[CWMP ACS] Marked in-flight GET_PARAMETER_NAMES as success for device ${session.serialNumber}`);
+        }
+      }).catch((err) => console.warn('[CWMP ACS] Error resolving GPN command:', err.message));
+    }
+
     // Build the query parameter list strictly from parameters that EXIST on the CPE
     const confirmedParams: string[] = [];
 
