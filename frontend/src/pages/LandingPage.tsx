@@ -495,6 +495,53 @@ export const LandingPage: React.FC = () => {
                 Instant Price Estimate
               </Button>
             </div>
+
+            {/* Quick Direct Portal Access Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 max-w-4xl mx-auto">
+              <Link
+                to="/operator/login"
+                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-sky-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+              >
+                <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                  <Terminal className="w-5 h-5" />
+                </div>
+                <span className="text-xs font-bold text-white group-hover:text-sky-300">Operator NOC</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Fleet & ZTP Provisioning</span>
+              </Link>
+
+              <Link
+                to="/superadmin/login"
+                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-purple-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+              >
+                <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <span className="text-xs font-bold text-white group-hover:text-purple-300">Super Admin</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Multi-Tenant Cloud</span>
+              </Link>
+
+              <Link
+                to="/customer/login"
+                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-emerald-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                  <Wifi className="w-5 h-5" />
+                </div>
+                <span className="text-xs font-bold text-white group-hover:text-emerald-300">Subscriber Portal</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Bill Pay & Wi-Fi Self-Care</span>
+              </Link>
+
+              <Link
+                to="/tech/login"
+                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-amber-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                  <Wrench className="w-5 h-5" />
+                </div>
+                <span className="text-xs font-bold text-white group-hover:text-amber-300">Technician App</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Fiber GIS & Installations</span>
+              </Link>
+            </div>
           </div>
 
           {/* Live Platform Vitals Ribbon */}
