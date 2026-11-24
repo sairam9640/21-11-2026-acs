@@ -4263,9 +4263,34 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
     const mainWanVlan = d.wanProfiles?.[0]?.vlanEnabled ? d.wanProfiles?.[0]?.vlanId : null;
 
+    // CWMP Session & Telemetry Schedule Tracking
+    const periodicIntervalSec = Number(
+      d.periodicInformInterval ||
+      device.rawParameters?.['InternetGatewayDevice.ManagementServer.PeriodicInformInterval'] ||
+      device.rawParameters?.['Device.ManagementServer.PeriodicInformInterval'] ||
+      300
+    );
+
+    const lastInformDate = device.lastInform ? new Date(device.lastInform) : new Date();
+    const nextInformDate = new Date(lastInformDate.getTime() + periodicIntervalSec * 1000);
+    const msUntilNext = nextInformDate.getTime() - Date.now();
+    const secondsUntilNext = Math.max(0, Math.round(msUntilNext / 1000));
+    const isSessionActive = (Date.now() - lastInformDate.getTime()) <= 45000;
+
     return res.json({
       success: true,
       workspace: {
+        sessionTracker: {
+          lastInformAt: lastInformDate,
+          lastInformFormatted: lastInformDate.toLocaleString('en-IN'),
+          lastInformAgoSeconds: Math.round((Date.now() - lastInformDate.getTime()) / 1000),
+          periodicIntervalSeconds: periodicIntervalSec,
+          nextScheduledInformAt: nextInformDate,
+          nextScheduledInformFormatted: nextInformDate.toLocaleString('en-IN'),
+          secondsUntilNextInform: secondsUntilNext,
+          isSessionActive,
+          sessionStatus: isSessionActive ? 'IN_SESSION' : device.status === 'online' ? 'WAITING_NEXT_INTERVAL' : 'OFFLINE',
+        },
         header: {
           id: device._id,
           deviceIdStr: (device as any).deviceIdStr || device.serialNumber,

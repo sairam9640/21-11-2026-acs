@@ -328,104 +328,104 @@ export const LandingPage: React.FC = () => {
   const roiFasterMttr = '45%';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden">
-      {/* 1. TOP STICKY NAVBAR */}
-      <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/80 shadow-2xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-600 selection:text-white overflow-x-hidden antialiased">
+      {/* 1. TOP STICKY NAVBAR - CLEAN & LIGHT */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-slate-200 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-18 flex items-center justify-between">
           {/* Brand Logo */}
           <Link to="/" className="flex items-center space-x-3 group">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-sky-500 via-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-sky-500/25 group-hover:scale-105 transition-all">
-              <Zap className="w-6 h-6 animate-pulse" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-all">
+              <Zap className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xl font-black tracking-tight text-white font-mono">AI ISP OS</span>
-                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-full">
-                  v2.0.1 Enterprise
+                <span className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900 font-mono">AI ISP OS</span>
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
+                  v2.0 Enterprise
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium">Autonomous FTTH & ISP Operating System</p>
+              <p className="text-[10px] text-slate-500 font-medium">Autonomous FTTH & ISP Operating System</p>
             </div>
           </Link>
 
           {/* Navigation Links */}
-          <nav className="hidden lg:flex items-center space-x-7 text-xs font-bold uppercase tracking-wider text-slate-300">
-            <a href="#overview" className="hover:text-sky-400 transition-colors">Overview</a>
-            <a href="#modules" className="hover:text-sky-400 transition-colors">3D Modules</a>
-            <a href="#cockpit-demo" className="hover:text-sky-400 transition-colors">Live Cockpit</a>
-            <a href="#industries" className="hover:text-sky-400 transition-colors">Industries</a>
-            <a href="#roi" className="hover:text-sky-400 transition-colors">ROI Calculator</a>
-            <a href="#hardware" className="hover:text-sky-400 transition-colors">Supported CPEs</a>
-            <a href="#faq" className="hover:text-sky-400 transition-colors">FAQ</a>
+          <nav className="hidden lg:flex items-center space-x-7 text-xs font-bold uppercase tracking-wider text-slate-600">
+            <a href="#overview" className="hover:text-blue-600 transition-colors">Overview</a>
+            <a href="#modules" className="hover:text-blue-600 transition-colors">3D Modules</a>
+            <a href="#cockpit-demo" className="hover:text-blue-600 transition-colors">Live Cockpit</a>
+            <a href="#industries" className="hover:text-blue-600 transition-colors">Industries</a>
+            <a href="#roi" className="hover:text-blue-600 transition-colors">ROI Calculator</a>
+            <a href="#hardware" className="hover:text-blue-600 transition-colors">Supported CPEs</a>
+            <a href="#faq" className="hover:text-blue-600 transition-colors">FAQ</a>
           </nav>
 
           {/* Action CTAs & Portal Switcher */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2.5">
             {/* Login Menu Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setShowLoginMenu(!showLoginMenu)}
-                className="px-3.5 py-2 text-xs font-bold text-slate-200 bg-slate-900 border border-slate-700 hover:border-slate-600 rounded-xl flex items-center space-x-1.5 transition-all"
+                className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl flex items-center space-x-1.5 transition-all shadow-xs"
               >
-                <Lock className="w-3.5 h-3.5 text-sky-400" />
-                <span>Portal Logins</span>
-                <ChevronDown className="w-3 h-3 text-slate-400" />
+                <Lock className="w-3.5 h-3.5 text-blue-600" />
+                <span>పోర్టల్ లాగిన్స్</span>
+                <ChevronDown className="w-3 h-3 text-slate-500" />
               </button>
 
               {showLoginMenu && (
                 <div
-                  className="absolute right-0 mt-2 w-60 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 space-y-1 font-sans"
+                  className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl p-2 z-50 space-y-1 font-sans animate-fadeIn"
                   onClick={() => setShowLoginMenu(false)}
                 >
                   <Link
                     to="/operator/login"
-                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-sky-500/10 text-slate-200 hover:text-white transition-colors"
+                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-blue-50 text-slate-800 transition-colors"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-sky-600 text-white flex items-center justify-center font-bold text-xs">
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
                       🏢
                     </div>
                     <div>
-                      <span className="text-xs font-bold block">Operator Portal</span>
-                      <span className="text-[10px] text-slate-400">NOC & Daily Management</span>
+                      <span className="text-xs font-bold block text-slate-900">Operator Portal</span>
+                      <span className="text-[10px] text-slate-500">NOC, Fleet & ZTP Config</span>
                     </div>
                   </Link>
 
                   <Link
                     to="/superadmin/login"
-                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-purple-500/10 text-slate-200 hover:text-white transition-colors"
+                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-purple-50 text-slate-800 transition-colors"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs">
+                    <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
                       👑
                     </div>
                     <div>
-                      <span className="text-xs font-bold block">Super Admin Cloud</span>
-                      <span className="text-[10px] text-slate-400">Multi-Tenant Management</span>
+                      <span className="text-xs font-bold block text-slate-900">Super Admin Cloud</span>
+                      <span className="text-[10px] text-slate-500">Multi-Tenant Management</span>
                     </div>
                   </Link>
 
                   <Link
                     to="/customer/login"
-                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-emerald-500/10 text-slate-200 hover:text-white transition-colors"
+                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-emerald-50 text-slate-800 transition-colors"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
                       📱
                     </div>
                     <div>
-                      <span className="text-xs font-bold block">Customer Self-Service</span>
-                      <span className="text-[10px] text-slate-400">Bill Pay & Wi-Fi Control</span>
+                      <span className="text-xs font-bold block text-slate-900">Customer Self-Service</span>
+                      <span className="text-[10px] text-slate-500">Bill Pay & Wi-Fi Control</span>
                     </div>
                   </Link>
 
                   <Link
                     to="/tech/login"
-                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-amber-500/10 text-slate-200 hover:text-white transition-colors"
+                    className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-amber-50 text-slate-800 transition-colors"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center font-bold text-xs">
+                    <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
                       🔧
                     </div>
                     <div>
-                      <span className="text-xs font-bold block">Technician Field App</span>
-                      <span className="text-[10px] text-slate-400">Installations & Fiber Repairs</span>
+                      <span className="text-xs font-bold block text-slate-900">Technician Field App</span>
+                      <span className="text-[10px] text-slate-500">Installations & GIS Route</span>
                     </div>
                   </Link>
                 </div>
@@ -434,145 +434,145 @@ export const LandingPage: React.FC = () => {
 
             <Button
               onClick={() => setShowDemoModal(true)}
-              className="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-lg shadow-sky-500/25 transition-all"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-md shadow-blue-600/20 transition-all"
             >
               <Play className="w-3.5 h-3.5 mr-1.5 fill-white" />
-              Book Live Demo
+              <span>డెమో చూడండి</span>
             </Button>
           </div>
         </div>
       </header>
 
-      {/* 2. FUTURISTIC 3D HERO SECTION */}
-      <section className="relative pt-12 pb-20 overflow-hidden bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-sky-950/40 via-slate-950 to-slate-950">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+      {/* 2. CLEAN & MODERN LIGHT HERO SECTION */}
+      <section className="relative pt-10 sm:pt-14 pb-16 overflow-hidden bg-gradient-to-b from-blue-50/60 via-slate-50 to-white border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10 sm:space-y-12">
           {/* Hero Headlines */}
-          <div className="text-center max-w-4xl mx-auto space-y-6">
-            <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 text-xs font-bold uppercase tracking-wider shadow-inner">
-              <Sparkles className="w-4 h-4 text-sky-400 animate-spin" />
-              <span>Next-Gen Telecom Operating System • 2026 Edition</span>
+          <div className="text-center max-w-4xl mx-auto space-y-4 sm:space-y-5">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-blue-100/70 border border-blue-200 text-blue-700 text-xs font-bold shadow-xs">
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <span>టెలికాం & బ్రాడ్‌బ్యాండ్ ఆపరేటింగ్ సిస్టమ్ • 2026 Edition</span>
             </div>
 
-            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white leading-tight">
-              The All-in-One Autonomous <br />
-              <span className="bg-gradient-to-r from-sky-400 via-teal-300 to-purple-400 bg-clip-text text-transparent">
+            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 leading-tight">
+              The Modern Autonomous <br />
+              <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 bg-clip-text text-transparent">
                 ISP & FTTH Operations
               </span> Platform
             </h1>
 
-            <p className="text-base sm:text-xl text-slate-300 font-normal leading-relaxed max-w-3xl mx-auto">
-              Replace 8 disconnected software tools with one carrier-grade cockpit. Unify <span className="text-white font-bold">TR-069 ACS</span>, <span className="text-white font-bold">Fiber GIS Digital Twin</span>, <span className="text-white font-bold">Multi-Gateway Auto Billing</span>, <span className="text-white font-bold">WhatsApp Bot</span>, and <span className="text-white font-bold">Customer 360° Operations</span>.
+            <p className="text-sm sm:text-lg text-slate-600 font-normal leading-relaxed max-w-3xl mx-auto">
+              కారియర్-గ్రేడ్ <span className="text-slate-900 font-bold">TR-069 / TR-181 ACS</span>, <span className="text-slate-900 font-bold">ఫైబర్ GIS డిజిటల్ ట్విన్</span>, <span className="text-slate-900 font-bold">ఆటోమేటెడ్ బిల్లింగ్</span>, మరియు <span className="text-slate-900 font-bold">కస్టమర్ 360° పోర్టల్</span> ఒకే వేదికపై.
             </p>
 
-            <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
-              <Button
-                size="lg"
-                onClick={() => setShowDemoModal(true)}
-                className="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black text-sm px-7 py-3.5 rounded-2xl shadow-xl shadow-sky-500/30 transform hover:-translate-y-0.5 transition-all"
-              >
-                <Sparkles className="w-4 h-4 mr-2" />
-                Book Live 1-on-1 Demo
-              </Button>
-
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <Link to="/operator/login">
                 <Button
                   size="lg"
-                  variant="outline"
-                  className="border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-white font-bold text-sm px-7 py-3.5 rounded-2xl shadow-md transition-all"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs sm:text-sm px-6 py-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all"
                 >
-                  <Terminal className="w-4 h-4 mr-2 text-sky-400" />
-                  Explore Operator Cockpit
+                  <Terminal className="w-4 h-4 mr-2 text-white" />
+                  ఆపరేటర్ పోర్టల్ లాగిన్ (Login)
                 </Button>
               </Link>
 
               <Button
                 size="lg"
                 variant="outline"
-                onClick={() => setShowQuoteModal(true)}
-                className="border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold text-sm px-7 py-3.5 rounded-2xl transition-all"
+                onClick={() => setShowDemoModal(true)}
+                className="border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs sm:text-sm px-6 py-3 rounded-xl shadow-xs transition-all"
               >
-                <DollarSign className="w-4 h-4 mr-1.5" />
-                Instant Price Estimate
+                <Sparkles className="w-4 h-4 mr-2 text-blue-600" />
+                లైవ్ డెమో బుక్ చేయండి
+              </Button>
+
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => setShowQuoteModal(true)}
+                className="border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs sm:text-sm px-6 py-3 rounded-xl transition-all"
+              >
+                <DollarSign className="w-4 h-4 mr-1 text-emerald-600" />
+                ధర అంచనా (Price Quote)
               </Button>
             </div>
 
-            {/* Quick Direct Portal Access Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 max-w-4xl mx-auto">
+            {/* Quick Direct Portal Access Grid (Mobile Friendly) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 max-w-4xl mx-auto">
               <Link
                 to="/operator/login"
-                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-sky-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+                className="p-3.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-400 rounded-xl transition-all group flex flex-col items-center text-center shadow-xs"
               >
-                <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
                   <Terminal className="w-5 h-5" />
                 </div>
-                <span className="text-xs font-bold text-white group-hover:text-sky-300">Operator NOC</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Fleet & ZTP Provisioning</span>
+                <span className="text-xs font-bold text-slate-900 group-hover:text-blue-700">Operator NOC</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">ONT ఫ్లీట్ & ZTP</span>
               </Link>
 
               <Link
                 to="/superadmin/login"
-                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-purple-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+                className="p-3.5 bg-white hover:bg-purple-50/60 border border-slate-200 hover:border-purple-400 rounded-xl transition-all group flex flex-col items-center text-center shadow-xs"
               >
-                <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 border border-purple-200 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
                   <Building2 className="w-5 h-5" />
                 </div>
-                <span className="text-xs font-bold text-white group-hover:text-purple-300">Super Admin</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Multi-Tenant Cloud</span>
+                <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700">Super Admin</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">టెనెంట్ మేనేజ్‌మెంట్</span>
               </Link>
 
               <Link
                 to="/customer/login"
-                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-emerald-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+                className="p-3.5 bg-white hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-400 rounded-xl transition-all group flex flex-col items-center text-center shadow-xs"
               >
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
                   <Wifi className="w-5 h-5" />
                 </div>
-                <span className="text-xs font-bold text-white group-hover:text-emerald-300">Subscriber Portal</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Bill Pay & Wi-Fi Self-Care</span>
+                <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-700">Subscriber Portal</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">బిల్ పే & వైఫై కంట్రోల్</span>
               </Link>
 
               <Link
                 to="/tech/login"
-                className="p-4 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-amber-500/60 rounded-2xl transition-all group flex flex-col items-center text-center shadow-lg"
+                className="p-3.5 bg-white hover:bg-amber-50/60 border border-slate-200 hover:border-amber-400 rounded-xl transition-all group flex flex-col items-center text-center shadow-xs"
               >
-                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
                   <Wrench className="w-5 h-5" />
                 </div>
-                <span className="text-xs font-bold text-white group-hover:text-amber-300">Technician App</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Fiber GIS & Installations</span>
+                <span className="text-xs font-bold text-slate-900 group-hover:text-amber-700">Technician App</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">ఇన్‌స్టాలేషన్స్ & GIS</span>
               </Link>
             </div>
           </div>
 
-          {/* Live Platform Vitals Ribbon */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-900/60 backdrop-blur-xl border border-slate-800 rounded-3xl shadow-xl">
-            <div className="text-center p-3 border-r border-slate-800/80">
-              <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">Platform SLA</span>
-              <span className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono">99.999%</span>
-              <p className="text-[11px] text-slate-500 mt-0.5">Zero-Downtime Architecture</p>
+          {/* Live Platform Vitals Ribbon - Clean Light Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-white border border-slate-200 rounded-2xl shadow-xs">
+            <div className="text-center p-2.5 border-r border-slate-100">
+              <span className="text-[10px] uppercase font-bold text-slate-500 font-mono tracking-wider block">Platform SLA</span>
+              <span className="text-2xl sm:text-3xl font-black text-emerald-600 font-mono">99.999%</span>
+              <p className="text-[11px] text-slate-500 mt-0.5">జీరో డౌన్‌టైమ్ ఆర్కిటెక్చర్</p>
             </div>
 
-            <div className="text-center p-3 md:border-r border-slate-800/80">
-              <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">Active Fleet CPEs</span>
-              <span className="text-2xl sm:text-3xl font-black text-sky-400 font-mono">120,000+</span>
-              <p className="text-[11px] text-slate-500 mt-0.5">TR-069 & SNMP Managed</p>
+            <div className="text-center p-2.5 md:border-r border-slate-100">
+              <span className="text-[10px] uppercase font-bold text-slate-500 font-mono tracking-wider block">Active Fleet CPEs</span>
+              <span className="text-2xl sm:text-3xl font-black text-blue-600 font-mono">120,000+</span>
+              <p className="text-[11px] text-slate-500 mt-0.5">TR-069 & SNMP మేనేజ్డ్</p>
             </div>
 
-            <div className="text-center p-3 border-r border-slate-800/80">
-              <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">Monthly Collections</span>
-              <span className="text-2xl sm:text-3xl font-black text-purple-400 font-mono">₹14.8 Cr+</span>
-              <p className="text-[11px] text-slate-500 mt-0.5">Multi-Gateway Automated</p>
+            <div className="text-center p-2.5 border-r border-slate-100">
+              <span className="text-[10px] uppercase font-bold text-slate-500 font-mono tracking-wider block">Monthly Collections</span>
+              <span className="text-2xl sm:text-3xl font-black text-purple-600 font-mono">₹14.8 Cr+</span>
+              <p className="text-[11px] text-slate-500 mt-0.5">ఆటోమేటెడ్ గేట్‌వేస్</p>
             </div>
 
-            <div className="text-center p-3">
-              <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">TR-069 Dispatch Latency</span>
-              <span className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">&lt; 12 ms</span>
-              <p className="text-[11px] text-slate-500 mt-0.5">High-Speed RPC Execution</p>
+            <div className="text-center p-2.5">
+              <span className="text-[10px] uppercase font-bold text-slate-500 font-mono tracking-wider block">TR-069 Dispatch Latency</span>
+              <span className="text-2xl sm:text-3xl font-black text-amber-600 font-mono">&lt; 12 ms</span>
+              <p className="text-[11px] text-slate-500 mt-0.5">హై-స్పీడ్ RPC ఎగ్జిక్యూషన్</p>
             </div>
           </div>
 
           {/* 3D Interactive Fiber Canvas */}
-          <div className="pt-2">
+          <div className="pt-2 rounded-2xl overflow-hidden border border-slate-200 bg-slate-900">
             <FiberNetwork3DCanvas />
           </div>
         </div>
