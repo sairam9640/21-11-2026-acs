@@ -498,7 +498,8 @@ export async function buildDynamicTr098WanParams(
     if (isServiceListSupported || isCtComDevice) {
       rawCandidateParams.push([`${basePath}.X_CT-COM_ServiceList`, resolvedServiceList, 'xsd:string']);
     }
-    rawCandidateParams.push([`${basePath}.ConnectionType`, profile.connectionType === 'Bridge' || profile.bridgeMode ? 'IP_Bridged' : 'IP_Routed', 'xsd:string']);
+    const isBridged = profile.mode === 'Bridge' || profile.connectionType === 'Bridge' || Boolean(profile.bridgeMode);
+    rawCandidateParams.push([`${basePath}.ConnectionType`, isBridged ? 'IP_Bridged' : 'IP_Routed', 'xsd:string']);
     if (profile.connectionType === 'Static' || profile.ipAssignment === 'Static') {
       rawCandidateParams.push([`${basePath}.AddressingType`, 'Static', 'xsd:string']);
     } else {
@@ -517,7 +518,8 @@ export async function buildDynamicTr098WanParams(
     }
     // ConnectionType is read-only on most TR-098 ONTs (e.g. Genexis) and defaults to IP_Routed on WANPPPConnection. Omit to prevent Fault 9003.
   } else {
-    if (profile.natEnabled !== undefined && !isTr069 && !isVoice && profile.connectionType !== 'Bridge' && !profile.bridgeMode) {
+    const isBridged = profile.mode === 'Bridge' || profile.connectionType === 'Bridge' || Boolean(profile.bridgeMode);
+    if (profile.natEnabled !== undefined && !isTr069 && !isVoice && !isBridged) {
       rawCandidateParams.push([`${basePath}.NATEnabled`, Boolean(profile.natEnabled), 'xsd:boolean']);
     }
     if (profile.connectionType === 'Static' || profile.ipAssignment === 'Static') {
@@ -538,22 +540,70 @@ export async function buildDynamicTr098WanParams(
     const slotNum = slotMatch ? slotMatch[1] : '1';
 
     const rawKeys = Object.keys(rawParams || {});
-    const isCtComVlanSupported = rawKeys.some((k) => k.includes('X_CT-COM_WANEponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANEponLinkConfig'));
-    const isEponModeSupported = rawKeys.some((k) => k.includes('X_CT-COM_WANEponLinkConfig.Mode'));
+    const vlanIdNum = Number(profile.vlanId);
 
-    if (isCtComVlanSupported && isEponModeSupported) {
-      // Target the specific slot's EPON link config for VLAN Mode and VLAN ID only if both are supported
+    // 1. EPON Link Config (Syrotech EPON, Netlink, V-Sol, China Telecom)
+    const hasEponVlan = rawKeys.some((k) => k.includes('X_CT-COM_WANEponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANEponLinkConfig'));
+    const hasEponMode = rawKeys.some((k) => k.includes('X_CT-COM_WANEponLinkConfig.Mode'));
+
+    // 2. GPON Link Config (Syrotech GPON, Realtek Luna, Huawei, ZTE)
+    const hasGponVlan = rawKeys.some((k) => k.includes('X_CT-COM_WANGponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANGponLinkConfig'));
+    const hasGponMode = rawKeys.some((k) => k.includes('X_CT-COM_WANGponLinkConfig.Mode'));
+
+    // 3. Generic CT-COM Link Config
+    const hasCtComLinkVlan = rawKeys.some((k) => k.includes('X_CT-COM_WANLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANLinkConfig'));
+
+    // 4. Connection-level vendor VLAN (X_CT-COM_VLAN or X_CT-COM_VlanID)
+    const hasConnCtComVlan = rawKeys.some((k) => k.includes(`${basePath}.X_CT-COM_VLAN`) || k.includes('X_CT-COM_VLAN'));
+    const hasConnCtComVlanId = rawKeys.some((k) => k.includes(`${basePath}.X_CT-COM_VlanID`) || k.includes('X_CT-COM_VlanID'));
+
+    // 5. Huawei vendor VLAN
+    const hasHwVlan = rawKeys.some((k) => k.includes(`${basePath}.X_HW_VLAN`) || k.includes('X_HW_VLAN'));
+
+    // 6. Slot-level VLANID (Broadcom, TP-Link)
+    const hasSlotVlan = rawKeys.some((k) => k.includes(`WANConnectionDevice.${slotNum}.VLANID`));
+
+    // 7. Connection-level standard VLANID
+    const hasConnVlanId = rawKeys.some((k) => k.includes(`${basePath}.VLANID`));
+
+    if (hasEponVlan && hasEponMode) {
       rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`, 2, 'xsd:int']);
-      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, Number(profile.vlanId), 'xsd:int']);
-    } else if (isCtComVlanSupported) {
-      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, Number(profile.vlanId), 'xsd:int']);
-    } else if (rawKeys.some((k) => k.includes(`${basePath}.VLANID`))) {
-      rawCandidateParams.push([`${basePath}.VLANID`, Number(profile.vlanId), 'xsd:int']);
-    } else if (rawKeys.some((k) => k.includes(`${basePath}.X_HW_VLAN`))) {
-      rawCandidateParams.push([`${basePath}.X_HW_VLAN`, Number(profile.vlanId), 'xsd:int']);
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, vlanIdNum, 'xsd:int']);
+    } else if (hasEponVlan) {
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, vlanIdNum, 'xsd:int']);
+    } else if (hasGponVlan && hasGponMode) {
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`, 2, 'xsd:int']);
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`, vlanIdNum, 'xsd:int']);
+    } else if (hasGponVlan) {
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`, vlanIdNum, 'xsd:int']);
+    } else if (hasCtComLinkVlan) {
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`, vlanIdNum, 'xsd:int']);
+    } else if (hasConnCtComVlan) {
+      rawCandidateParams.push([`${basePath}.X_CT-COM_VLAN`, vlanIdNum, 'xsd:int']);
+    } else if (hasConnCtComVlanId) {
+      rawCandidateParams.push([`${basePath}.X_CT-COM_VlanID`, vlanIdNum, 'xsd:int']);
+    } else if (hasHwVlan) {
+      rawCandidateParams.push([`${basePath}.X_HW_VLAN`, vlanIdNum, 'xsd:int']);
+    } else if (hasSlotVlan) {
+      rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`, vlanIdNum, 'xsd:int']);
+    } else if (hasConnVlanId) {
+      rawCandidateParams.push([`${basePath}.VLANID`, vlanIdNum, 'xsd:int']);
     } else {
-      // Standard TR-098 fallback
-      rawCandidateParams.push([`${basePath}.VLANID`, Number(profile.vlanId), 'xsd:int']);
+      // Check if ANY key in rawKeys contains VLAN for another slot, and adapt its path
+      const anyVlanKey = rawKeys.find((k) => /vlan/i.test(k) && /WANConnectionDevice\.\d+\./.test(k));
+      if (anyVlanKey) {
+        const adaptedKey = anyVlanKey
+          .replace(/WANConnectionDevice\.\d+\./, `WANConnectionDevice.${slotNum}.`)
+          .replace(/(WANPPPConnection|WANIPConnection)\.\d+/, basePath);
+        console.log(`[TR-098 Discovery] Inferred vendor VLAN path '${adaptedKey}' from existing device parameter tree.`);
+        rawCandidateParams.push([adaptedKey, vlanIdNum, 'xsd:int']);
+      } else if (rawKeys.length > 0) {
+        // Discovered tree is populated but contains NO recognized VLAN paths — SUPPRESS to avoid Fault 9005!
+        console.warn(`[TR-098 Discovery] 🛡️ No supported VLAN parameter found in ${rawKeys.length} discovered keys for slot ${slotNum}. Suppressed candidate VLAN to prevent Fault 9005.`);
+      } else {
+        // Tree cache is completely empty, use slot EPON link config as the safest TR-098 default for Chinese ONTs
+        rawCandidateParams.push([`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`, vlanIdNum, 'xsd:int']);
+      }
     }
   }
 

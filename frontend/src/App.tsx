@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { LanguageProvider } from './context/LanguageContext.js';
 
 import { LandingPage } from './pages/LandingPage.js';
 
@@ -142,7 +143,8 @@ const RootRedirect: React.FC = () => {
 export function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <LanguageProvider>
+        <BrowserRouter>
         <Routes>
           {/* Smart Root Route */}
           <Route path="/" element={<RootRedirect />} />
@@ -529,6 +531,7 @@ export function App() {
           <Route path="*" element={<RootRedirect />} />
         </Routes>
       </BrowserRouter>
+      </LanguageProvider>
     </AuthProvider>
   );
 }

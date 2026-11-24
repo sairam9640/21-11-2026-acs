@@ -1908,6 +1908,18 @@ ${stringElements}
                 console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${targetName}' before SetParameterValues dispatch.`);
                 continue;
               }
+              if (targetName.includes('X_CT-COM_WANGponLinkConfig.Mode') && !rawKeys.some(k => k.includes('X_CT-COM_WANGponLinkConfig.Mode'))) {
+                console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${targetName}' before SetParameterValues dispatch.`);
+                continue;
+              }
+              if (targetName.includes('X_CT-COM_WANGponLinkConfig') && !rawKeys.some(k => k.includes('X_CT-COM_WANGponLinkConfig'))) {
+                console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${targetName}' before SetParameterValues dispatch.`);
+                continue;
+              }
+              if (rawKeys.length > 0 && targetName.endsWith('.VLANID') && !rawKeys.some(k => k.includes(targetName))) {
+                console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${targetName}' (not in device parameter tree) before SetParameterValues dispatch.`);
+                continue;
+              }
 
               // Suppress ConnectionType if targeted on WANPPPConnection (as it causes Fault 9003 on Genexis/Broadcom/CTC ONTs)
               if (/WANPPPConnection\.\d+\.ConnectionType$/i.test(targetName)) {
@@ -2864,10 +2876,14 @@ ${stringElements}
         const rawKeys = Object.keys(device.rawParameters || {});
         const hasEponLinkConfig = rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANEponLinkConfig'));
         const hasEponMode = rawKeys.some(k => k.includes('X_CT-COM_WANEponLinkConfig.Mode'));
+        const hasGponLinkConfig = rawKeys.some(k => k.includes('X_CT-COM_WANGponLinkConfig.VLANIDMark') || k.includes('X_CT-COM_WANGponLinkConfig'));
+        const hasGponMode = rawKeys.some(k => k.includes('X_CT-COM_WANGponLinkConfig.Mode'));
 
         const vlanParams = normalizedParams.filter((p: any) =>
           p.name.includes('WANEponLinkConfig') ||
           p.name.includes('X_CT-COM_WANEponLinkConfig') ||
+          p.name.includes('WANGponLinkConfig') ||
+          p.name.includes('X_CT-COM_WANGponLinkConfig') ||
           p.name.endsWith('.VLANID') ||
           p.name.endsWith('.VLANIDMark') ||
           p.name.endsWith('.X_HW_VLAN')
@@ -2879,6 +2895,18 @@ ${stringElements}
           }
           if (vp.name.includes('X_CT-COM_WANEponLinkConfig') && !hasEponLinkConfig) {
             console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
+            continue;
+          }
+          if (vp.name.includes('X_CT-COM_WANGponLinkConfig.Mode') && !hasGponMode) {
+            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
+            continue;
+          }
+          if (vp.name.includes('X_CT-COM_WANGponLinkConfig') && !hasGponLinkConfig) {
+            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' after AddObject.`);
+            continue;
+          }
+          if (rawKeys.length > 0 && vp.name.endsWith('.VLANID') && !rawKeys.some(k => k.includes(vp.name))) {
+            console.warn(`[CWMP ACS] 🛡️ Suppressed unsupported parameter '${vp.name}' (not in device tree) after AddObject.`);
             continue;
           }
           if (!orderedParams.some((o: any) => o.name === vp.name)) {
@@ -2955,6 +2983,22 @@ ${orderedParams.map((p: any) => `        <ParameterValueStruct>
         { deviceId: device._id, status: { $in: ['sent', 'sending', 'queued', 'pending'] } },
         { $set: { status: spvStatus === 1 ? 'applied_pending_verification' : 'success', completedAt: new Date() } }
       );
+
+      // Reconcile WAN profiles: mark any in-flight provisioning profiles as Connected
+      if (Array.isArray(device.wanProfiles)) {
+        let updatedWan = false;
+        for (const wp of device.wanProfiles) {
+          if (wp.status === 'Provisioning' || (wp as any).status === 'Connecting') {
+            wp.status = 'Connected';
+            delete (wp as any).lastError;
+            updatedWan = true;
+          }
+        }
+        if (updatedWan) {
+          device.markModified('wanProfiles');
+          await device.save();
+        }
+      }
 
       const recentCutoff = new Date(Date.now() - 120_000);
       const inFlightCommands = await DeviceCommand.find({
@@ -3517,6 +3561,21 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
           device.pendingConfig.status = 'FAILED';
           device.pendingConfig.failedAt = new Date();
           device.pendingConfig.errorMessage = detailedErrorMsg;
+        }
+
+        // On SPV Fault, flag any in-flight provisioning WAN profiles as Disconnected / Failed
+        if (Array.isArray(device.wanProfiles)) {
+          let updatedWan = false;
+          for (const wp of device.wanProfiles) {
+            if (wp.status === 'Provisioning' || (wp as any).status === 'Connecting') {
+              wp.status = 'Disconnected';
+              (wp as any).lastError = detailedErrorMsg;
+              updatedWan = true;
+            }
+          }
+          if (updatedWan) {
+            device.markModified('wanProfiles');
+          }
         }
         await device.save();
         return null;

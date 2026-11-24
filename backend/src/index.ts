@@ -16,6 +16,7 @@ import { superAdminRouter } from './routes/superAdminRoutes.js';
 import { operatorRouter } from './routes/operatorRoutes.js';
 import { technicianRouter } from './routes/technicianRoutes.js';
 import { customerRouter } from './routes/customerRoutes.js';
+import { speedtestRouter } from './routes/speedtestRoutes.js';
 import { MetricsService } from './services/metricsService.js';
 import { WebhookService } from './services/webhookService.js';
 import { ErrorEnvelopeService } from './services/errorEnvelope.js';
@@ -164,6 +165,8 @@ app.use('/api/superadmin', superAdminRouter); // Direct & backward compatibility
 app.use('/api/v1/operator', operatorRouter);
 app.use('/api/v1/technician', technicianRouter);
 app.use('/api/v1/customer', customerRouter);
+app.use('/api/speedtest', speedtestRouter);
+app.use('/api/v1/speedtest', speedtestRouter);
 
 // Inbound TR-069 CWMP and Firmware routes (Port 4000 fallback)
 app.use(cwmpRouter);

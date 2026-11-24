@@ -2100,7 +2100,7 @@ const handleAddWanProfile = async (req: AuthenticatedRequest, res: Response) => 
       dnsMode,
       primaryDns,
       secondaryDns,
-      status: 'Connected',
+      status: 'Provisioning',
       isDefault: device.wanProfiles.length === 0,
     };
 
@@ -2120,7 +2120,7 @@ const handleAddWanProfile = async (req: AuthenticatedRequest, res: Response) => 
       triggerGenieAcsConnectionRequest(device.serialNumber).catch(() => {});
     }
 
-    const dynamicResult = await buildDynamicTr098WanParams(savedProfile, device, isStale ? {} : device.rawParameters);
+    const dynamicResult = await buildDynamicTr098WanParams(savedProfile, device, device.rawParameters || {});
     const tr069Params = dynamicResult.params;
     const requiresAddObject = dynamicResult.requiresAddObject || !savedProfile.cpeObjectPath;
 
@@ -2342,7 +2342,7 @@ const handleEditWanProfile = async (req: AuthenticatedRequest, res: Response) =>
       triggerGenieAcsConnectionRequest(device.serialNumber).catch(() => {});
     }
 
-    const dynamicResult = await buildDynamicTr098WanParams(currentProfile, device, isStale ? {} : device.rawParameters);
+    const dynamicResult = await buildDynamicTr098WanParams(currentProfile, device, device.rawParameters || {});
     const tr069Params = dynamicResult.params;
     const requiresAddObject = dynamicResult.requiresAddObject || !currentProfile.cpeObjectPath;
 

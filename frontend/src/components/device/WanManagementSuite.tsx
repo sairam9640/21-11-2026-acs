@@ -96,7 +96,7 @@ export interface WanProfileData {
   ipAddress?: string;
   subnetMask?: string;
   gateway?: string;
-  status?: 'Connected' | 'Disconnected' | 'Connecting';
+  status?: 'Connected' | 'Disconnected' | 'Connecting' | 'Provisioning';
   isDefault?: boolean;
 }
 
@@ -608,19 +608,34 @@ export const WanManagementSuite: React.FC<WanManagementSuiteProps> = ({
                         <span className="bg-purple-50 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
                           {prof.bearerService || prof.serviceType || 'INTERNET'}
                         </span>
+                        {prof.status === 'Provisioning' || (prof as any).status === 'Connecting' ? (
+                          <span className="bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.5 rounded animate-pulse">
+                            Staging to ONT...
+                          </span>
+                        ) : prof.status === 'Disconnected' && (prof as any).lastError ? (
+                          <span className="bg-rose-100 text-rose-800 text-[9px] font-bold px-1.5 py-0.5 rounded" title={(prof as any).lastError}>
+                            ONT Rejected
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
                     <div className="flex items-center space-x-1">
-                      <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                      <span className={`w-2 h-2 rounded-full ${
+                        prof.status === 'Provisioning' || (prof as any).status === 'Connecting'
+                          ? 'bg-amber-500 animate-ping'
+                          : isConnected
+                          ? 'bg-emerald-500 animate-pulse'
+                          : 'bg-rose-400'
+                      }`} />
                     </div>
                   </div>
 
                   {prof.pppoeUsername && (
                     <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
                       <span>User: {prof.pppoeUsername}</span>
-                      <span className={prof.ipAddress ? "text-emerald-700 font-bold" : "text-amber-600 font-normal"}>
-                        {prof.ipAddress || '192.168.22.170'}
+                      <span className={prof.ipAddress ? "text-emerald-700 font-bold" : "text-slate-400 font-normal"}>
+                        {prof.ipAddress || '0.0.0.0'}
                       </span>
                     </div>
                   )}
