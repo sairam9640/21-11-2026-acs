@@ -42,6 +42,8 @@ import {
   Globe,
   Network,
   HardDrive,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Shell } from '../../components/layout/Shell.js';
 import { StateWrapper } from '../../components/ui/StateWrapper.js';
@@ -62,6 +64,8 @@ export const Customer360: React.FC = () => {
 
   // Security & PII Unmasking
   const [isUnmasked, setIsUnmasked] = useState(false);
+  const [showWifiDirect, setShowWifiDirect] = useState<{ [band: string]: boolean }>({});
+  const [copiedWifiKey, setCopiedWifiKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Modals State
@@ -566,9 +570,35 @@ export const Customer360: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center text-[11px] text-slate-600">
                       <span className="text-slate-400 font-sans">2.4G Key:</span>
-                      <span className="font-mono font-bold text-slate-800">
-                        {isUnmasked ? (device?.wifi24?.password || '••••••••') : '••••••••'}
-                      </span>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="font-mono font-bold text-slate-800">
+                          {(isUnmasked || showWifiDirect['24'])
+                            ? (device?.wifi24?.password || (device?.wifi24?.passwordConfigured ? '••••••••' : 'Not Configured'))
+                            : '••••••••'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowWifiDirect((prev) => ({ ...prev, '24': !prev['24'] }))}
+                          className="p-1 rounded text-slate-400 hover:text-slate-700 transition"
+                          title={showWifiDirect['24'] ? 'Hide Password' : 'Show Password'}
+                        >
+                          {showWifiDirect['24'] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        </button>
+                        {device?.wifi24?.password && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(device.wifi24.password);
+                              setCopiedWifiKey('24');
+                              setTimeout(() => setCopiedWifiKey(null), 2000);
+                            }}
+                            className="p-1 rounded text-slate-400 hover:text-slate-700 transition"
+                            title="Copy Password"
+                          >
+                            {copiedWifiKey === '24' ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -582,9 +612,35 @@ export const Customer360: React.FC = () => {
                       </div>
                       <div className="flex justify-between items-center text-[11px] text-slate-600">
                         <span className="text-slate-400 font-sans">5G Key:</span>
-                        <span className="font-mono font-bold text-slate-800">
-                          {isUnmasked ? (device?.wifi5g?.password || '••••••••') : '••••••••'}
-                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="font-mono font-bold text-slate-800">
+                            {(isUnmasked || showWifiDirect['5g'])
+                              ? (device?.wifi5g?.password || (device?.wifi5g?.passwordConfigured ? '••••••••' : 'Not Configured'))
+                              : '••••••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowWifiDirect((prev) => ({ ...prev, '5g': !prev['5g'] }))}
+                            className="p-1 rounded text-slate-400 hover:text-slate-700 transition"
+                            title={showWifiDirect['5g'] ? 'Hide Password' : 'Show Password'}
+                          >
+                            {showWifiDirect['5g'] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          </button>
+                          {device?.wifi5g?.password && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(device.wifi5g.password);
+                                setCopiedWifiKey('5g');
+                                setTimeout(() => setCopiedWifiKey(null), 2000);
+                              }}
+                              className="p-1 rounded text-slate-400 hover:text-slate-700 transition"
+                              title="Copy Password"
+                            >
+                              {copiedWifiKey === '5g' ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

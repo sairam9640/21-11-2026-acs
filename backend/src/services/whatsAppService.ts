@@ -1,5 +1,6 @@
 import makeWASocketPkg, {
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   DisconnectReason,
   Browsers,
   WASocket,
@@ -15,6 +16,8 @@ import { SystemSetting, IWhatsAppSettings } from '../models/SystemSetting.js';
 import { NotificationLog } from '../models/NotificationLog.js';
 import { Tenant } from '../models/Tenant.js';
 import { PendingDeviceMapping } from '../models/PendingDeviceMapping.js';
+import { WhatsAppChatMessage } from '../models/WhatsAppChatMessage.js';
+import { WhatsAppBotService } from './whatsAppBotService.js';
 
 // Dynamic import resolution for CJS / ESM Baileys
 const makeWASocket = (makeWASocketPkg as any).default || makeWASocketPkg;
@@ -483,7 +486,23 @@ export class WhatsAppService {
 
       const socket = makeWASocket({
         version: [2, 3000, 1043857760],
-        auth: state,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
+        },
+        getMessage: async (key: any) => {
+          if (!key?.id) return undefined;
+          const msg = await WhatsAppChatMessage.findOne({
+            $or: [
+              { 'rawPayload.messageId': key.id },
+              { correlationId: key.id },
+            ],
+          }).lean();
+          if (msg?.messageText) {
+            return { conversation: msg.messageText };
+          }
+          return undefined;
+        },
         logger: pino({ level: 'silent' }),
         browser: Browsers.macOS('Desktop'),
         syncFullHistory: false,
@@ -1294,7 +1313,23 @@ export class WhatsAppService {
 
       const socket = makeWASocket({
         version: [2, 3000, 1043857760],
-        auth: state,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
+        },
+        getMessage: async (key: any) => {
+          if (!key?.id) return undefined;
+          const msg = await WhatsAppChatMessage.findOne({
+            $or: [
+              { 'rawPayload.messageId': key.id },
+              { correlationId: key.id },
+            ],
+          }).lean();
+          if (msg?.messageText) {
+            return { conversation: msg.messageText };
+          }
+          return undefined;
+        },
         logger: pino({ level: 'silent' }),
         browser: Browsers.macOS('Desktop'),
         syncFullHistory: false,
@@ -1308,6 +1343,51 @@ export class WhatsAppService {
 
       session.sock = socket;
       socket.ev.on('creds.update', saveCreds);
+
+      // Inbound Customer Messages Listener: Routes live messages from customer WhatsApp into Live Chat & AI Bot
+      socket.ev.on('messages.upsert', async ({ messages, type }: { messages: any[]; type: string }) => {
+        if (type !== 'notify' && type !== 'append') return;
+        for (const msg of messages) {
+          if (!msg.message) continue;
+          if (msg.key?.fromMe) continue;
+          if (msg.key?.remoteJid === 'status@broadcast') continue;
+
+          const fromJid = msg.key?.remoteJid || '';
+          if (!fromJid.endsWith('@s.whatsapp.net')) continue;
+
+          const fromPhone = fromJid.split('@')[0];
+          const messageText =
+            msg.message?.conversation ||
+            msg.message?.extendedTextMessage?.text ||
+            msg.message?.imageMessage?.caption ||
+            msg.message?.videoMessage?.caption ||
+            '';
+
+          if (!messageText.trim()) continue;
+
+          const senderName = msg.pushName || undefined;
+          const messageId = msg.key?.id || `msg_${Date.now()}`;
+
+          // Acknowledge read receipt
+          try {
+            await socket.readMessages([msg.key]);
+          } catch (_) {}
+
+          console.log(`[WhatsAppService] ✓ Inbound customer WhatsApp message for Tenant [${tenantId}] from [${fromPhone}]: "${messageText.slice(0, 50)}"`);
+
+          try {
+            await WhatsAppBotService.handleInboundMessage({
+              tenantId,
+              fromPhone,
+              messageText,
+              messageId,
+              senderName,
+            });
+          } catch (err: any) {
+            console.error(`[WhatsAppService] Error handling inbound message for Tenant [${tenantId}]:`, err.message);
+          }
+        }
+      });
 
       socket.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
@@ -1570,7 +1650,7 @@ export class WhatsAppService {
     tenantId: string,
     recipientPhone: string,
     message: string
-  ): Promise<{ success: boolean; messageId: string }> {
+  ): Promise<{ success: boolean; messageId: string; error?: string }> {
     const tenant = await Tenant.findById(tenantId);
     const tenantName = tenant?.displayName || tenant?.name || 'Fiber Broadband';
     const messageId = `wa_ten_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1595,54 +1675,23 @@ export class WhatsAppService {
 
     const jid = this.formatJid(recipientPhone);
     let messageDelivered = false;
+    let failureReason = '';
 
-    // 1. Primary: Evolution API Engine
-    try {
-      const isEvoAvailable = await EvolutionApiClient.isAvailable();
-      if (isEvoAvailable) {
-        const evoRes = await EvolutionApiClient.sendText(recipientPhone, formattedMessage);
-        if (evoRes.success) {
-          messageDelivered = true;
-          console.log(`[WhatsAppService] ✓ Live chat message sent to [${recipientPhone}] via Evolution API.`);
-        }
-      }
-    } catch (evoErr: any) {
-      console.warn(`[WhatsAppService] Evolution API check error: ${evoErr.message}`);
-    }
-
-    // 2. Tenant Baileys Socket
-    if (!messageDelivered && session?.sock?.user) {
+    // STRICT MULTI-TENANT ISOLATION:
+    // Only dispatch customer messages from the operator's own scanned WhatsApp instance.
+    // Never leak or fallback to Super Admin's phone number or shared platform accounts.
+    if (session?.sock?.user) {
       try {
         await session.sock.sendMessage(jid, { text: formattedMessage });
         messageDelivered = true;
-        console.log(`[WhatsAppService] ✓ Message sent via Tenant [${tenantId}] socket to [${recipientPhone}] (JID: ${jid})`);
+        console.log(`[WhatsAppService] ✓ Message sent via Operator Tenant [${tenantId}] socket to [${recipientPhone}] (JID: ${jid})`);
       } catch (err: any) {
-        console.warn(`[WhatsAppService] Tenant socket send failed (${err.message})`);
+        failureReason = `Operator socket dispatch error: ${err.message}`;
+        console.warn(`[WhatsAppService] Operator socket send failed (${err.message})`);
       }
-    }
-
-    // 3. Fallback: Super Admin Baileys Socket (Auto-heals if null)
-    if (!messageDelivered) {
-      if (!this.sock) {
-        console.log('[WhatsAppService] Super Admin socket null, triggering auto-heal reconnect...');
-        await this.initBaileysSocket(false).catch(() => {});
-      }
-
-      if (this.sock) {
-        try {
-          await this.sock.sendMessage(jid, { text: formattedMessage });
-          messageDelivered = true;
-          console.log(`[WhatsAppService] ✓ Message sent via Super Admin fallback socket to [${recipientPhone}] (JID: ${jid})`);
-        } catch (err: any) {
-          console.warn(`[WhatsAppService] Super Admin fallback send failed (${err.message}), re-initializing socket...`);
-          this.sock = null;
-          this.initBaileysSocket(false).catch(() => {});
-        }
-      }
-    }
-
-    if (!messageDelivered) {
-      console.warn(`[WhatsAppService] ⚠️ Message could not be dispatched to [${recipientPhone}]. Both tenant and platform sockets are offline.`);
+    } else {
+      failureReason = `Operator WhatsApp is not connected for tenant ${tenantId}. Strict tenant isolation is active: not routing via SuperAdmin or other operators.`;
+      console.warn(`[WhatsAppService] ⚠️ ${failureReason}`);
     }
 
     try {
@@ -1659,11 +1708,40 @@ export class WhatsAppService {
           tenantSlug: tenant?.slug,
           messageId,
           sentFromOperatorSession: !!session?.sock?.user,
+          error: messageDelivered ? undefined : failureReason,
+          routedVia: messageDelivered ? `operator_${tenantId}` : 'NONE_OFFLINE',
         },
       });
     } catch (_) {}
 
-    return { success: messageDelivered, messageId };
+    return { success: messageDelivered, messageId, error: messageDelivered ? undefined : failureReason };
+  }
+
+  /**
+   * Auto-restores all active operator WhatsApp sessions on server startup
+   */
+  static async initAllTenantSockets(): Promise<void> {
+    try {
+      if (!fs.existsSync(TENANT_AUTH_BASE)) {
+        fs.mkdirSync(TENANT_AUTH_BASE, { recursive: true });
+        return;
+      }
+      const entries = fs.readdirSync(TENANT_AUTH_BASE);
+      for (const entry of entries) {
+        const fullPath = path.join(TENANT_AUTH_BASE, entry);
+        if (fs.statSync(fullPath).isDirectory()) {
+          const creds = path.join(fullPath, 'creds.json');
+          if (fs.existsSync(creds)) {
+            console.log(`[WhatsAppService] Bootstrapping saved WhatsApp session for operator tenant: ${entry}`);
+            this.initTenantBaileysSocket(entry, false).catch((err) => {
+              console.warn(`[WhatsAppService] Auto-restore error for tenant [${entry}]:`, err.message);
+            });
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[WhatsAppService] Error initializing tenant sockets on boot:', err.message);
+    }
   }
 
   /**

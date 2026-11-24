@@ -67,8 +67,9 @@ export const WhatsAppChatCenter: React.FC = () => {
 
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const fetchThreadsAndLeads = async () => {
-    setIsLoading(true);
+  const fetchThreadsAndLeads = async (isBackground: boolean | any = false) => {
+    const bg = typeof isBackground === 'boolean' ? isBackground : false;
+    if (!bg) setIsLoading(true);
     setError(null);
     try {
       const [convRes, leadsRes]: [any, any] = await Promise.all([
@@ -76,7 +77,7 @@ export const WhatsAppChatCenter: React.FC = () => {
         api.getWhatsAppLeads(),
       ]);
 
-      setIsLoading(false);
+      if (!bg) setIsLoading(false);
       if (convRes.success && convRes.data) {
         setConversations(convRes.data);
         if (convRes.data.length > 0 && !selectedPhone) {
@@ -87,21 +88,21 @@ export const WhatsAppChatCenter: React.FC = () => {
         setLeads(leadsRes.data);
       }
     } catch (err: any) {
-      setIsLoading(false);
+      if (!bg) setIsLoading(false);
       setError(err.message || 'Failed to fetch WhatsApp conversations');
     }
   };
 
-  const fetchChatHistory = async (phone: string) => {
-    setIsChatLoading(true);
+  const fetchChatHistory = async (phone: string, isBackground: boolean = false) => {
+    if (!isBackground) setIsChatLoading(true);
     try {
       const res: any = await api.getWhatsAppChatHistory(phone);
-      setIsChatLoading(false);
+      if (!isBackground) setIsChatLoading(false);
       if (res.success && res.data) {
         setActiveChatHistory(res.data);
       }
     } catch (err: any) {
-      setIsChatLoading(false);
+      if (!isBackground) setIsChatLoading(false);
       console.error('Error loading chat history:', err);
     }
   };
@@ -114,6 +115,17 @@ export const WhatsAppChatCenter: React.FC = () => {
     if (selectedPhone) {
       fetchChatHistory(selectedPhone);
     }
+  }, [selectedPhone]);
+
+  // Live polling: refresh active chat and conversations every 4s for instant real-time sync
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      fetchThreadsAndLeads(true);
+      if (selectedPhone) {
+        fetchChatHistory(selectedPhone, true);
+      }
+    }, 4000);
+    return () => clearInterval(pollInterval);
   }, [selectedPhone]);
 
   // Handle Manual Operator Reply
@@ -225,7 +237,7 @@ export const WhatsAppChatCenter: React.FC = () => {
 
               <Button
                 size="sm"
-                onClick={fetchThreadsAndLeads}
+                onClick={() => fetchThreadsAndLeads(false)}
                 className="h-8 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
               >
                 <RefreshCw className="w-3.5 h-3.5 mr-1" />
@@ -546,7 +558,7 @@ export const WhatsAppChatCenter: React.FC = () => {
                     Unregistered callers who provided their Name, Address & Pincode for new fiber connection
                   </p>
                 </div>
-                <Button size="sm" onClick={fetchThreadsAndLeads} className="text-xs bg-sky-600 hover:bg-sky-700 text-white font-bold">
+                <Button size="sm" onClick={() => fetchThreadsAndLeads(false)} className="text-xs bg-sky-600 hover:bg-sky-700 text-white font-bold">
                   <RefreshCw className="w-3.5 h-3.5 mr-1" />
                   Refresh Leads
                 </Button>

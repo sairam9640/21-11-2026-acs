@@ -106,11 +106,47 @@ export class CustomerService {
       throw new Error(`Customer not found with ID ${customerId}`);
     }
 
-    const device = customer.assignedDeviceId
+    const deviceDoc = customer.assignedDeviceId
       ? await Device.findById(customer.assignedDeviceId)
       : await Device.findOne({ customerId: customer._id });
 
-    const capabilities = device ? await DeviceManagementService.getDeviceCapabilities(device) : null;
+    const capabilities = deviceDoc ? await DeviceManagementService.getDeviceCapabilities(deviceDoc) : null;
+    const device: any = deviceDoc ? deviceDoc.toObject() : null;
+
+    if (device) {
+      const rawParams = device.rawParameters || {};
+      const rawKeys = Object.keys(rawParams);
+
+      // Resolve 2.4G Wi-Fi password if missing or masked
+      if (!device.wifi24?.password || !device.wifi24.password.trim() || /^\*+$/.test(device.wifi24.password.trim())) {
+        const key24 = rawKeys.find((k) => /WLANConfiguration\.1\..*(KeyPassphrase|PreSharedKey)|AccessPoint\.1\.Security\..*(KeyPassphrase|PreSharedKey)/i.test(k));
+        const rawPass24 = key24 && rawParams[key24] && !/^\*+$/.test(String(rawParams[key24]).trim()) ? String(rawParams[key24]).trim() : null;
+        const pass24 = rawPass24 || device.pendingConfig?.wifi24?.password || device.wifi5g?.password || (customer.wanConfig as any)?.wifiPassword || null;
+        if (pass24) {
+          if (!device.wifi24) device.wifi24 = { ssid: 'Home-WiFi-2.4G', enabled: true, channel: 6, bandwidthMhz: 20, securityMode: 'WPA2-PSK', txPowerPercent: 100 };
+          device.wifi24.password = pass24;
+          device.wifi24.passwordConfigured = true;
+        }
+      } else {
+        if (!device.wifi24) device.wifi24 = {} as any;
+        device.wifi24.passwordConfigured = true;
+      }
+
+      // Resolve 5G Wi-Fi password if missing or masked
+      if (!device.wifi5g?.password || !device.wifi5g.password.trim() || /^\*+$/.test(device.wifi5g.password.trim())) {
+        const key5g = rawKeys.find((k) => /WLANConfiguration\.(2|3|5)\..*(KeyPassphrase|PreSharedKey)|AccessPoint\.2\.Security\..*(KeyPassphrase|PreSharedKey)/i.test(k));
+        const rawPass5g = key5g && rawParams[key5g] && !/^\*+$/.test(String(rawParams[key5g]).trim()) ? String(rawParams[key5g]).trim() : null;
+        const pass5g = rawPass5g || device.pendingConfig?.wifi5g?.password || device.wifi24?.password || (customer.wanConfig as any)?.wifiPassword || null;
+        if (pass5g) {
+          if (!device.wifi5g) device.wifi5g = { ssid: 'Home-WiFi-5G', enabled: true, channel: 44, bandwidthMhz: 80, securityMode: 'WPA2-PSK', txPowerPercent: 100 };
+          device.wifi5g.password = pass5g;
+          device.wifi5g.passwordConfigured = true;
+        }
+      } else {
+        if (!device.wifi5g) device.wifi5g = {} as any;
+        device.wifi5g.passwordConfigured = true;
+      }
+    }
 
     const phoneClean = customer.phone ? customer.phone.replace(/[^0-9]/g, '') : '';
     const phoneFilter = phoneClean.length >= 10 ? new RegExp(phoneClean.slice(-10), 'i') : customer.phone;

@@ -389,6 +389,10 @@ export const startServer = async () => {
         WhatsAppService.initBaileysSocket().catch((err: any) => {
           console.warn('[WhatsAppService] Background Baileys socket spin-up:', err.message);
         });
+        // Auto-restore saved operator tenant WhatsApp sessions
+        WhatsAppService.initAllTenantSockets().catch((err: any) => {
+          console.warn('[WhatsAppService] Background tenant sockets spin-up:', err.message);
+        });
       });
 
       // Dedicated TR-069 CWMP Server (Port 7547 standard)

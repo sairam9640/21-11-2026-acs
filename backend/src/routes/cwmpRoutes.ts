@@ -82,14 +82,31 @@ async function handleCwmpPost(req: Request, res: Response) {
       return res.status(204).end();
     }
 
+    // 1d. If RebootResponse / FactoryResetResponse from CPE
+    if (rawBody.includes('RebootResponse') || rawBody.includes('FactoryResetResponse')) {
+      console.log(`[Native CWMP IN] CPE returned RebootResponse/FactoryResetResponse from ${connectionKey}`);
+      if (incomingSessionId) {
+        res.setHeader('Set-Cookie', `cwmpSession=${incomingSessionId}; Path=/; HttpOnly`);
+      }
+      await CwmpService.handleParameterValuesResponse(rawBody, clientIp, incomingSessionId, hostHeader, pathOrQuerySlug, connectionKey);
+      return res.status(204).end();
+    }
+
     // 2. If GetParameterValuesResponse / SetParameterValuesResponse / AddObjectResponse / SetParameterAttributesResponse / Fault from CPE
     if (
       rawBody.includes('GetParameterValuesResponse') ||
       rawBody.includes('SetParameterValuesResponse') ||
+      rawBody.includes('RebootResponse') ||
+      rawBody.includes('FactoryResetResponse') ||
       rawBody.includes('AddObjectResponse') ||
+      rawBody.includes('DeleteObjectResponse') ||
       rawBody.includes('SetParameterAttributesResponse') ||
+      rawBody.includes('GetParameterAttributesResponse') ||
       (rawBody.includes('Fault') && !rawBody.includes('<cwmp:Inform>'))
     ) {
+      if (incomingSessionId) {
+        res.setHeader('Set-Cookie', `cwmpSession=${incomingSessionId}; Path=/; HttpOnly`);
+      }
       const nextRpc = await CwmpService.handleParameterValuesResponse(rawBody, clientIp, incomingSessionId, hostHeader, pathOrQuerySlug, connectionKey);
       if (nextRpc) {
         console.log(`[Native CWMP OUT] Chained Next RPC to ${connectionKey} | Status: 200 | Length: ${nextRpc.length}`);

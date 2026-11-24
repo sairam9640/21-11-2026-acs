@@ -408,10 +408,10 @@ const DeviceSchema = new Schema<IDevice>(
       transform: (doc, ret: any) => {
         delete ret.cwmpPassword;
         if (ret.wifi24) {
-          delete ret.wifi24.password;
+          ret.wifi24.passwordConfigured = Boolean(ret.wifi24.password && !/^\*+$/.test(ret.wifi24.password));
         }
         if (ret.wifi5g) {
-          delete ret.wifi5g.password;
+          ret.wifi5g.passwordConfigured = Boolean(ret.wifi5g.password && !/^\*+$/.test(ret.wifi5g.password));
         }
         if (ret.wanProfiles && Array.isArray(ret.wanProfiles)) {
           ret.wanProfiles.forEach((wp: any) => {

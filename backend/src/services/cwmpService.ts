@@ -1158,6 +1158,16 @@ export class CwmpService {
         resolvedDeviceId = device._id.toString();
         resolvedCustomerId = device.customerId?.toString();
 
+        // Check for CPE boot/reboot event confirmation and finalize any pending reboot commands
+        const hasRebootEvent = (informData.events || []).some((e: string) => /reboot/i.test(e) || /boot/i.test(e));
+        if (hasRebootEvent) {
+          console.log(`[CWMP ACS] CPE boot/reboot event detected (${informData.events?.join(', ')}). Clearing in-flight reboot commands for ${device.serialNumber}`);
+          await DeviceCommand.updateMany(
+            { deviceId: device._id, action: { $in: ['REBOOT_DEVICE', 'Reboot'] }, status: { $in: ['sending', 'sent', 'queued', 'pending'] } },
+            { $set: { status: 'success', completedAt: new Date(), result: 'Router rebooted successfully (confirmed via CPE Inform boot event)' } }
+          );
+        }
+
         // Zero-Touch Auto-Provisioning is strictly disabled to protect existing live connections.
         // New or migrating ONTs are ingested as read-only inventory for operator manual review.
       } else {
@@ -1462,15 +1472,15 @@ ${stringElements}
         let pendingCmd = await DeviceCommand.findOne({
           deviceId: dev._id,
           action: { $nin: ['SUMMON_LIVE_POLL', 'GET_PARAMETERS', 'REFRESH_TELEMETRY'] },
-          status: { $in: ['pending', 'queued', 'authorized', 'created', 'sending', 'sent', 'waiting_for_wan_slot'] }
+          status: { $in: ['pending', 'queued', 'authorized', 'created'] }
         }).sort({ queuedAt: 1, createdAt: 1 });
 
-        // STRICT SINGLE-COMMAND LOCK: If a high-priority command is already in-flight (sending/verifying),
+        // STRICT SINGLE-COMMAND LOCK: If a high-priority command is already in-flight (sending/verifying/sent),
         // do NOT dispatch any other command. Fall through to baseline GPV telemetry only.
         const inFlightHighPriority = await DeviceCommand.findOne({
           deviceId: dev._id,
           action: { $nin: ['SUMMON_LIVE_POLL', 'GET_PARAMETERS', 'REFRESH_TELEMETRY'] },
-          status: { $in: ['sending', 'verifying', 'applied_pending_verification'] },
+          status: { $in: ['sending', 'sent', 'verifying', 'applied_pending_verification'] },
         });
         if (inFlightHighPriority) {
           const ageMs = Date.now() - new Date(inFlightHighPriority.sentAt || inFlightHighPriority.queuedAt).getTime();
@@ -1488,10 +1498,10 @@ ${stringElements}
         }
 
         // Priority 2: General telemetry poll / summon commands (only if no high-priority cmd is pending)
-        if (!pendingCmd) {
+        if (!pendingCmd && !inFlightHighPriority) {
           pendingCmd = await DeviceCommand.findOne({
             deviceId: dev._id,
-            status: { $in: ['pending', 'queued', 'authorized', 'created', 'sending', 'sent'] }
+            status: { $in: ['pending', 'queued', 'authorized', 'created'] }
           }).sort({ queuedAt: -1, createdAt: -1 });
         }
 
@@ -2371,7 +2381,7 @@ ${stringElements}
 
     // 2. Ingest essential discovered Wi-Fi parameters across all WLAN instances (SSID 1, 2, 3, 4, 5, 6...)
     const allWifiParams = names.filter((n) =>
-      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(SSID|Channel|Enable|BeaconType|Status|X_TP_Band)|Device\.WiFi\.(SSID|AccessPoint|Radio)\.\d+\.(SSID|Channel|Enable|Status))/i.test(n) &&
+      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(SSID|Channel|Enable|BeaconType|Status|X_TP_Band|.*(?:KeyPassphrase|PreSharedKey|Key|Password))|Device\.WiFi\.(SSID|AccessPoint|Radio)\.\d+\.(SSID|Channel|Enable|Status|.*(?:KeyPassphrase|PreSharedKey|Password)))/i.test(n) &&
       !n.endsWith('.')
     );
     for (const p of allWifiParams) {
@@ -3084,12 +3094,21 @@ ${stringElements}
       return null;
     }
 
-    // 4. Handle RebootResponse from CPE
+    // 4. Handle RebootResponse / FactoryResetResponse from CPE
     if (xml.includes('RebootResponse')) {
       console.log(`[Native CWMP IN] CPE acknowledged Reboot command for ${device.serialNumber}`);
       await DeviceCommand.updateMany(
-        { deviceId: device._id, action: 'REBOOT_DEVICE', status: { $in: ['sent', 'sending', 'queued', 'pending'] } },
-        { $set: { status: 'success', completedAt: new Date() } }
+        { deviceId: device._id, action: { $in: ['REBOOT_DEVICE', 'Reboot'] }, status: { $in: ['sent', 'sending', 'queued', 'pending'] } },
+        { $set: { status: 'success', completedAt: new Date(), result: 'Reboot acknowledged by CPE' } }
+      );
+      return null;
+    }
+
+    if (xml.includes('FactoryResetResponse')) {
+      console.log(`[Native CWMP IN] CPE acknowledged FactoryReset command for ${device.serialNumber}`);
+      await DeviceCommand.updateMany(
+        { deviceId: device._id, action: { $in: ['FACTORY_RESET', 'FactoryReset'] }, status: { $in: ['sent', 'sending', 'queued', 'pending'] } },
+        { $set: { status: 'success', completedAt: new Date(), result: 'Factory reset acknowledged by CPE' } }
       );
       return null;
     }
