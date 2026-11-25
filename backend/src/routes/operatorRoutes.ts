@@ -137,18 +137,38 @@ function selectPrimaryInternetWan(device: any): any {
 }
 
 function pickNonMaskedRawSecret(rawParams: Record<string, any>, rawKeys: string[], instance: number): string | null {
-  const orderedPatterns = [
+  const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(rawParams, instance);
+  const apSet = apIdx !== instance ? [apIdx, instance] : [instance];
+  const orderedPatterns: RegExp[] = [
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_ALU_COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_ALU-COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_ASB_COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_NOKIA_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_ALU_COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_ALU-COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_ASB_COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_NOKIA_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_ALU_COM_PreSharedKey$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_ASB_COM_PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_CT-COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_HW_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_TP_PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.WPA\\.PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey$`, 'i'),
-    new RegExp(`Device\\.WiFi\\.AccessPoint\\.${instance}\\.Security\\.KeyPassphrase$`, 'i'),
-    new RegExp(`Device\\.WiFi\\.AccessPoint\\.${instance}\\.Security\\.PreSharedKey$`, 'i'),
   ];
+  for (const ap of apSet) {
+    orderedPatterns.push(
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_ALU_COM_KeyPassphrase$`, 'i'),
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_ALU-COM_KeyPassphrase$`, 'i'),
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_ASB_COM_KeyPassphrase$`, 'i'),
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_NOKIA_KeyPassphrase$`, 'i'),
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.KeyPassphrase$`, 'i'),
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.PreSharedKey$`, 'i')
+    );
+  }
   for (const pat of orderedPatterns) {
     const matchedKey = rawKeys.find((k) => pat.test(k));
     if (matchedKey && rawParams[matchedKey] !== undefined && rawParams[matchedKey] !== null) {
@@ -159,6 +179,16 @@ function pickNonMaskedRawSecret(rawParams: Record<string, any>, rawKeys: string[
     }
   }
   return null;
+}
+
+function hasWifiPassphraseKeyInRaw(rawKeys: string[], instance?: number, rawParams: Record<string, any> = {}): boolean {
+  if (instance !== undefined) {
+    const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(rawParams, instance);
+    const re098 = new RegExp(`WLANConfiguration\\.${instance}\\..*(?:KeyPassphrase|PreSharedKey)`, 'i');
+    const re181 = new RegExp(`Device\\.WiFi\\.AccessPoint\\.(?:${apIdx}|${instance})\\.Security\\..*(?:KeyPassphrase|PreSharedKey)`, 'i');
+    return rawKeys.some((k) => re098.test(k) || re181.test(k));
+  }
+  return false;
 }
 
 function extractLiveWifiSummary(device: any, band: '2.4GHz' | '5GHz'): {
@@ -1139,6 +1169,32 @@ operatorRouter.put('/devices/:id/configuration', async (req: AuthenticatedReques
       }
     }
 
+    const rawKeys = Object.keys(device.rawParameters || {});
+    const isTr181Wifi = rawKeys.some((k) => k.startsWith('Device.WiFi.')) && !rawKeys.some((k) => /WLANConfiguration\./i.test(k));
+    const resolveWritableWifiPath = (inst: number, field: 'SSID' | 'Password' | 'Channel' | 'Enable'): string => {
+      if (isTr181Wifi) {
+        if (field === 'SSID') return `Device.WiFi.SSID.${inst}.SSID`;
+        if (field === 'Enable') return `Device.WiFi.SSID.${inst}.Enable`;
+        if (field === 'Channel') {
+          const ref = device.rawParameters?.[`Device.WiFi.SSID.${inst}.LowerLayers`];
+          const m = ref ? String(ref).match(/Radio\.(\d+)/i) : null;
+          return `Device.WiFi.Radio.${m ? m[1] : inst}.Channel`;
+        }
+        const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(device.rawParameters || {}, inst);
+        const existingPass = rawKeys.find((k) =>
+          new RegExp(`^Device\\.WiFi\\.AccessPoint\\.${apIdx}\\.Security\\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)$`, 'i').test(k)
+        );
+        return existingPass || `Device.WiFi.AccessPoint.${apIdx}.Security.KeyPassphrase`;
+      }
+      if (field === 'Password') {
+        const existingPass = rawKeys.find((k) =>
+          new RegExp(`WLANConfiguration\\.${inst}\\.(?:PreSharedKey\\.1\\.(?:X_[A-Z0-9_-]+_)?KeyPassphrase|(?:X_[A-Z0-9_-]+_)?KeyPassphrase|PreSharedKey\\.1\\.PreSharedKey)$`, 'i').test(k)
+        );
+        return existingPass || `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst}.PreSharedKey.1.KeyPassphrase`;
+      }
+      return `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst}.${field}`;
+    };
+
     // 1. Wi-Fi 2.4 GHz Changes (resolves exact CPE instance dynamically)
     const inst24 = resolveWifiInstanceForBand(device, '2.4GHz', ssidInstance);
     if (wifi24 && (ssidInstance === undefined || ssidInstance === inst24 || ssidInstance === 1)) {
@@ -1146,29 +1202,33 @@ operatorRouter.put('/devices/:id/configuration', async (req: AuthenticatedReques
         auditChanges['wifi24.ssid'] = { old: device.wifi24?.ssid, new: wifi24.ssid.trim() };
         if (!device.wifi24) device.wifi24 = {} as any;
         device.wifi24.ssid = wifi24.ssid.trim();
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.SSID`, wifi24.ssid.trim(), 'xsd:string']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.SSID`] = wifi24.ssid.trim();
+        const ssidPath = resolveWritableWifiPath(inst24, 'SSID');
+        tr069ParamValues.push([ssidPath, wifi24.ssid.trim(), 'xsd:string']);
+        device.rawParameters[ssidPath] = wifi24.ssid.trim();
       }
       if (wifi24.password && wifi24.password.length >= 8) {
         auditChanges['wifi24.password'] = { old: '********', new: '********' };
         if (!device.wifi24) device.wifi24 = {} as any;
         device.wifi24.password = wifi24.password;
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.PreSharedKey.1.KeyPassphrase`, wifi24.password, 'xsd:string']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.PreSharedKey.1.KeyPassphrase`] = wifi24.password;
+        const passPath = resolveWritableWifiPath(inst24, 'Password');
+        tr069ParamValues.push([passPath, wifi24.password, 'xsd:string']);
+        device.rawParameters[passPath] = wifi24.password;
       }
       if (wifi24.channel !== undefined) {
         auditChanges['wifi24.channel'] = { old: device.wifi24?.channel, new: Number(wifi24.channel) };
         if (!device.wifi24) device.wifi24 = {} as any;
         device.wifi24.channel = Number(wifi24.channel);
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.Channel`, Number(wifi24.channel), 'xsd:unsignedInt']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.Channel`] = String(wifi24.channel);
+        const chanPath = resolveWritableWifiPath(inst24, 'Channel');
+        tr069ParamValues.push([chanPath, Number(wifi24.channel), 'xsd:unsignedInt']);
+        device.rawParameters[chanPath] = String(wifi24.channel);
       }
       if (wifi24.enabled !== undefined) {
         auditChanges['wifi24.enabled'] = { old: device.wifi24?.enabled, new: Boolean(wifi24.enabled) };
         if (!device.wifi24) device.wifi24 = {} as any;
         device.wifi24.enabled = Boolean(wifi24.enabled);
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.Enable`, Boolean(wifi24.enabled), 'xsd:boolean']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.Enable`] = wifi24.enabled ? '1' : '0';
+        const enPath = resolveWritableWifiPath(inst24, 'Enable');
+        tr069ParamValues.push([enPath, Boolean(wifi24.enabled), 'xsd:boolean']);
+        device.rawParameters[enPath] = wifi24.enabled ? '1' : '0';
       }
       if (wifi24.securityMode) {
         if (!device.wifi24) device.wifi24 = {} as any;
@@ -1183,29 +1243,33 @@ operatorRouter.put('/devices/:id/configuration', async (req: AuthenticatedReques
         auditChanges['wifi5g.ssid'] = { old: device.wifi5g?.ssid, new: wifi5g.ssid.trim() };
         if (!device.wifi5g) device.wifi5g = {} as any;
         device.wifi5g.ssid = wifi5g.ssid.trim();
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.SSID`, wifi5g.ssid.trim(), 'xsd:string']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.SSID`] = wifi5g.ssid.trim();
+        const ssidPath = resolveWritableWifiPath(inst5g, 'SSID');
+        tr069ParamValues.push([ssidPath, wifi5g.ssid.trim(), 'xsd:string']);
+        device.rawParameters[ssidPath] = wifi5g.ssid.trim();
       }
       if (wifi5g.password && wifi5g.password.length >= 8) {
         auditChanges['wifi5g.password'] = { old: '********', new: '********' };
         if (!device.wifi5g) device.wifi5g = {} as any;
         device.wifi5g.password = wifi5g.password;
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.PreSharedKey.1.KeyPassphrase`, wifi5g.password, 'xsd:string']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.PreSharedKey.1.KeyPassphrase`] = wifi5g.password;
+        const passPath = resolveWritableWifiPath(inst5g, 'Password');
+        tr069ParamValues.push([passPath, wifi5g.password, 'xsd:string']);
+        device.rawParameters[passPath] = wifi5g.password;
       }
       if (wifi5g.channel !== undefined) {
         auditChanges['wifi5g.channel'] = { old: device.wifi5g?.channel, new: Number(wifi5g.channel) };
         if (!device.wifi5g) device.wifi5g = {} as any;
         device.wifi5g.channel = Number(wifi5g.channel);
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.Channel`, Number(wifi5g.channel), 'xsd:unsignedInt']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.Channel`] = String(wifi5g.channel);
+        const chanPath = resolveWritableWifiPath(inst5g, 'Channel');
+        tr069ParamValues.push([chanPath, Number(wifi5g.channel), 'xsd:unsignedInt']);
+        device.rawParameters[chanPath] = String(wifi5g.channel);
       }
       if (wifi5g.enabled !== undefined) {
         auditChanges['wifi5g.enabled'] = { old: device.wifi5g?.enabled, new: Boolean(wifi5g.enabled) };
         if (!device.wifi5g) device.wifi5g = {} as any;
         device.wifi5g.enabled = Boolean(wifi5g.enabled);
-        tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.Enable`, Boolean(wifi5g.enabled), 'xsd:boolean']);
-        device.rawParameters[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.Enable`] = wifi5g.enabled ? '1' : '0';
+        const enPath = resolveWritableWifiPath(inst5g, 'Enable');
+        tr069ParamValues.push([enPath, Boolean(wifi5g.enabled), 'xsd:boolean']);
+        device.rawParameters[enPath] = wifi5g.enabled ? '1' : '0';
       }
       if (wifi5g.securityMode) {
         if (!device.wifi5g) device.wifi5g = {} as any;
@@ -3500,7 +3564,7 @@ operatorRouter.post('/devices/:id/summon', async (req: AuthenticatedRequest, res
       }
     );
 
-    // Queue safe telemetry poll command in Native CWMP engine (NEVER reboot)
+    // Queue safe GPN/confirmed telemetry poll command in Native CWMP engine (NEVER full-tree InternetGatewayDevice. GPV or reboot)
     const cmd = await DeviceCommand.create({
       tenantId: device.tenantId,
       deviceId: device._id,
@@ -3509,7 +3573,6 @@ operatorRouter.post('/devices/:id/summon', async (req: AuthenticatedRequest, res
       commandType: 'SUMMON_LIVE_POLL',
       rpcMethod: 'GetParameterValues',
       status: 'pending',
-      payload: { parameterNames: ['InternetGatewayDevice.'] },
       requestedBy: {
         userId: req.user!.id,
         role: req.user!.role,
@@ -3565,10 +3628,9 @@ operatorRouter.post('/devices/summon-all', async (req: AuthenticatedRequest, res
         deviceId: dev._id,
         serialNumber: dev.serialNumber,
         action: 'SUMMON_LIVE_POLL',
-        commandType: 'CUSTOM_RPC',
+        commandType: 'SUMMON_LIVE_POLL',
         rpcMethod: 'GetParameterValues',
         status: 'pending',
-        payload: { parameterNames: ['InternetGatewayDevice.'] },
         correlationId: `bulk_summon_${Date.now()}`
       }).catch(() => {});
       dispatchedCount++;
@@ -4414,10 +4476,11 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
 
     const discoveredInterfaces: any[] = wlanInstanceIndices
       .map((idx) => {
+        const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(rawParams, idx);
         const ssidKey = rawKeys.find((k) => new RegExp(`(WLANConfiguration\\.${idx}\\.SSID$|Device\\.WiFi\\.SSID\\.${idx}\\.SSID$)`, 'i').test(k));
-        const keyKey = rawKeys.find((k) => new RegExp(`(WLANConfiguration\\.${idx}\\.(PreSharedKey\\.1\\.KeyPassphrase|KeyPassphrase|PreSharedKey\\.1\\.PreSharedKey|X_CT-COM_KeyPassphrase|X_HW_KeyPassphrase|X_TP_PreSharedKey)|Device\\.WiFi\\.AccessPoint\\.${idx}\\.Security\\.(KeyPassphrase|PreSharedKey))$`, 'i').test(k));
+        const keyKey = rawKeys.find((k) => new RegExp(`(WLANConfiguration\\.${idx}\\.(PreSharedKey\\.1\\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|WPA\\.PreSharedKey)|Device\\.WiFi\\.AccessPoint\\.(?:${apIdx}|${idx})\\.Security\\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey))$`, 'i').test(k));
         const chanKey = rawKeys.find((k) => new RegExp(`(WLANConfiguration\\.${idx}\\.Channel$|Device\\.WiFi\\.Radio\\.${idx}\\.Channel$)`, 'i').test(k));
-        const beaconKey = rawKeys.find((k) => new RegExp(`(WLANConfiguration\\.${idx}\\.BeaconType$|Device\\.WiFi\\.AccessPoint\\.${idx}\\.Security\\.ModeEnabled$)`, 'i').test(k));
+        const beaconKey = rawKeys.find((k) => new RegExp(`(WLANConfiguration\\.${idx}\\.BeaconType$|Device\\.WiFi\\.AccessPoint\\.(?:${apIdx}|${idx})\\.Security\\.ModeEnabled$)`, 'i').test(k));
         const enableKey = rawKeys.find((k) => new RegExp(`(WLANConfiguration\\.${idx}\\.Enable$|Device\\.WiFi\\.SSID\\.${idx}\\.Enable$)`, 'i').test(k));
 
         const rawSsidVal = ssidKey ? rawParams[ssidKey] : undefined;
@@ -4660,7 +4723,17 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
             connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || c.interface || '').includes('2.4') || (!String(c.connectionType || c.interface || '').includes('5') && !String(c.connectionType || c.interface || '').toLowerCase().includes('eth'))).length,
             noiseDbm: d.wifi24?.noiseDbm ?? -92,
             signalQuality: d.wifi24?.signalQuality ?? (primary24?.ssid ? 'Good' : '—'),
-            passwordConfigured: Boolean(primary24?.password || d.wifi24?.password),
+            passwordConfigured: Boolean(
+              primary24?.password ||
+              d.wifi24?.password ||
+              hasWifiPassphraseKeyInRaw(rawKeys, primary24?.instance ?? 1, rawParams) ||
+              ((primary24?.ssid || d.wifi24?.ssid) && !/none|open/i.test(String(primary24?.security || d.wifi24?.securityMode || 'WPA2-PSK')))
+            ),
+            passwordHiddenByCpe: Boolean(
+              !(primary24?.password || d.wifi24?.password) &&
+              (hasWifiPassphraseKeyInRaw(rawKeys, primary24?.instance ?? 1, rawParams) ||
+                ((primary24?.ssid || d.wifi24?.ssid) && !/none|open/i.test(String(primary24?.security || d.wifi24?.securityMode || 'WPA2-PSK'))))
+            ),
             statusLabel: (primary24?.ssid || d.wifi24?.ssid) ? 'LIVE' : 'NOT_CONFIGURED',
             supported: true,
           },
@@ -4677,7 +4750,17 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
             connectedClients: connectedDevices.filter((c: any) => String(c.connectionType || c.interface || '').includes('5G') || String(c.connectionType || c.interface || '').includes('5.0') || String(c.connectionType || c.interface || '').includes('5 GHz')).length,
             noiseDbm: d.wifi5g?.noiseDbm ?? -95,
             signalQuality: d.wifi5g?.signalQuality ?? (primary5g?.ssid ? 'Excellent' : '—'),
-            passwordConfigured: Boolean(primary5g?.password || d.wifi5g?.password),
+            passwordConfigured: Boolean(
+              primary5g?.password ||
+              d.wifi5g?.password ||
+              (primary5g?.instance !== undefined && hasWifiPassphraseKeyInRaw(rawKeys, primary5g.instance, rawParams)) ||
+              ((primary5g?.ssid || d.wifi5g?.ssid) && !/none|open/i.test(String(primary5g?.security || d.wifi5g?.securityMode || 'WPA2-PSK')))
+            ),
+            passwordHiddenByCpe: Boolean(
+              !(primary5g?.password || d.wifi5g?.password) &&
+              ((primary5g?.instance !== undefined && hasWifiPassphraseKeyInRaw(rawKeys, primary5g.instance, rawParams)) ||
+                ((primary5g?.ssid || d.wifi5g?.ssid) && !/none|open/i.test(String(primary5g?.security || d.wifi5g?.securityMode || 'WPA2-PSK'))))
+            ),
             statusLabel: (primary5g?.ssid || d.wifi5g?.ssid) ? 'LIVE' : isDualBandCapable ? '5 GHz CONFIGURED ON DUAL-BAND CPE' : '5 GHz NOT SUPPORTED BY HARDWARE',
             supported: isDualBandCapable,
           },

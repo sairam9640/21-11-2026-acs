@@ -3,14 +3,16 @@ import mongoose from 'mongoose';
 import crypto from 'crypto';
 import { Device } from '../src/models/Device.js';
 import { Tenant } from '../src/models/Tenant.js';
+import { DeviceCommand } from '../src/models/DeviceCommand.js';
 import { CwmpService } from '../src/services/cwmpService.js';
 import { CwmpVendorProfiles } from '../src/services/cwmpVendorProfiles.js';
 import { cwmpDigestAuthMiddleware } from '../src/middleware/cwmpAuth.js';
 
-describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, GPN, and CWMP Auth', () => {
+describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, GPN, Nokia & CWMP Auth', () => {
   let tenantA: any;
   const serialDual = 'SYRO_DUAL_FIX_01';
   const serialRetry = 'SYRO_RETRY_FIX_02';
+  const serialNokia = 'ALCL_NOKIA_2425_03';
 
   beforeAll(async () => {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ai_isp_os_test_db';
@@ -19,7 +21,7 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
     }
 
     await Tenant.deleteMany({ slug: 'acs_fix_tenant' });
-    await Device.deleteMany({ serialNumber: { $in: [serialDual, serialRetry] } });
+    await Device.deleteMany({ serialNumber: { $in: [serialDual, serialRetry, serialNokia] } });
 
     tenantA = await Tenant.create({
       name: 'ACS Fix Test Operator',
@@ -39,7 +41,10 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
   });
 
   afterAll(async () => {
-    await Device.deleteMany({ serialNumber: { $in: [serialDual, serialRetry] } });
+    if (tenantA?._id) {
+      await DeviceCommand.deleteMany({ tenantId: tenantA._id });
+    }
+    await Device.deleteMany({ serialNumber: { $in: [serialDual, serialRetry, serialNokia] } });
     await Tenant.deleteMany({ slug: 'acs_fix_tenant' });
   });
 
@@ -316,5 +321,115 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
       if (prevEnv === undefined) delete process.env.CWMP_REQUIRE_AUTH;
       else process.env.CWMP_REQUIRE_AUTH = prevEnv;
     }
+  });
+
+  it('6. Nokia G-2425G-A (ALCL) vendor detection, X_ALU_COM_KeyPassphrase extraction, and write-only blanking preservation', async () => {
+    expect(CwmpVendorProfiles.detectVendor('ALCL', 'G-2425G-A', 'A47B2C', 'G-2425G-A')).toBe('NOKIA');
+
+    const testIp = '103.55.66.79';
+    const informXml = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:Inform>
+      <DeviceId>
+        <Manufacturer>ALCL</Manufacturer>
+        <OUI>A47B2C</OUI>
+        <ProductClass>G-2425G-A</ProductClass>
+        <SerialNumber>${serialNokia}</SerialNumber>
+      </DeviceId>
+    </cwmp:Inform>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    const infRes = await CwmpService.handleInform(informXml, testIp, undefined, 'acs_fix_tenant');
+    const nokiaDev = await Device.findOne({ serialNumber: serialNokia });
+    expect(nokiaDev).toBeTruthy();
+
+    // Queue blanket SUMMON_LIVE_POLL (simulating clicking "Fetch Parameters" / "Synchronize")
+    await DeviceCommand.create({
+      tenantId: tenantA._id,
+      deviceId: nokiaDev!._id,
+      serialNumber: serialNokia,
+      action: 'SUMMON_LIVE_POLL',
+      commandType: 'SUMMON_LIVE_POLL',
+      rpcMethod: 'GetParameterValues',
+      status: 'pending',
+      queuedAt: new Date(),
+    });
+
+    // Next empty POST must dispatch GetParameterNames (NOT full-tree InternetGatewayDevice. GPV!)
+    const rpcAfterSummon = await CwmpService.checkPendingRpcOrPoll(testIp, infRes.sessionId, undefined, 'acs_fix_tenant');
+    expect(rpcAfterSummon).toContain('<cwmp:GetParameterNames>');
+
+    const gpnResp = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:GetParameterNamesResponse>
+      <ParameterList>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_ALU_COM_KeyPassphrase</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Channel</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Standard</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.X_ALU_COM_KeyPassphrase</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username</Name><Writable>1</Writable></ParameterInfoStruct>
+      </ParameterList>
+    </cwmp:GetParameterNamesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    const gpvReq = await CwmpService.handleParameterNamesResponse(gpnResp, testIp, infRes.sessionId, undefined, 'acs_fix_tenant');
+    expect(gpvReq).toContain('WLANConfiguration.1.X_ALU_COM_KeyPassphrase');
+    expect(gpvReq).toContain('WLANConfiguration.5.PreSharedKey.1.X_ALU_COM_KeyPassphrase');
+
+    const gpvResp = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:GetParameterValuesResponse>
+      <ParameterList>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Value>Nokia_24G_Home</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel</Name><Value>6</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_ALU_COM_KeyPassphrase</Name><Value>Nokia24Pass!</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID</Name><Value>Nokia_5G_Home</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Channel</Name><Value>0</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Standard</Name><Value>a,n,ac</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.X_ALU_COM_KeyPassphrase</Name><Value>Nokia5GPass!</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username</Name><Value>nokia_cust@ftth.in</Value></ParameterValueStruct>
+      </ParameterList>
+    </cwmp:GetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    await CwmpService.handleParameterValuesResponse(gpvResp, testIp, infRes.sessionId, undefined, 'acs_fix_tenant');
+    let updatedNokia: any = await Device.findOne({ serialNumber: serialNokia });
+    expect(updatedNokia.wifi24?.ssid).toBe('Nokia_24G_Home');
+    expect(updatedNokia.wifi24?.password).toBe('Nokia24Pass!');
+    expect(updatedNokia.wifi5g?.ssid).toBe('Nokia_5G_Home');
+    expect(updatedNokia.wifi5g?.password).toBe('Nokia5GPass!');
+    expect(updatedNokia.supportedParametersConfirmed).toBe(true);
+
+    const summonAfter = await DeviceCommand.findOne({ deviceId: updatedNokia._id, action: 'SUMMON_LIVE_POLL' });
+    expect(summonAfter?.status).toBe('success');
+
+    // Subsequent TR-069 write-only masked GPV (empty string / asterisks) MUST NOT erase saved passwords
+    const maskedGpvResp = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:GetParameterValuesResponse>
+      <ParameterList>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Value>Nokia_24G_Home</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_ALU_COM_KeyPassphrase</Name><Value></Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID</Name><Value>Nokia_5G_Home</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.X_ALU_COM_KeyPassphrase</Name><Value>******</Value></ParameterValueStruct>
+      </ParameterList>
+    </cwmp:GetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    await CwmpService.handleParameterValuesResponse(maskedGpvResp, testIp, infRes.sessionId, undefined, 'acs_fix_tenant');
+    updatedNokia = await Device.findOne({ serialNumber: serialNokia });
+    expect(updatedNokia.wifi24?.password).toBe('Nokia24Pass!');
+    expect(updatedNokia.wifi5g?.password).toBe('Nokia5GPass!');
   });
 });

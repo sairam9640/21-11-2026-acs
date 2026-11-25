@@ -1044,6 +1044,7 @@ export const DeviceDetail: React.FC = () => {
         // Editing an existing SSID
         const payload: any = {};
         if (wlanInstance === 1) {
+          payload.ssidInstance = wlanInstance;
           payload.wifi24 = {
             ssid: wlanSsid,
             channel: Number(wlanChannel) || 6,
@@ -1052,7 +1053,8 @@ export const DeviceDetail: React.FC = () => {
             securityMode: wlanSecurity,
           };
           if (wlanPassword) payload.wifi24.password = wlanPassword;
-        } else if (wlanInstance === 2 || wlanInstance === 5) {
+        } else if (wlanBand === '5GHz' && !/guest|iot/i.test(wlanSsid)) {
+          payload.ssidInstance = wlanInstance;
           payload.wifi5g = {
             ssid: wlanSsid,
             channel: Number(wlanChannel) || 44,
@@ -2156,8 +2158,18 @@ export const DeviceDetail: React.FC = () => {
                       <div>
                         <span className="text-[10px] text-[#64748B] block font-medium">Wi-Fi Password</span>
                         <span className="font-mono text-xs font-bold text-[#0F172A] tracking-wider">
-                          {show24Password ? (workspace.wifi?.band24?.password || (workspace.wifi?.band24?.passwordConfigured ? '••••••••' : 'Not Configured')) : '••••••••••'}
+                          {show24Password
+                            ? (workspace.wifi?.band24?.password ||
+                              (workspace.wifi?.band24?.passwordHiddenByCpe || workspace.wifi?.band24?.passwordConfigured
+                                ? 'Protected by Router (TR-069 Write-Only)'
+                                : 'Not Configured'))
+                            : '••••••••••'}
                         </span>
+                        {show24Password && !workspace.wifi?.band24?.password && (workspace.wifi?.band24?.passwordHiddenByCpe || workspace.wifi?.band24?.passwordConfigured) && (
+                          <span className="block text-[10px] text-[#64748B] mt-0.5">
+                            Router masks read-back — click Edit SSID to set/sync password
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center space-x-1.5">
                         <button
@@ -2263,8 +2275,18 @@ export const DeviceDetail: React.FC = () => {
                       <div>
                         <span className="text-[10px] text-[#64748B] block font-medium">Wi-Fi Password</span>
                         <span className="font-mono text-xs font-bold text-[#0F172A] tracking-wider">
-                          {show5gPassword ? (workspace.wifi?.band5g?.password || (workspace.wifi?.band5g?.passwordConfigured ? '••••••••' : 'Not Configured')) : '••••••••••'}
+                          {show5gPassword
+                            ? (workspace.wifi?.band5g?.password ||
+                              (workspace.wifi?.band5g?.passwordHiddenByCpe || workspace.wifi?.band5g?.passwordConfigured
+                                ? 'Protected by Router (TR-069 Write-Only)'
+                                : 'Not Configured'))
+                            : '••••••••••'}
                         </span>
+                        {show5gPassword && !workspace.wifi?.band5g?.password && (workspace.wifi?.band5g?.passwordHiddenByCpe || workspace.wifi?.band5g?.passwordConfigured) && (
+                          <span className="block text-[10px] text-[#64748B] mt-0.5">
+                            Router masks read-back — click Edit SSID to set/sync password
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center space-x-1.5">
                         <button

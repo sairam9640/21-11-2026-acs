@@ -74,8 +74,11 @@ export class CwmpVendorProfiles {
     else if (/tp-link|tplink|archer|xc220|x_tplink/i.test(text) || oui === '003192' || oui === '50C7BF') {
       detected = 'TPLINK';
     }
-    // 9. Nokia / Alcatel-Lucent (G-140W, etc.)
-    else if (/nokia|alcatel|alu_|g-140|g-240|isom/i.test(text) || oui === '001FE2' || oui === '002194') {
+    // 9. Nokia / Alcatel-Lucent / Nokia Shanghai Bell (G-140W, G-240W, G-2425G-A, G-1425G-A, ALCL)
+    else if (
+      /nokia|alcatel|alu_|alcl|x_alu|x_asb|g-140|g-240|g-2425|g-1425|g-1426|i-240|isom/i.test(text) ||
+      ['001FE2', '002194', 'A47B2C', 'D49AA0', '34E380', '2420C7', '646EE0', '70B7E2', '8493B2', '30B5C2'].includes((oui || '').toUpperCase())
+    ) {
       detected = 'NOKIA';
     }
     // 10. TR-181 Device:2 Data Model (USP / Modern TR-181 ONTs)
@@ -313,6 +316,8 @@ export class CwmpVendorProfiles {
           'InternetGatewayDevice.X_00000C_Gpon.OpticalPowerRx',
           'InternetGatewayDevice.WANDevice.1.X_NOKIA_OpticalInfo.RxPower',
           'InternetGatewayDevice.WANDevice.1.X_ALU_COM_OntOpticalInfo.ReceivePower',
+          'InternetGatewayDevice.WANDevice.1.X_ALU_COM_GponInterfaceConfig.RxPower',
+          'InternetGatewayDevice.WANDevice.1.X_ASB_COM_GponInterfaceConfig.RXPower',
           'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.RXPower',
         ];
 
@@ -625,6 +630,22 @@ export class CwmpVendorProfiles {
     if (p.includes('landevice') || p.includes('lan.')) return 'LAN';
     if (p.includes('managementserver') || p.includes('time') || p.includes('userinterface')) return 'SYSTEM';
     return 'OTHER';
+  }
+
+  static resolveTr181AccessPointIndex(
+    rawParams: Record<string, any>,
+    ssidInstance: number
+  ): number {
+    for (const [k, v] of Object.entries(rawParams || {})) {
+      const m = k.match(/^Device\.WiFi\.AccessPoint\.(\d+)\.SSIDReference$/i);
+      if (m && v !== undefined && v !== null) {
+        const ref = String(v).trim();
+        if (new RegExp(`Device\\.WiFi\\.SSID\\.${ssidInstance}(?:\\.|$)`, 'i').test(ref)) {
+          return Number(m[1]);
+        }
+      }
+    }
+    return ssidInstance;
   }
 
   /**

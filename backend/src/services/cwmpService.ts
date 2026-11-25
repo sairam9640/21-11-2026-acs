@@ -232,6 +232,46 @@ export class CwmpService {
   }
 
   /**
+   * Builds ordered Wi-Fi passphrase lookup paths across TR-098, Nokia/ALU/ASB, Huawei, ZTE, TP-Link, and TR-181 (with SSIDReference resolution).
+   */
+  private static getWifiSecretCandidatePaths(instance: number, rawObj: Record<string, any> = {}): string[] {
+    const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(rawObj, instance);
+    const apIndices = apIdx !== instance ? [apIdx, instance] : [instance];
+    const tr181Paths: string[] = [];
+    for (const ap of apIndices) {
+      tr181Paths.push(
+        `Device.WiFi.AccessPoint.${ap}.Security.X_ALU_COM_KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${ap}.Security.X_ALU-COM_KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${ap}.Security.X_ASB_COM_KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${ap}.Security.X_NOKIA_KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${ap}.Security.KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${ap}.Security.PreSharedKey`
+      );
+    }
+    return [
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_ALU_COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_ALU-COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_ASB_COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_NOKIA_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ALU_COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ALU-COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ASB_COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_NOKIA_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ALU_COM_PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ASB_COM_PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_CT-COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_HW_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_TP_PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.WPA.PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey`,
+      ...tr181Paths,
+    ];
+  }
+
+  /**
    * Robust Inform XML Parser
    */
   static parseInformXml(xml: string): CwmpInformData {
@@ -436,16 +476,7 @@ export class CwmpService {
         pMap.get(`Device.WiFi.SSID.${i}.SSID`);
       if (!s) continue;
       const band = CwmpVendorProfiles.determineWifiBand(pMapObj, i, s);
-      const pwd = this.pickNonMaskedSecret(pMap, [
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.PreSharedKey`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_CT-COM_KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_HW_KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_TP_PreSharedKey`,
-        `Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`,
-        `Device.WiFi.AccessPoint.${i}.Security.PreSharedKey`,
-      ]);
+      const pwd = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(i, pMapObj));
       if (band === '5GHz' && !data.wifiSsid5g) {
         data.wifiSsid5g = s;
         if (pwd) data.wifiPass5g = pwd;
@@ -462,24 +493,15 @@ export class CwmpService {
       ]);
     }
     if (!data.wifiPass24) {
-      data.wifiPass24 = this.pickNonMaskedSecret(pMap, [
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
-        'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
-      ]);
+      data.wifiPass24 = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(1, pMapObj));
     }
 
     if (!data.wifiSsid5g) {
-      for (const fallbackIdx of [3, 5, 2, 6]) {
+      for (const fallbackIdx of [5, 3, 2, 6]) {
         const candidateSsid = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.SSID`);
         if (candidateSsid && CwmpVendorProfiles.determineWifiBand(pMapObj, fallbackIdx, candidateSsid) !== '2.4GHz') {
           data.wifiSsid5g = candidateSsid;
-          data.wifiPass5g = this.pickNonMaskedSecret(pMap, [
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.KeyPassphrase`,
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.KeyPassphrase`,
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.PreSharedKey`,
-          ]);
+          data.wifiPass5g = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(fallbackIdx, pMapObj));
           break;
         }
       }
@@ -489,13 +511,9 @@ export class CwmpService {
     }
     if (!data.wifiPass5g) {
       data.wifiPass5g = this.pickNonMaskedSecret(pMap, [
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.KeyPassphrase',
-        'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
+        ...this.getWifiSecretCandidatePaths(5, pMapObj),
+        ...this.getWifiSecretCandidatePaths(3, pMapObj),
+        ...this.getWifiSecretCandidatePaths(2, pMapObj),
       ]);
     }
 
@@ -518,6 +536,7 @@ export class CwmpService {
       else if (/V280|VSOL|V-SOL/i.test(data.productClass)) data.manufacturer = 'V-SOL';
       else if (/SY-|Syro/i.test(data.productClass)) data.manufacturer = 'Syrotech';
       else if (/HG323|Netlink/i.test(data.productClass)) data.manufacturer = 'Netlink';
+      else if (/G-140|G-240|G-2425|G-1425|G-1426|I-240|Nokia|ALCL/i.test(data.productClass)) data.manufacturer = 'Nokia';
       else if (/XC220|Archer|TP-Link/i.test(data.productClass)) data.manufacturer = 'TP-Link';
     }
 
@@ -1911,21 +1930,28 @@ ${paramElements}
             pendingCmd.sentAt = new Date();
             await pendingCmd.save();
 
-            session.stage = 'BASELINE_SENT';
             const requestedParams = (pendingCmd as any).parameters?.parameterNames ||
               (pendingCmd as any).payload?.parameterNames ||
               (pendingCmd as any).parameters?.paths ||
               (pendingCmd as any).payload?.paths;
-            const targetParams = requestedParams && requestedParams.length > 0
-              ? requestedParams
-              : CwmpVendorProfiles.getSafeBaselineParameters(session.vendor, session.modelName);
-            session.lastQueriedPaths = [...targetParams];
-            console.log(
-              `[Native CWMP OUT] Dispatched GPV for ${session.serialNumber} (${session.modelName}) | Cmd: ${pendingCmd._id} | Params: [${targetParams.length}]`
-            );
 
-            const stringElements = targetParams.map((p: string) => `        <string>${p}</string>`).join('\n');
-            const gpvXml = `<?xml version="1.0" encoding="UTF-8"?>
+            // For blanket SUMMON_LIVE_POLL / REFRESH_TELEMETRY without targeted paths, route cleanly through GPN -> Confirmed GPV instead of whole-tree InternetGatewayDevice. GPV
+            const isBlanketSync =
+              (cmdAction === 'SUMMON_LIVE_POLL' || cmdAction === 'REFRESH_TELEMETRY' || (pendingCmd as any).commandType === 'SUMMON_LIVE_POLL') &&
+              (!Array.isArray(requestedParams) || requestedParams.length === 0 || (requestedParams.length === 1 && /^(InternetGatewayDevice\.|Device\.)$/i.test(String(requestedParams[0]))));
+
+            if (!isBlanketSync) {
+              session.stage = 'BASELINE_SENT';
+              const targetParams = requestedParams && requestedParams.length > 0
+                ? requestedParams
+                : CwmpVendorProfiles.getSafeBaselineParameters(session.vendor, session.modelName);
+              session.lastQueriedPaths = [...targetParams];
+              console.log(
+                `[Native CWMP OUT] Dispatched GPV for ${session.serialNumber} (${session.modelName}) | Cmd: ${pendingCmd._id} | Params: [${targetParams.length}]`
+              );
+
+              const stringElements = targetParams.map((p: string) => `        <string>${p}</string>`).join('\n');
+              const gpvXml = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
   <soapenv:Header>
     <cwmp:ID soapenv:mustUnderstand="1">2</cwmp:ID>
@@ -1938,8 +1964,10 @@ ${stringElements}
     </cwmp:GetParameterValues>
   </soapenv:Body>
 </soapenv:Envelope>`;
-            return gpvXml;
+              return gpvXml;
+            }
           }
+          if (!(cmdAction === 'SUMMON_LIVE_POLL' || cmdAction === 'REFRESH_TELEMETRY' || (pendingCmd as any).commandType === 'SUMMON_LIVE_POLL')) {
 
           // STRICT SECURITY GUARD 4: Parameter changes require verified operator request
           let rawParams = (pendingCmd as any).parameters?.tr069ParamValues || (pendingCmd as any).payload?.parameterValues;
@@ -2284,6 +2312,7 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
             console.log(`[Native CWMP OUT] Dispatched SetParameterValues RPC for ${session.serialNumber} (Cmd: ${pendingCmd._id}) | Model: ${selectedDataModel} | Params: [${validParams.length}]`);
             return spvXml;
           }
+          }
         }
       }
 
@@ -2349,7 +2378,7 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
       if (dev?.rawParameters && rawKeys.length > 0) {
         for (const rk of rawKeys) {
           if (
-            /(?:WLANConfiguration\.\d+\.(?:SSID|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|Enable|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|OperatingFrequencyBand|PreSharedKey\.1\.KeyPassphrase|PreSharedKey\.1\.PreSharedKey|KeyPassphrase)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|LowerLayers|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.KeyPassphrase)|WAN(?:PPP|IP)Connection\.\d+\.(?:Name|Username|Password|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|VLANID|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|DefaultGateway|DNSServers)|X_CT-COM_WAN(?:Epon|Gpon)?LinkConfig\.(?:VLANIDMark|Mode)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID|LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:MACAddress|IPAddress|InterfaceType|HostName|Active|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:PhysAddress|IPAddress|InterfaceType|HostName|Active)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(rk) &&
+            /(?:WLANConfiguration\.\d+\.(?:SSID|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|Enable|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|X_ALU_COM_RFBand|OperatingFrequencyBand|PreSharedKey\.1\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey))|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|LowerLayers|SSIDReference|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey))|WAN(?:PPP|IP)Connection\.\d+\.(?:Name|Username|Password|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|VLANID|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|DefaultGateway|DNSServers)|X_CT-COM_WAN(?:Epon|Gpon)?LinkConfig\.(?:VLANIDMark|Mode)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID|LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:MACAddress|IPAddress|InterfaceType|HostName|Active|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:PhysAddress|IPAddress|InterfaceType|HostName|Active)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(rk) &&
             !rk.endsWith('.')
           ) {
             addUnique(rk);
@@ -2613,9 +2642,9 @@ ${stringElements}
     );
     for (const mp of coreMgmtParams) pushConfirmed(mp, 240);
 
-    // 2. Priority 2: ALL Wi-Fi Interfaces (SSID, Band evidence, Standard, Channel, KeyPassphrase 1, Enable, TotalAssociations)
+    // 2. Priority 2: ALL Wi-Fi Interfaces (SSID, Band evidence, Standard, Channel, KeyPassphrase across vendor extensions, AccessPoint SSIDReference)
     const allWifiParams = names.filter((n) =>
-      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(?:SSID|Enable|Status|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|X_ZTE-COM_RFBand|X_HW_WorkMode|OperatingFrequencyBand|SupportedFrequencyBands|PreSharedKey\.1\.KeyPassphrase|PreSharedKey\.1\.PreSharedKey|KeyPassphrase|X_CT-COM_KeyPassphrase|X_HW_KeyPassphrase|X_TP_PreSharedKey|WPA\.PreSharedKey)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|Status|LowerLayers|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.KeyPassphrase|Security\.PreSharedKey))$/i.test(n) &&
+      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(?:SSID|Enable|Status|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|X_ZTE-COM_RFBand|X_ALU_COM_RFBand|X_HW_WorkMode|OperatingFrequencyBand|SupportedFrequencyBands|PreSharedKey\.1\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|WPA\.PreSharedKey)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|Status|LowerLayers|SSIDReference|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)))$/i.test(n) &&
       !n.endsWith('.')
     );
     for (const wp of allWifiParams) pushConfirmed(wp, 180);
@@ -3852,27 +3881,21 @@ ${stringElements}
       const enVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.Enable`) ||
                     pMap.get(`Device.WiFi.SSID.${i}.Enable`);
       const isEnabled = enVal !== '0' && enVal !== 'false';
+      const radioRef = pMap.get(`Device.WiFi.SSID.${i}.LowerLayers`) || mergedRawForBand[`Device.WiFi.SSID.${i}.LowerLayers`] || '';
+      const radioMatch = String(radioRef).match(/Radio\.(\d+)/i);
+      const tr181RadioIdx = radioMatch ? Number(radioMatch[1]) : i;
+      const tr181ApIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(mergedRawForBand, i);
       const cVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.Channel`) ||
-                   pMap.get(`Device.WiFi.Radio.${i}.Channel`) ||
-                   mergedRawForBand[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.Channel`];
+                   pMap.get(`Device.WiFi.Radio.${tr181RadioIdx}.Channel`) ||
+                   mergedRawForBand[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.Channel`] ||
+                   mergedRawForBand[`Device.WiFi.Radio.${tr181RadioIdx}.Channel`];
       const detectedBand = CwmpVendorProfiles.determineWifiBand(mergedRawForBand, i, sVal);
       const is5G = detectedBand === '5GHz';
       const is24G = detectedBand === '2.4GHz';
 
-      const validSecret = this.pickNonMaskedSecret(pMap, [
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.PreSharedKey`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_CT-COM_KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_HW_KeyPassphrase`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_TP_PreSharedKey`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.WPA.PreSharedKey`,
-        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey`,
-        `Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`,
-        `Device.WiFi.AccessPoint.${i}.Security.PreSharedKey`,
-      ]);
+      const validSecret = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(i, mergedRawForBand));
       const secVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.BeaconType`) ||
-                     pMap.get(`Device.WiFi.AccessPoint.${i}.Security.ModeEnabled`);
+                     pMap.get(`Device.WiFi.AccessPoint.${tr181ApIdx}.Security.ModeEnabled`);
 
       if (is5G) {
         if (!ssid5g || (isEnabled && !/guest|iot/i.test(sVal) && (i === 5 || i === 3 || i === 2 || /guest|iot/i.test(ssid5g)))) {
@@ -3893,16 +3916,7 @@ ${stringElements}
 
     if (!ssid24) {
       ssid24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID', 'Device.WiFi.SSID.1.SSID']) || '';
-      const rawP24 = this.pickNonMaskedSecret(pMap, [
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_TP_PreSharedKey',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.X_CT-COM_KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.WPA.PreSharedKey',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey',
-        'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
-      ]);
+      const rawP24 = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(1, mergedRawForBand));
       if (rawP24) pass24 = rawP24;
       chan24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel', 'Device.WiFi.Radio.1.Channel']) || '';
       beacon24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.BeaconType', 'Device.WiFi.AccessPoint.1.Security.ModeEnabled']) || '';
@@ -3916,13 +3930,7 @@ ${stringElements}
         const candEnabled = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.Enable`) !== '0';
         if (candBand !== '2.4GHz' && (candEnabled || !ssid5g) && !/guest/i.test(candSsid)) {
           ssid5g = candSsid;
-          const rawP5g = this.pickNonMaskedSecret(pMap, [
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.KeyPassphrase`,
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.KeyPassphrase`,
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.PreSharedKey`,
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.X_TP_PreSharedKey`,
-            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.X_CT-COM_KeyPassphrase`,
-          ]);
+          const rawP5g = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(fallbackIdx, mergedRawForBand));
           if (rawP5g) pass5g = rawP5g;
           chan5g = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.Channel`) || '';
           beacon5g = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.BeaconType`) || '';
@@ -3931,10 +3939,11 @@ ${stringElements}
       }
       if (!ssid5g && pMap.get('Device.WiFi.SSID.2.SSID')) {
         ssid5g = pMap.get('Device.WiFi.SSID.2.SSID') || '';
-        const rawTr181P5 = this.pickNonMaskedSecret(pMap, ['Device.WiFi.AccessPoint.2.Security.KeyPassphrase', 'Device.WiFi.AccessPoint.2.Security.PreSharedKey']);
+        const rawTr181P5 = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(2, mergedRawForBand));
         if (rawTr181P5) pass5g = rawTr181P5;
         chan5g = pMap.get('Device.WiFi.Radio.2.Channel') || '';
-        beacon5g = pMap.get('Device.WiFi.AccessPoint.2.Security.ModeEnabled') || '';
+        const ap2 = CwmpVendorProfiles.resolveTr181AccessPointIndex(mergedRawForBand, 2);
+        beacon5g = pMap.get(`Device.WiFi.AccessPoint.${ap2}.Security.ModeEnabled`) || '';
       }
     }
 
@@ -4283,29 +4292,34 @@ ${stringElements}
       } as any];
     }
 
-    // Discover and populate ALL SSIDs (SSID 1..16) with accurate band classification and non-masked secrets
+    // Discover and populate ALL SSIDs (TR-098 & TR-181) with accurate band classification and non-masked secrets
     const discoveredSsids: any[] = [];
     const wlanIndices = Array.from(new Set(
       pMapKeys.map(k => {
-        const m = k.match(/LANDevice\.\d+\.WLANConfiguration\.(\d+)\./i);
+        const m = k.match(/LANDevice\.\d+\.WLANConfiguration\.(\d+)\./i) || k.match(/Device\.WiFi\.SSID\.(\d+)\./i);
         return m ? parseInt(m[1], 10) : null;
       }).filter((v): v is number => v !== null)
     )).sort((a, b) => a - b);
 
     for (const wIdx of wlanIndices) {
-      const sName = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.SSID`);
+      const sName =
+        pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.SSID`) ||
+        pMap.get(`Device.WiFi.SSID.${wIdx}.SSID`);
       if (sName) {
-        const sKey = this.pickNonMaskedSecret(pMap, [
-          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.PreSharedKey.1.KeyPassphrase`,
-          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.KeyPassphrase`,
-          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.PreSharedKey.1.PreSharedKey`,
-          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.X_CT-COM_KeyPassphrase`,
-          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.X_HW_KeyPassphrase`,
-          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.X_TP_PreSharedKey`,
-        ]) || '';
-        const sChan = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.Channel`);
-        const sBeacon = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.BeaconType`) || 'WPA2-PSK';
-        const sEnable = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.Enable`) !== '0';
+        const sKey = this.pickNonMaskedSecret(pMap, this.getWifiSecretCandidatePaths(wIdx, mergedRawForBand)) || '';
+        const radioRef = pMap.get(`Device.WiFi.SSID.${wIdx}.LowerLayers`) || '';
+        const rMatch = String(radioRef).match(/Radio\.(\d+)/i);
+        const rIdx = rMatch ? Number(rMatch[1]) : wIdx;
+        const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(mergedRawForBand, wIdx);
+        const sChan =
+          pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.Channel`) ||
+          pMap.get(`Device.WiFi.Radio.${rIdx}.Channel`);
+        const sBeacon =
+          pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.BeaconType`) ||
+          pMap.get(`Device.WiFi.AccessPoint.${apIdx}.Security.ModeEnabled`) ||
+          'WPA2-PSK';
+        const sEnable =
+          (pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.Enable`) ?? pMap.get(`Device.WiFi.SSID.${wIdx}.Enable`)) !== '0';
         const detectedSsidBand = CwmpVendorProfiles.determineWifiBand(mergedRawForBand, wIdx, sName);
         const schemaBand: '2.4GHz' | '5GHz' =
           detectedSsidBand === '5GHz'

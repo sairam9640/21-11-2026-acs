@@ -5,6 +5,7 @@ import { DeviceCapability, IDeviceCapability } from '../models/DeviceCapability.
 import { DeviceCommand, CommandActionType, IDeviceCommand } from '../models/DeviceCommand.js';
 import { recordAuditLog } from '../middleware/audit.js';
 import { triggerGenieAcsConnectionRequest } from './connectionRequestService.js';
+import { CwmpVendorProfiles } from './cwmpVendorProfiles.js';
 
 export interface CommandDispatchResult {
   commandId: string;
@@ -144,38 +145,80 @@ export class DeviceManagementService {
 
     const tr069ParamValues: Array<[string, string, string]> = [];
     if (action === 'SET_WIFI_CONFIG') {
-      if (useTr181) {
-        // TR-181 only
-        if (parameters.wifi24?.ssid) tr069ParamValues.push(['Device.WiFi.SSID.1.SSID', String(parameters.wifi24.ssid), 'xsd:string']);
-        if (parameters.wifi24?.password) tr069ParamValues.push(['Device.WiFi.AccessPoint.1.Security.KeyPassphrase', String(parameters.wifi24.password), 'xsd:string']);
-        if (parameters.wifi24?.channel) tr069ParamValues.push(['Device.WiFi.Radio.1.Channel', String(parameters.wifi24.channel), 'xsd:unsignedInt']);
-        if (parameters.wifi5g?.ssid) tr069ParamValues.push(['Device.WiFi.SSID.2.SSID', String(parameters.wifi5g.ssid), 'xsd:string']);
-        if (parameters.wifi5g?.password) tr069ParamValues.push(['Device.WiFi.AccessPoint.2.Security.KeyPassphrase', String(parameters.wifi5g.password), 'xsd:string']);
-        if (parameters.wifi5g?.channel) tr069ParamValues.push(['Device.WiFi.Radio.2.Channel', String(parameters.wifi5g.channel), 'xsd:unsignedInt']);
-      } else {
-        // TR-098 — detect actual 5GHz WLANConfiguration instance from rawParameters (never hardcode .5 AND .2 together)
-        const wlan5gInstance = rawParamKeys
-          .map(k => { const m = k.match(/WLANConfiguration\.(\d+)\.SSID$/i); return m ? parseInt(m[1], 10) : null; })
-          .filter((v): v is number => v !== null && v >= 2)
-          .sort((a, b) => a - b)[0] || 5; // default .5 if CPE hasn't reported yet
+      const resolveWifiPassPath = (idx: number, tr181: boolean): string => {
+        if (tr181) {
+          const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(device.rawParameters || {}, idx);
+          const candidate = rawParamKeys.find((k) =>
+            new RegExp(`^Device\\.WiFi\\.AccessPoint\\.${apIdx}\\.Security\\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)$`, 'i').test(k)
+          );
+          return candidate || `Device.WiFi.AccessPoint.${apIdx}.Security.KeyPassphrase`;
+        }
+        const confirmed = rawParamKeys.find((k) =>
+          new RegExp(`WLANConfiguration\\.${idx}\\.(?:PreSharedKey\\.1\\.(?:X_[A-Z0-9_-]+_)?KeyPassphrase|(?:X_[A-Z0-9_-]+_)?KeyPassphrase|PreSharedKey\\.1\\.PreSharedKey)$`, 'i').test(k)
+        );
+        return confirmed || `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${idx}.PreSharedKey.1.KeyPassphrase`;
+      };
 
+      const findBandInstance = (band: '2.4GHz' | '5GHz'): number => {
+        const prefixRegex = useTr181 ? /^Device\.WiFi\.SSID\.(\d+)\.SSID$/i : /WLANConfiguration\.(\d+)\.SSID$/i;
+        const rawObj = (device.rawParameters || {}) as Record<string, any>;
+        const indices = Array.from(
+          new Set(
+            rawParamKeys
+              .map((k) => {
+                const m = k.match(prefixRegex);
+                return m ? parseInt(m[1], 10) : null;
+              })
+              .filter((v): v is number => v !== null)
+          )
+        ).sort((a, b) => a - b);
+
+        for (const idx of indices) {
+          const ssidKey = rawParamKeys.find((k) => new RegExp(`(?:WLANConfiguration\\.${idx}\\.SSID|Device\\.WiFi\\.SSID\\.${idx}\\.SSID)$`, 'i').test(k));
+          const ssidStr = ssidKey ? String(rawObj[ssidKey] || '') : '';
+          if (/guest|iot/i.test(ssidStr)) continue;
+          if (CwmpVendorProfiles.determineWifiBand(rawObj, idx, ssidStr) === band) return idx;
+        }
+        if (band === '2.4GHz') return 1;
+        if (useTr181) return 2;
+        const vendor = CwmpVendorProfiles.detectVendor(device.manufacturer, device.modelName, undefined, device.modelName);
+        const isTplink = vendor === 'TPLINK' || /archer|c6|c5|c20|c50|xc220/i.test(String(device.modelName || ''));
+        return isTplink ? 3 : (vendor === 'VSOL' || vendor === 'RICHERLINK') ? 2 : 5;
+      };
+
+      const inst24 = findBandInstance('2.4GHz');
+      const inst5g = findBandInstance('5GHz');
+
+      if (useTr181) {
+        const resolveRadio = (ssidIdx: number, fallback: number): number => {
+          const ref = (device.rawParameters as any)?.[`Device.WiFi.SSID.${ssidIdx}.LowerLayers`];
+          const m = ref ? String(ref).match(/Radio\.(\d+)/i) : null;
+          return m ? Number(m[1]) : fallback;
+        };
+        if (parameters.wifi24?.ssid) tr069ParamValues.push([`Device.WiFi.SSID.${inst24}.SSID`, String(parameters.wifi24.ssid), 'xsd:string']);
+        if (parameters.wifi24?.password) tr069ParamValues.push([resolveWifiPassPath(inst24, true), String(parameters.wifi24.password), 'xsd:string']);
+        if (parameters.wifi24?.channel) tr069ParamValues.push([`Device.WiFi.Radio.${resolveRadio(inst24, 1)}.Channel`, String(parameters.wifi24.channel), 'xsd:unsignedInt']);
+        if (parameters.wifi5g?.ssid) tr069ParamValues.push([`Device.WiFi.SSID.${inst5g}.SSID`, String(parameters.wifi5g.ssid), 'xsd:string']);
+        if (parameters.wifi5g?.password) tr069ParamValues.push([resolveWifiPassPath(inst5g, true), String(parameters.wifi5g.password), 'xsd:string']);
+        if (parameters.wifi5g?.channel) tr069ParamValues.push([`Device.WiFi.Radio.${resolveRadio(inst5g, 2)}.Channel`, String(parameters.wifi5g.channel), 'xsd:unsignedInt']);
+      } else {
         if (parameters.wifi24?.ssid) {
-          tr069ParamValues.push(['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID', String(parameters.wifi24.ssid), 'xsd:string']);
+          tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.SSID`, String(parameters.wifi24.ssid), 'xsd:string']);
         }
         if (parameters.wifi24?.password) {
-          tr069ParamValues.push(['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase', String(parameters.wifi24.password), 'xsd:string']);
+          tr069ParamValues.push([resolveWifiPassPath(inst24, false), String(parameters.wifi24.password), 'xsd:string']);
         }
         if (parameters.wifi24?.channel) {
-          tr069ParamValues.push(['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel', String(parameters.wifi24.channel), 'xsd:unsignedInt']);
+          tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst24}.Channel`, String(parameters.wifi24.channel), 'xsd:unsignedInt']);
         }
         if (parameters.wifi5g?.ssid) {
-          tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.SSID`, String(parameters.wifi5g.ssid), 'xsd:string']);
+          tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.SSID`, String(parameters.wifi5g.ssid), 'xsd:string']);
         }
         if (parameters.wifi5g?.password) {
-          tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.PreSharedKey.1.KeyPassphrase`, String(parameters.wifi5g.password), 'xsd:string']);
+          tr069ParamValues.push([resolveWifiPassPath(inst5g, false), String(parameters.wifi5g.password), 'xsd:string']);
         }
         if (parameters.wifi5g?.channel) {
-          tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.Channel`, String(parameters.wifi5g.channel), 'xsd:unsignedInt']);
+          tr069ParamValues.push([`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${inst5g}.Channel`, String(parameters.wifi5g.channel), 'xsd:unsignedInt']);
         }
       }
     } else if (action === 'SET_WAN_CONFIG') {
