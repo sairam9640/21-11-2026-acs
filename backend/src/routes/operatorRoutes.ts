@@ -70,18 +70,42 @@ operatorRouter.use(requireTenant);
 operatorRouter.use(requireRole(['operator_admin', 'noc_operator', 'fiber_planner', 'accountant', 'support_agent', 'technician']));
 
 /**
+ * Evaluates live TR-069 ONT liveness respecting the router's actual PeriodicInformInterval
+ * (minimum 20-minute grace window or 2.5x periodic interval + 2m jitter buffer).
+ */
+function getDeviceLivenessThresholdMs(device: any): number {
+  const raw = device?.rawParameters || {};
+  const intervalSec = Number(
+    device?.periodicInformInterval ||
+    raw['InternetGatewayDevice.ManagementServer.PeriodicInformInterval'] ||
+    raw['Device.ManagementServer.PeriodicInformInterval'] ||
+    300
+  );
+  const safeIntervalSec = isNaN(intervalSec) || intervalSec <= 0 ? 300 : intervalSec;
+  return Math.max(20 * 60 * 1000, safeIntervalSec * 2500 + 120_000);
+}
+
+function isDeviceAlive(device: any): boolean {
+  if (!device?.lastInform) return false;
+  return (Date.now() - new Date(device.lastInform).getTime()) <= getDeviceLivenessThresholdMs(device);
+}
+
+/**
  * 7.1 Operator NOC Dashboard Summary
  */
 operatorRouter.get('/dashboard/summary', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const tenantId = new Types.ObjectId(req.tenantId);
 
-    // Automatically transition stale devices (> 5 mins without TR-069 inform) to offline
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    await Device.updateMany(
-      { tenantId, status: 'online', $or: [{ lastInform: { $lt: fiveMinutesAgo } }, { lastInform: null }] },
-      { $set: { status: 'offline' } }
-    );
+    // Transition genuinely stale devices (exceeding 20 mins or 2.5x PeriodicInformInterval) to offline
+    const minCutoff = new Date(Date.now() - 20 * 60 * 1000);
+    const staleCandidates = await Device.find(
+      { tenantId, status: 'online', $or: [{ lastInform: { $lt: minCutoff } }, { lastInform: null }] }
+    ).select('_id lastInform periodicInformInterval rawParameters.InternetGatewayDevice.ManagementServer.PeriodicInformInterval rawParameters.Device.ManagementServer.PeriodicInformInterval').lean();
+    const expiredIds = staleCandidates.filter((d) => !isDeviceAlive(d)).map((d) => d._id);
+    if (expiredIds.length > 0) {
+      await Device.updateMany({ _id: { $in: expiredIds } }, { $set: { status: 'offline' } });
+    }
 
     const [
       totalCustomers,
@@ -492,9 +516,8 @@ operatorRouter.get('/devices/:id', async (req: AuthenticatedRequest, res: Respon
     const device = await Device.findOne({ _id: req.params.id, tenantId }).populate('customerId');
     if (!device) return res.status(404).json({ success: false, error: 'Device not found in tenant context' });
 
-    // Dynamic liveness evaluation
-    const isAlive = device.lastInform && (Date.now() - new Date(device.lastInform).getTime() <= 5 * 60 * 1000);
-    if (!isAlive && device.status === 'online') {
+    // Dynamic liveness evaluation respecting PeriodicInformInterval
+    if (!isDeviceAlive(device) && device.status === 'online') {
       device.status = 'offline';
       await Device.updateOne({ _id: device._id }, { $set: { status: 'offline' } });
     }
@@ -3790,9 +3813,8 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
     const device = await Device.findOne(getSafeDeviceQuery(req.params.id, tenantId)).populate('customerId', 'fullName accountNumber phone email address status planName');
     if (!device) return res.status(404).json({ success: false, error: 'Device not found in your tenant context' });
 
-    // Dynamic real-time liveness check (> 5 mins without inform = offline)
-    const isAlive = device.lastInform && (Date.now() - new Date(device.lastInform).getTime() <= 5 * 60 * 1000);
-    if (!isAlive && device.status === 'online') {
+    // Dynamic real-time liveness check respecting PeriodicInformInterval
+    if (!isDeviceAlive(device) && device.status === 'online') {
       device.status = 'offline';
       await Device.updateOne({ _id: device._id }, { $set: { status: 'offline' } });
     }

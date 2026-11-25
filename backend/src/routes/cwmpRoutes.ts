@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { CwmpService } from '../services/cwmpService.js';
 import { UspService } from '../services/uspService.js';
 import { cwmpDigestAuthMiddleware } from '../middleware/cwmpAuth.js';
+import { authenticateToken } from '../middleware/auth.js';
+import { Tenant } from '../models/Tenant.js';
 
 export const cwmpRouter = Router();
 
@@ -212,13 +214,19 @@ cwmpRouter.post('/usp', async (req: Request, res: Response) => {
 });
 
 /**
- * Operator / Superadmin API to get CWMP ACS Status & Recent Router Hits
+ * Operator / Superadmin API to get CWMP ACS Status & Recent Router Hits (Strictly Tenant-Isolated)
  */
-cwmpRouter.get('/api/v1/operator/cwmp/status', async (req: Request, res: Response) => {
+cwmpRouter.get('/api/v1/operator/cwmp/status', authenticateToken as any, async (req: Request, res: Response) => {
   try {
-    const tenantSlug = (req.headers['x-tenant-slug'] as string) || (req as any).user?.tenantSlug || '';
+    const authReq = req as any;
+    const isSuperAdmin = authReq.user?.role === 'super_admin';
+    let tenantSlug = (req.headers['x-tenant-slug'] as string) || authReq.user?.tenantSlug || '';
+    if (!tenantSlug && authReq.user?.tenantId) {
+      const t = await Tenant.findById(authReq.user.tenantId).select('slug').lean();
+      if (t?.slug) tenantSlug = t.slug;
+    }
     const hostHeader = (req.headers['x-forwarded-host'] as string) || (req.headers['host'] as string) || process.env.ACS_HOST || 'localhost';
-    const stats = CwmpService.getStats(tenantSlug, hostHeader);
+    const stats = CwmpService.getStats(tenantSlug, hostHeader, isSuperAdmin && !tenantSlug);
     return res.json(stats);
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });

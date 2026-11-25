@@ -87,6 +87,8 @@ export interface ActiveSessionContext {
 export class CwmpService {
   private static recentHits: CwmpHitLog[] = [];
   private static totalHits = 0;
+  private static tenantTotalHits = new Map<string, number>();
+  private static tenantRecentHits = new Map<string, CwmpHitLog[]>();
   private static sessionsById = new Map<string, ActiveSessionContext>();
   private static sessionsByConnection = new Map<string, ActiveSessionContext>();
 
@@ -1405,7 +1407,8 @@ export class CwmpService {
     sessionContext.deviceId = resolvedDeviceId;
     sessionContext.customerId = resolvedCustomerId;
 
-    this.recentHits.unshift({
+    const hitTenantSlug = sessionContext.tenantSlug || tenantSlug || 'quarantine_pending';
+    const hitRecord: CwmpHitLog = {
       timestamp: new Date(),
       ip: clientIp,
       serialNumber: rawSerial,
@@ -1413,10 +1416,18 @@ export class CwmpService {
       model,
       vendor: detectedVendor,
       events: informData.events,
-      tenantSlug,
+      tenantSlug: hitTenantSlug,
       status: hitStatus,
-    });
+    };
+
+    this.recentHits.unshift(hitRecord);
     if (this.recentHits.length > 50) this.recentHits.pop();
+
+    this.tenantTotalHits.set(hitTenantSlug, (this.tenantTotalHits.get(hitTenantSlug) || 0) + 1);
+    const tenantHits = this.tenantRecentHits.get(hitTenantSlug) || [];
+    tenantHits.unshift(hitRecord);
+    if (tenantHits.length > 50) tenantHits.pop();
+    this.tenantRecentHits.set(hitTenantSlug, tenantHits);
 
     CwmpSessionLog.create({
       tenantId: tenant?._id,
@@ -4515,12 +4526,17 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
 </soapenv:Envelope>`;
   }
 
-  static getStats(tenantSlug?: string, reqHost?: string) {
-    const hits = tenantSlug && tenantSlug !== 'default'
-      ? this.recentHits.filter((h) => h.tenantSlug === tenantSlug)
-      : this.recentHits;
+  static getStats(tenantSlug?: string, reqHost?: string, allowGlobal: boolean = false) {
+    const cleanSlug = (tenantSlug || '').trim().toLowerCase();
+    const hasScopedTenant = Boolean(cleanSlug && cleanSlug !== 'default' && cleanSlug !== 'global');
+    const hits = hasScopedTenant
+      ? (this.tenantRecentHits.get(cleanSlug) || [])
+      : (allowGlobal ? this.recentHits : []);
+    const scopedTotalHits = hasScopedTenant
+      ? (this.tenantTotalHits.get(cleanSlug) || 0)
+      : (allowGlobal ? this.totalHits : 0);
     const host = (reqHost || process.env.ACS_HOST || 'localhost').split(':')[0];
-    const slug = (tenantSlug && tenantSlug !== 'default') ? tenantSlug : '';
+    const slug = hasScopedTenant ? cleanSlug : '';
     const cwmpPathUrl = slug ? `http://${host}:7547/tr069/${slug}` : `http://${host}:7547/tr069`;
     const cwmpSubdomainUrl = slug ? `http://${slug}.${host}:7547` : `http://${host}:7547`;
     return {
@@ -4529,7 +4545,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       cwmpPathUrl,
       cwmpSubdomainUrl,
       tenantSlug: slug,
-      totalHits: this.totalHits,
+      totalHits: scopedTotalHits,
       activeListeningPort: 7547,
       authCredentials: {
         username: process.env.CWMP_CONN_REQ_USER || 'admin',
