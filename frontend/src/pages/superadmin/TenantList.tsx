@@ -286,8 +286,6 @@ export const TenantList: React.FC = () => {
 
   const currentSlug = formData.slug.toLowerCase().trim() || 'operator-slug';
   const currentHost = window.location.hostname || 'localhost';
-  const previewDomain = `${currentSlug}.${currentHost}`;
-  const previewCwmpUrl = `http://${currentSlug}.${currentHost}:7547`;
   const previewCwmpPathUrl = `http://${currentHost}:7547/tr069/${currentSlug}`;
 
   const columns: Column<Tenant>[] = [
@@ -622,12 +620,12 @@ export const TenantList: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono pt-1">
                 <div className="p-2.5 rounded-lg bg-white border border-[#E2E8F0]">
-                  <span className="text-[#64748B] text-[10px] block font-sans font-bold">Tenant Subdomain URL:</span>
-                  <span className="text-[#1677FF] font-bold select-all">http://{previewDomain}</span>
+                  <span className="text-[#64748B] text-[10px] block font-sans font-bold">Unified TR-069 CWMP ACS URL (ONT Config):</span>
+                  <span className="text-[#047857] font-bold select-all">{previewCwmpPathUrl}</span>
                 </div>
                 <div className="p-2.5 rounded-lg bg-white border border-[#E2E8F0]">
-                  <span className="text-[#64748B] text-[10px] block font-sans font-bold">Direct TR-069 CWMP ACS URL (ONT Config):</span>
-                  <span className="text-[#047857] font-bold select-all">http://{currentHost}/tr069/{currentSlug}</span>
+                  <span className="text-[#64748B] text-[10px] block font-sans font-bold">ACS Username / Password (Auto-Set to Slug):</span>
+                  <span className="text-[#1677FF] font-bold select-all">{currentSlug} / {currentSlug}</span>
                 </div>
               </div>
             </div>

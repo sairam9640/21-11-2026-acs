@@ -29,15 +29,17 @@ export const OperatorSettings: React.FC = () => {
   // ACS TR-069 Credentials State
   const [showAcsPassword, setShowAcsPassword] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [cwmpStats, setCwmpStats] = useState<any>(null);
 
   const activeHost = window.location.hostname || '109.122.56.149';
-  const tenantSlug = tenant?.slug || 'operator';
-  const acsUrl = `http://${activeHost}:7547/tr069/${tenantSlug}`;
-  const port80AcsUrl = `http://${activeHost}/tr069/${tenantSlug}`;
-  const acsUsername = tenantSlug || 'acs';
-  const acsPassword = 'cpe_cwmp_pass_2026';
-  const connReqUser = 'cpe';
-  const connReqPass = 'cpe_password';
+  const tenantSlug = (tenant?.slug || 'operator').trim().toLowerCase();
+  const acsUrl = cwmpStats?.cwmpPathUrl || `http://${activeHost}:7547/tr069/${tenantSlug}`;
+  const port80AcsUrl = cwmpStats?.port80CwmpUrl || `http://${activeHost}/tr069/${tenantSlug}`;
+  const acsUsername = cwmpStats?.authCredentials?.acsUsername || tenantSlug || 'acs';
+  const acsPassword = cwmpStats?.authCredentials?.acsPassword || tenantSlug || 'acs';
+  const connReqUser = cwmpStats?.authCredentials?.connectionRequestUsername || `cpe_${tenantSlug}`;
+  const connReqPass = cwmpStats?.authCredentials?.connectionRequestPassword || `${tenantSlug}_cpe`;
+  const informIntervalSeconds = cwmpStats?.authCredentials?.informIntervalSeconds || 300;
 
   const handleCopyText = async (text: string, field: string) => {
     await copyToClipboard(text);
@@ -59,6 +61,9 @@ export const OperatorSettings: React.FC = () => {
 
   useEffect(() => {
     fetchWaStatus();
+    api.getCwmpStatus().then((res) => {
+      if (res?.success) setCwmpStats(res);
+    }).catch(() => {});
   }, []);
 
   const handleOpenQrModal = async () => {
@@ -184,32 +189,15 @@ export const OperatorSettings: React.FC = () => {
             </div>
 
             <div className="space-y-4 text-xs">
-              {/* ACS URLs */}
+              {/* Unified TR-069 / CWMP ACS URL */}
               <div className="space-y-2">
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase text-emerald-800">ACS URL — Port 80 (Recommended / Open Port)</span>
+                    <span className="text-[10px] font-bold uppercase text-emerald-800">Primary TR-069 CWMP ACS URL — Port 7547 (Unified & Recommended)</span>
                     <span className="text-[9px] bg-emerald-200 text-emerald-900 font-extrabold px-1.5 py-0.5 rounded">RECOMMENDED</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-emerald-950 select-all break-all">{port80AcsUrl}</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => handleCopyText(port80AcsUrl, 'port80Acs')}
-                      className="h-7 text-xs shrink-0 ml-2"
-                    >
-                      {copiedField === 'port80Acs' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                      <span>{copiedField === 'port80Acs' ? 'Copied' : 'Copy'}</span>
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-blue-700">ACS URL — Port 7547 (Standard CWMP Port)</span>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-blue-900 select-all break-all">{acsUrl}</span>
+                    <span className="font-mono font-bold text-emerald-950 select-all break-all">{acsUrl}</span>
                     <Button
                       type="button"
                       size="sm"
@@ -219,6 +207,23 @@ export const OperatorSettings: React.FC = () => {
                     >
                       {copiedField === 'acsUrl' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
                       <span>{copiedField === 'acsUrl' ? 'Copied' : 'Copy'}</span>
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-blue-700">Alternate ACS URL — Port 80 HTTP Fallback</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-blue-900 select-all break-all">{port80AcsUrl}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleCopyText(port80AcsUrl, 'port80Acs')}
+                      className="h-7 text-xs shrink-0 ml-2"
+                    >
+                      {copiedField === 'port80Acs' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                      <span>{copiedField === 'port80Acs' ? 'Copied' : 'Copy'}</span>
                     </Button>
                   </div>
                 </div>
@@ -271,19 +276,22 @@ export const OperatorSettings: React.FC = () => {
 
               {/* Advanced Parameters */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
-                  <span className="text-[10px] text-slate-500 font-bold block">Conn Request Username</span>
+                <div className="p-2.5 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl">
+                  <span className="text-[10px] text-[#047857] font-bold block">Conn Request User (Auto-Pushed)</span>
                   <span className="font-mono font-semibold text-slate-800">{connReqUser}</span>
                 </div>
-                <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
-                  <span className="text-[10px] text-slate-500 font-bold block">Conn Request Password</span>
+                <div className="p-2.5 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl">
+                  <span className="text-[10px] text-[#047857] font-bold block">Conn Request Pass (Auto-Pushed)</span>
                   <span className="font-mono font-semibold text-slate-800">{connReqPass}</span>
                 </div>
-                <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
-                  <span className="text-[10px] text-slate-500 font-bold block">Periodic Inform Interval</span>
-                  <span className="font-mono font-semibold text-emerald-600">300s (5m) / 3600s (1h) Recommended</span>
+                <div className="p-2.5 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl">
+                  <span className="text-[10px] text-[#047857] font-bold block">Periodic Inform (Auto-Synced)</span>
+                  <span className="font-mono font-semibold text-emerald-700">{informIntervalSeconds}s (5m) Auto on Connect</span>
                 </div>
               </div>
+              <p className="text-[11px] text-[#047857] font-medium bg-emerald-50/70 border border-emerald-200 rounded-lg px-3 py-2">
+                Only ACS URL, Username (<span className="font-mono font-bold">{acsUsername}</span>), and Password (<span className="font-mono font-bold">{acsPassword}</span>) need to be entered on a new ONT. On first Inform, the ACS automatically pushes Connection Request User/Password and {informIntervalSeconds}s Periodic Inform to the router.
+              </p>
             </div>
           </div>
 

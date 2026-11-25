@@ -39,6 +39,7 @@ import { Badge } from '../ui/Badge.js';
 import { Button, Input } from '../ui/Button.js';
 import { Modal } from '../ui/Modal.js';
 import { api } from '../../services/api.js';
+import { useAuth } from '../../context/AuthContext.js';
 
 export interface WanProfileData {
   _id?: string;
@@ -113,6 +114,8 @@ export const WanManagementSuite: React.FC<WanManagementSuiteProps> = ({
   onRefreshTelemetry,
   onCommandQueued,
 }) => {
+  const { tenant } = useAuth();
+  const tenantSlug = (tenant?.slug || 'operator').trim().toLowerCase();
   const [profiles, setProfiles] = useState<WanProfileData[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
   const [activeForm, setActiveForm] = useState<WanProfileData | null>(null);
@@ -1253,7 +1256,7 @@ export const WanManagementSuite: React.FC<WanManagementSuiteProps> = ({
                         <label className="text-[11px] font-bold text-slate-700 block">ACS URL:</label>
                         <input
                           type="text"
-                          value={activeForm.acsUrl || (typeof window !== 'undefined' ? `http://${window.location.hostname}:7547/tr069/${(activeForm as any).tenantSlug || 'operator'}` : 'http://localhost:7547/tr069/operator')}
+                          value={activeForm.acsUrl || (typeof window !== 'undefined' ? `http://${window.location.hostname}:7547/tr069/${tenantSlug}` : `http://localhost:7547/tr069/${tenantSlug}`)}
                           onChange={(e) => setActiveForm({ ...activeForm, acsUrl: e.target.value })}
                           className="w-full px-3 py-1.5 text-xs font-mono font-bold border border-emerald-300 rounded-lg bg-white"
                         />
@@ -1265,7 +1268,7 @@ export const WanManagementSuite: React.FC<WanManagementSuiteProps> = ({
                         <label className="text-[11px] font-bold text-slate-700 block">ACS Username:</label>
                         <input
                           type="text"
-                          value={activeForm.acsUsername || 'admin'}
+                          value={activeForm.acsUsername || tenantSlug}
                           onChange={(e) => setActiveForm({ ...activeForm, acsUsername: e.target.value })}
                           className="w-full px-3 py-1.5 text-xs font-mono border border-emerald-300 rounded-lg bg-white"
                         />
@@ -1274,7 +1277,7 @@ export const WanManagementSuite: React.FC<WanManagementSuiteProps> = ({
                         <label className="text-[11px] font-bold text-slate-700 block">ACS Password:</label>
                         <input
                           type={showAcsPassword ? 'text' : 'password'}
-                          value={activeForm.acsPassword || 'admin'}
+                          value={activeForm.acsPassword || tenantSlug}
                           onChange={(e) => setActiveForm({ ...activeForm, acsPassword: e.target.value })}
                           className="w-full px-3 py-1.5 text-xs font-mono border border-emerald-300 rounded-lg bg-white"
                         />

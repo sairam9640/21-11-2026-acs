@@ -2,6 +2,8 @@ import http from 'http';
 import https from 'https';
 import crypto from 'crypto';
 import { Device } from '../models/Device.js';
+import { Tenant } from '../models/Tenant.js';
+import { resolveTenantCwmpCredentials } from '../utils/cwmpCredentials.js';
 
 interface DigestChallenge {
   realm: string;
@@ -272,19 +274,39 @@ export async function triggerGenieAcsConnectionRequest(serialNumber: string): Pr
       dev?.rawParameters?.['Device.ManagementServer.ConnectionRequestURL'];
 
     if (crUrl && typeof crUrl === 'string' && crUrl.startsWith('http')) {
-      const username = (dev as any)?.connectionRequestUsername ||
+      const tenant = dev?.tenantId
+        ? await Tenant.findById(dev.tenantId).select('slug cwmpPassword').lean()
+        : null;
+      const tenantCreds = resolveTenantCwmpCredentials(tenant?.slug, (tenant as any)?.cwmpPassword);
+
+      const savedUser = (dev as any)?.connectionRequestUsername ||
         dev?.rawParameters?.['InternetGatewayDevice.ManagementServer.ConnectionRequestUsername'] ||
-        dev?.rawParameters?.['Device.ManagementServer.ConnectionRequestUsername'] ||
-        dev?.cwmpUsername ||
-        'cpe';
-
-      const password = (dev as any)?.connectionRequestPassword ||
+        dev?.rawParameters?.['Device.ManagementServer.ConnectionRequestUsername'];
+      const rawSavedPass = (dev as any)?.connectionRequestPassword ||
         dev?.rawParameters?.['InternetGatewayDevice.ManagementServer.ConnectionRequestPassword'] ||
-        dev?.rawParameters?.['Device.ManagementServer.ConnectionRequestPassword'] ||
-        dev?.cwmpPassword ||
-        'cpe_password';
+        dev?.rawParameters?.['Device.ManagementServer.ConnectionRequestPassword'];
+      const savedPass = (rawSavedPass && !/^\*+$/.test(String(rawSavedPass).trim())) ? rawSavedPass : undefined;
 
-      return await sendDirectConnectionRequest(crUrl, username, password);
+      const candidatePairs: Array<[string, string]> = [];
+      const addPair = (u?: string, p?: string) => {
+        if (!u || !p) return;
+        if (!candidatePairs.some(([eu, ep]) => eu === u && ep === p)) {
+          candidatePairs.push([u, p]);
+        }
+      };
+
+      addPair(savedUser, savedPass);
+      addPair(tenantCreds.connectionRequestUsername, tenantCreds.connectionRequestPassword);
+      addPair(savedUser || tenantCreds.connectionRequestUsername, 'cpe_password');
+      addPair('cpe', 'cpe_password');
+      if (dev?.cwmpUsername && dev?.cwmpPassword) addPair(dev.cwmpUsername, dev.cwmpPassword);
+      addPair(tenantCreds.acsUsername, tenantCreds.acsPassword);
+
+      for (const [u, p] of candidatePairs) {
+        const ok = await sendDirectConnectionRequest(crUrl, u, p);
+        if (ok) return true;
+      }
+      return false;
     }
   } catch (err: any) {
     console.warn(`[ConnectionRequest] Direct ConnectionRequest exception for ${serialNumber}:`, err.message);

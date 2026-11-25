@@ -139,9 +139,16 @@ export async function cwmpDigestAuthMiddleware(
     return res.status(401).send();
   }
 
-  // 3. Resolve password for username
-  // Look for device by cwmpUsername, serialNumber, or tenant credentials
+  // 3. Resolve expected secrets across device overrides, tenant slug (default ACS password = slug), and legacy fallbacks
+  const routeSlug = (req.params?.tenantSlug || (req.query?.tenant as string) || (req.query?.slug as string) || '').trim().toLowerCase();
+  const hostHeader = ((req.headers['x-forwarded-host'] as string) || (req.headers['host'] as string) || '').split(':')[0].toLowerCase();
+  const hostPrefix = hostHeader.split('.')[0];
+  const candidateSlugs = new Set<string>(
+    [routeSlug, digest.username.toLowerCase(), hostPrefix].filter((s) => s && !['www', 'acs', 'admin', 'localhost'].includes(s))
+  );
+
   let expectedPassword = process.env.CWMP_DEFAULT_PASSWORD || 'cpe_cwmp_pass_2026';
+  const tenantSecrets: string[] = [];
 
   try {
     const dev = await Device.findOne({
@@ -150,16 +157,30 @@ export async function cwmpDigestAuthMiddleware(
         { serialNumber: digest.username },
         { macAddress: digest.username.toLowerCase() },
       ],
-    }).select('+cwmpPassword');
+    }).select('+cwmpPassword tenantId');
 
-    if (dev && dev.cwmpPassword) {
+    if (dev?.cwmpPassword) {
       expectedPassword = dev.cwmpPassword;
-    } else {
-      // Check tenant secret
-      const tenant = req.params.tenantSlug ? await Tenant.findOne({ slug: req.params.tenantSlug.toLowerCase() }) : null;
-      if (tenant && (tenant as any).cwmpPassword) {
-        expectedPassword = (tenant as any).cwmpPassword;
+      tenantSecrets.push(dev.cwmpPassword);
+    }
+
+    const tenantQueryOr: any[] = [];
+    if (dev?.tenantId) tenantQueryOr.push({ _id: dev.tenantId });
+    for (const s of candidateSlugs) {
+      tenantQueryOr.push({ slug: s });
+    }
+    const tenant = tenantQueryOr.length > 0 ? await Tenant.findOne({ $or: tenantQueryOr }).select('slug cwmpPassword').lean() : null;
+
+    if (tenant) {
+      if ((tenant as any).cwmpPassword) {
+        tenantSecrets.push((tenant as any).cwmpPassword);
       }
+      if (tenant.slug) {
+        // ACS password matches tenant slug by operator standard
+        tenantSecrets.push(tenant.slug);
+      }
+    } else if (routeSlug) {
+      tenantSecrets.push(routeSlug);
     }
   } catch (err: any) {
     console.warn('[CWMP Auth] Database credential lookup error:', err.message);
@@ -180,7 +201,14 @@ export async function cwmpDigestAuthMiddleware(
   };
 
   const candidatePasswords = Array.from(
-    new Set([expectedPassword, process.env.CWMP_DEFAULT_PASSWORD || 'cpe_cwmp_pass_2026', 'admin123'].filter(Boolean))
+    new Set([
+      ...tenantSecrets,
+      routeSlug,
+      digest.username,
+      expectedPassword,
+      process.env.CWMP_DEFAULT_PASSWORD || 'cpe_cwmp_pass_2026',
+      'admin123',
+    ].filter(Boolean))
   );
 
   if (candidatePasswords.some((pwd) => computeDigestResponse(pwd) === digest.response)) {

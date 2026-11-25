@@ -653,4 +653,158 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
       await Device.deleteMany({ serialNumber: syroSerial });
     }
   });
+
+  it('8. Auto-pushes 300s PeriodicInform & tenant-scoped ConnectionRequest credentials on first synced ONT session (with 9003 fallback)', async () => {
+    const testIp = '103.55.66.90';
+    const autoSerial = 'AUTO_ONBOARD_300_01';
+    const faultSerial = 'AUTO_ONBOARD_FAULT_02';
+    await Device.deleteMany({ serialNumber: { $in: [autoSerial, faultSerial] } });
+
+    try {
+      // A. Happy path: Inform -> GPN -> GPV -> Auto-Mgmt SPV (ID 7) -> SetParameterValuesResponse -> DB updated
+      const infXml = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:Inform>
+      <DeviceId>
+        <Manufacturer>SYROTECH</Manufacturer>
+        <OUI>3894E0</OUI>
+        <ProductClass>SY-GPON-2020-WADONT</ProductClass>
+        <SerialNumber>${autoSerial}</SerialNumber>
+      </DeviceId>
+      <Event><EventStruct><EventCode>0 BOOTSTRAP</EventCode></EventStruct></Event>
+    </cwmp:Inform>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+      const inf = await CwmpService.handleInform(infXml, testIp, undefined, 'acs_fix_tenant');
+      const liveDuring = CwmpService.getActiveSessionForDevice(autoSerial);
+      expect(liveDuring.opened).toBe(true);
+      expect(liveDuring.active).toBe(true);
+
+      const gpnReq = await CwmpService.checkPendingRpcOrPoll(testIp, inf.sessionId, undefined, 'acs_fix_tenant');
+      expect(gpnReq).toContain('GetParameterNames');
+
+      const gpnResp = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:GetParameterNamesResponse>
+      <ParameterList>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.ManagementServer.PeriodicInformInterval</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username</Name><Writable>1</Writable></ParameterInfoStruct>
+      </ParameterList>
+    </cwmp:GetParameterNamesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+      await CwmpService.handleParameterNamesResponse(gpnResp, testIp, inf.sessionId, undefined, 'acs_fix_tenant');
+
+      const gpvResp = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:GetParameterValuesResponse>
+      <ParameterList>
+        <ParameterValueStruct><Name>InternetGatewayDevice.ManagementServer.PeriodicInformInterval</Name><Value>3600</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Value>AutoTest_24G</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username</Name><Value>auto@isp.in</Value></ParameterValueStruct>
+      </ParameterList>
+    </cwmp:GetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+      const chainedSpv = await CwmpService.handleParameterValuesResponse(gpvResp, testIp, inf.sessionId, undefined, 'acs_fix_tenant');
+      expect(chainedSpv).toContain('<cwmp:SetParameterValues>');
+      expect(chainedSpv).toContain('<cwmp:ID soapenv:mustUnderstand="1">7</cwmp:ID>');
+      expect(chainedSpv).toContain('PeriodicInformInterval');
+      expect(chainedSpv).toContain('300');
+      expect(chainedSpv).toContain('ConnectionRequestUsername');
+      expect(chainedSpv).toContain('cpe_acs_fix_tenant');
+      expect(chainedSpv).toContain('ConnectionRequestPassword');
+      expect(chainedSpv).toContain('acs_fix_tenant_cpe');
+
+      const spvAck = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Header><cwmp:ID soapenv:mustUnderstand="1">7</cwmp:ID></soapenv:Header>
+  <soapenv:Body>
+    <cwmp:SetParameterValuesResponse><Status>0</Status></cwmp:SetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+      const afterAck = await CwmpService.handleParameterValuesResponse(spvAck, testIp, inf.sessionId, undefined, 'acs_fix_tenant');
+      expect(afterAck).toBeNull();
+
+      const liveAfter = CwmpService.getActiveSessionForDevice(autoSerial);
+      expect(liveAfter.opened).toBe(true);
+      expect(liveAfter.active).toBe(false);
+      expect(liveAfter.stage).toBe('COMPLETED');
+
+      const updatedDev: any = await Device.findOne({ serialNumber: autoSerial });
+      expect(updatedDev.periodicInformConfigured).toBe(true);
+      expect(updatedDev.periodicInformInterval).toBe(300);
+      expect(updatedDev.connectionRequestUsername).toBe('cpe_acs_fix_tenant');
+      expect(updatedDev.connectionRequestPassword).toBe('acs_fix_tenant_cpe');
+
+      // B. Fault 9003 fallback when ConnectionRequestPassword is read-only on legacy ONT
+      const inf2 = await CwmpService.handleInform(infXml.replace(autoSerial, faultSerial), testIp, undefined, 'acs_fix_tenant');
+      await CwmpService.checkPendingRpcOrPoll(testIp, inf2.sessionId, undefined, 'acs_fix_tenant');
+      await CwmpService.handleParameterNamesResponse(gpnResp, testIp, inf2.sessionId, undefined, 'acs_fix_tenant');
+      const spvWithCr = await CwmpService.handleParameterValuesResponse(gpvResp, testIp, inf2.sessionId, undefined, 'acs_fix_tenant');
+      expect(spvWithCr).toContain('<cwmp:ID soapenv:mustUnderstand="1">7</cwmp:ID>');
+
+      const spvFault9003 = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Header><cwmp:ID soapenv:mustUnderstand="1">7</cwmp:ID></soapenv:Header>
+  <soapenv:Body>
+    <soapenv:Fault>
+      <faultcode>Client</faultcode>
+      <detail><cwmp:Fault><FaultCode>9003</FaultCode><FaultString>Invalid arguments</FaultString></cwmp:Fault></detail>
+    </soapenv:Fault>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+      const periodicOnlyFallback = await CwmpService.handleParameterValuesResponse(spvFault9003, testIp, inf2.sessionId, undefined, 'acs_fix_tenant');
+      expect(periodicOnlyFallback).toContain('<cwmp:ID soapenv:mustUnderstand="1">8</cwmp:ID>');
+      expect(periodicOnlyFallback).toContain('PeriodicInformInterval');
+      expect(periodicOnlyFallback).not.toContain('ConnectionRequestPassword');
+
+      const fallbackAck = await CwmpService.handleParameterValuesResponse(spvAck.replace('>7<', '>8<'), testIp, inf2.sessionId, undefined, 'acs_fix_tenant');
+      expect(fallbackAck).toBeNull();
+      const faultDev: any = await Device.findOne({ serialNumber: faultSerial });
+      expect(faultDev.periodicInformConfigured).toBe(true);
+      expect(faultDev.periodicInformInterval).toBe(300);
+    } finally {
+      await Device.deleteMany({ serialNumber: { $in: [autoSerial, faultSerial] } });
+    }
+  });
+
+  it('9. Unified TR-069 CWMP URLs and tenant-slug ACS password work across stats & Digest auth', async () => {
+    const stats: any = CwmpService.getStats('acs_fix_tenant', '109.122.56.149:4000');
+    expect(stats.cwmpUrl).toBe('http://109.122.56.149:7547/tr069/acs_fix_tenant');
+    expect(stats.cwmpPathUrl).toBe('http://109.122.56.149:7547/tr069/acs_fix_tenant');
+    expect(stats.port80CwmpUrl).toBe('http://109.122.56.149/tr069/acs_fix_tenant');
+    expect(stats.cwmpSubdomainUrl).toBe('http://109.122.56.149:7547/tr069/acs_fix_tenant');
+    expect(stats.authCredentials.acsUsername).toBe('acs_fix_tenant');
+    expect(stats.authCredentials.acsPassword).toBe('acs_fix_tenant');
+    expect(stats.authCredentials.connectionRequestUsername).toBe('cpe_acs_fix_tenant');
+    expect(stats.authCredentials.connectionRequestPassword).toBe('acs_fix_tenant_cpe');
+    expect(stats.authCredentials.informIntervalSeconds).toBe(300);
+
+    const md5 = (s: string) => crypto.createHash('md5').update(s).digest('hex');
+    const ha1 = md5('acs_fix_tenant:ACS:acs_fix_tenant');
+    const ha2 = md5('POST:/tr069/acs_fix_tenant');
+    const validResp = md5(`${ha1}:slug_nonce_1:${ha2}`);
+    const req: any = {
+      method: 'POST',
+      url: '/tr069/acs_fix_tenant',
+      originalUrl: '/tr069/acs_fix_tenant',
+      ip: '103.55.66.91',
+      params: { tenantSlug: 'acs_fix_tenant' },
+      headers: {
+        authorization: `Digest username="acs_fix_tenant", realm="ACS", nonce="slug_nonce_1", uri="/tr069/acs_fix_tenant", response="${validResp}"`,
+      },
+    };
+    const res: any = { status: vi.fn().mockReturnThis(), send: vi.fn(), setHeader: vi.fn() };
+    const next = vi.fn();
+    await cwmpDigestAuthMiddleware(req, res, next);
+    expect(req.cwmpAuthenticated).toBe(true);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
 });

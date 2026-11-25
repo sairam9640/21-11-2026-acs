@@ -8,6 +8,7 @@ import { CwmpXmlParser, escapeXml } from './cwmpXmlParser.js';
 import { RedisService } from './redisService.js';
 import { ZtpService } from './ztpService.js';
 import { MetricsService } from './metricsService.js';
+import { buildPrimaryCwmpUrls, resolveTenantCwmpCredentials } from '../utils/cwmpCredentials.js';
 
 export interface CwmpInformData {
   manufacturer?: string;
@@ -77,7 +78,7 @@ export interface ActiveSessionContext {
   clientIp: string;
   tenantId: string;
   tenantSlug: string;
-  stage: 'INFORM_ACKED' | 'MISMATCH_BLOCKED' | 'GPN_SENT' | 'WAN_SLOT_GPN_SENT' | 'BASELINE_SENT' | 'OPTICAL_SENT' | 'ADD_OBJECT_SENT' | 'SPV_SENT' | 'SPA_SENT' | 'CUSTOM_RPC_SENT' | 'VERIFICATION_GPV_SENT' | 'COMPLETED';
+  stage: 'INFORM_ACKED' | 'MISMATCH_BLOCKED' | 'GPN_SENT' | 'WAN_SLOT_GPN_SENT' | 'BASELINE_SENT' | 'OPTICAL_SENT' | 'ADD_OBJECT_SENT' | 'SPV_SENT' | 'SPA_SENT' | 'CUSTOM_RPC_SENT' | 'VERIFICATION_GPV_SENT' | 'AUTO_MGMT_SPV_SENT' | 'AUTO_MGMT_PERIODIC_ONLY_SENT' | 'COMPLETED';
   activeOpticalCandidate?: string;
   supportedOpticalPath?: string;
   lastQueriedPaths?: string[];
@@ -218,6 +219,54 @@ export class CwmpService {
       }
     }
     return { active: false, opened: false };
+  }
+
+  /**
+   * Builds non-disruptive ManagementServer SetParameterValues RPC to auto-configure
+   * PeriodicInformEnable=true, PeriodicInformInterval=300s, and server-managed ConnectionRequest credentials.
+   */
+  private static buildAutoManagementBaselineSpv(
+    device: any,
+    session: ActiveSessionContext,
+    includeConnReq: boolean = true
+  ) {
+    const creds = resolveTenantCwmpCredentials(session?.tenantSlug);
+    const rawKeys = Object.keys(device?.rawParameters || {});
+    const isTr181 =
+      session?.vendor === 'TR181_STANDARD' ||
+      String(device?.modelName || session?.modelName || '').toUpperCase().includes('TR181') ||
+      rawKeys.some((k) => k.startsWith('Device.ManagementServer.'));
+    const prefix = isTr181 ? 'Device.ManagementServer.' : 'InternetGatewayDevice.ManagementServer.';
+    const cwmpId = includeConnReq ? '7' : '8';
+
+    const params: Array<[string, any, string]> = [
+      [`${prefix}PeriodicInformEnable`, true, 'xsd:boolean'],
+      [`${prefix}PeriodicInformInterval`, creds.periodicInformIntervalSeconds, 'xsd:unsignedInt'],
+    ];
+    if (includeConnReq) {
+      params.push(
+        [`${prefix}ConnectionRequestUsername`, creds.connectionRequestUsername, 'xsd:string'],
+        [`${prefix}ConnectionRequestPassword`, creds.connectionRequestPassword, 'xsd:string']
+      );
+    }
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Header><cwmp:ID soapenv:mustUnderstand="1">${cwmpId}</cwmp:ID></soapenv:Header>
+  <soapenv:Body>
+    <cwmp:SetParameterValues>
+      <ParameterList soapenv:arrayType="cwmp:ParameterValueStruct[${params.length}]">
+${params.map(([name, value, type]) => `        <ParameterValueStruct>
+          <Name>${escapeXml(name)}</Name>
+          <Value xsi:type="${type}">${escapeXml(String(value))}</Value>
+        </ParameterValueStruct>`).join('\n')}
+      </ParameterList>
+      <ParameterKey>AUTO-MGMT-${escapeXml(session.sessionId)}</ParameterKey>
+    </cwmp:SetParameterValues>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    return { cwmpId, xml, creds, prefix, params };
   }
 
   /**
@@ -1493,8 +1542,10 @@ export class CwmpService {
         if (informData.macAddress) device.macAddress = informData.macAddress;
         if (informData.productClass) device.modelName = informData.productClass;
         if (informData.connectionRequestUrl) device.connectionRequestUrl = informData.connectionRequestUrl;
-        if ((informData as any).connectionRequestUsername) device.connectionRequestUsername = (informData as any).connectionRequestUsername;
-        if ((informData as any).connectionRequestPassword) device.connectionRequestPassword = (informData as any).connectionRequestPassword;
+        const incomingCrUser = String((informData as any).connectionRequestUsername || '').trim();
+        const incomingCrPass = String((informData as any).connectionRequestPassword || '').trim();
+        if (incomingCrUser && !/^\*+$/.test(incomingCrUser)) device.connectionRequestUsername = incomingCrUser;
+        if (incomingCrPass && !/^\*+$/.test(incomingCrPass)) device.connectionRequestPassword = incomingCrPass;
 
         device.lastRawInformXml = xml;
         device.rawParameters = this.mergeInformRawParameters(device.rawParameters, xml);
@@ -2206,7 +2257,10 @@ ${stringElements}
           if (!(cmdAction === 'SUMMON_LIVE_POLL' || cmdAction === 'REFRESH_TELEMETRY' || (pendingCmd as any).commandType === 'SUMMON_LIVE_POLL')) {
 
           // STRICT SECURITY GUARD 4: Parameter changes require verified operator request
-          let rawParams = (pendingCmd as any).parameters?.tr069ParamValues || (pendingCmd as any).payload?.parameterValues;
+          let rawParams =
+            (pendingCmd as any).parameters?.tr069ParamValues ||
+            (pendingCmd as any).parameters?.parameterList ||
+            (pendingCmd as any).payload?.parameterValues;
           if (!Array.isArray(rawParams) || rawParams.length === 0) {
             const prof = (pendingCmd as any).parameters?.profile;
             if (prof && prof.cpeObjectPath) {
@@ -2582,6 +2636,18 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
       const lastSyncTs = (dev as any)?.lastParameterSyncAt ? new Date((dev as any).lastParameterSyncAt).getTime() : 0;
       const hasSyncedTree = rawKeys.length > 5 && (dev as any)?.lastParameterSyncStatus === 'SUCCESS';
       if (hasSyncedTree && lastSyncTs > 0 && (Date.now() - lastSyncTs) < telemetryCooldownSec * 1000) {
+        const hasOnboardingEvent = (session.events || []).some((e) =>
+          /0 BOOTSTRAP|1 BOOT|6 CONNECTION REQUEST|VALUE CHANGE/i.test(e)
+        );
+        if (dev && !(dev as any).periodicInformConfigured && hasOnboardingEvent) {
+          const baseline = this.buildAutoManagementBaselineSpv(dev, session, true);
+          session.stage = 'AUTO_MGMT_SPV_SENT';
+          await this.updateSession(session, connectionKey);
+          console.log(
+            `[CWMP ACS -> CPE] Auto-pushing server ManagementServer baseline (300s Inform + ConnReq user '${baseline.creds.connectionRequestUsername}') for ${session.serialNumber}`
+          );
+          return baseline.xml;
+        }
         session.stage = 'COMPLETED';
         await this.clearConnectionSession(connectionKey);
         console.log(
@@ -3394,6 +3460,44 @@ ${orderedParams.map((p: any) => `        <ParameterValueStruct>
       const idMatch = xml.match(/<(?:cwmp:)?ID[^>]*>([^<]+)<\/(?:cwmp:)?ID>/i);
       const cwmpId = idMatch ? idMatch[1].trim() : '3';
 
+      const isAutoMgmtResponse =
+        cwmpId === '7' ||
+        cwmpId === '8' ||
+        ((session?.stage === 'AUTO_MGMT_SPV_SENT' || session?.stage === 'AUTO_MGMT_PERIODIC_ONLY_SENT') && cwmpId !== '3');
+
+      if (isAutoMgmtResponse) {
+        const creds = resolveTenantCwmpCredentials(session?.tenantSlug || (tenant as any)?.slug, (tenant as any)?.cwmpPassword);
+        const includeConnReq = cwmpId === '7' || (session?.stage === 'AUTO_MGMT_SPV_SENT' && cwmpId !== '8');
+        const isTr181 = Object.keys(device.rawParameters || {}).some((k) => k.startsWith('Device.ManagementServer.'));
+        const prefix = isTr181 ? 'Device.ManagementServer.' : 'InternetGatewayDevice.ManagementServer.';
+
+        device.periodicInformConfigured = true;
+        device.periodicInformInterval = creds.periodicInformIntervalSeconds;
+        device.rawParameters = {
+          ...(device.rawParameters || {}),
+          [`${prefix}PeriodicInformEnable`]: 'true',
+          [`${prefix}PeriodicInformInterval`]: String(creds.periodicInformIntervalSeconds),
+        };
+        if (includeConnReq) {
+          device.connectionRequestUsername = creds.connectionRequestUsername;
+          device.connectionRequestPassword = creds.connectionRequestPassword;
+          device.rawParameters[`${prefix}ConnectionRequestUsername`] = creds.connectionRequestUsername;
+        }
+        if (typeof (device as any).markModified === 'function') {
+          (device as any).markModified('rawParameters');
+        }
+        await this.saveDeviceResilient(device);
+        if (session) {
+          session.stage = 'COMPLETED';
+          await this.updateSession(session, connectionKey).catch(() => {});
+          await this.clearConnectionSession(connectionKey).catch(() => {});
+        }
+        console.log(
+          `[Native CWMP IN] Auto-ManagementServer baseline applied on ${device.serialNumber} | Inform: ${creds.periodicInformIntervalSeconds}s | ConnReq Synced: ${includeConnReq}`
+        );
+        return null;
+      }
+
       console.log(`[Native CWMP IN] CPE successfully acknowledged SetParameterValues for ${device.serialNumber} (Status: ${spvStatus}, CWMP ID: ${cwmpId})`);
 
       await DeviceCommand.updateMany(
@@ -3828,6 +3932,29 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
       const idMatch = xml.match(/<(?:cwmp:)?ID[^>]*>([^<]+)<\/(?:cwmp:)?ID>/i);
       const incomingCwmpId = idMatch ? idMatch[1].trim() : '';
 
+      // Graceful fallback when auto-pushed ConnectionRequestUsername/Password is read-only on a locked CPE
+      if (incomingCwmpId === '7' || (session?.stage === 'AUTO_MGMT_SPV_SENT' && !incomingCwmpId)) {
+        if (session) {
+          const fallback = this.buildAutoManagementBaselineSpv(device, session, false);
+          session.stage = 'AUTO_MGMT_PERIODIC_ONLY_SENT';
+          await this.updateSession(session, connectionKey).catch(() => {});
+          console.warn(
+            `[CWMP ACS] Auto-Mgmt SPV fault (${fault.faultCode}) on ${device.serialNumber}; retrying PeriodicInform-only (${fallback.creds.periodicInformIntervalSeconds}s).`
+          );
+          return fallback.xml;
+        }
+      }
+      if (incomingCwmpId === '8' || (session?.stage === 'AUTO_MGMT_PERIODIC_ONLY_SENT' && !incomingCwmpId)) {
+        device.periodicInformConfigured = true;
+        await this.saveDeviceResilient(device);
+        if (session) {
+          session.stage = 'COMPLETED';
+          await this.updateSession(session, connectionKey).catch(() => {});
+          await this.clearConnectionSession(connectionKey).catch(() => {});
+        }
+        return null;
+      }
+
       // If Baseline GPV failed (ID 2), do not fail operator commands: fallback to GetParameterNames discovery
       if (session?.stage === 'BASELINE_SENT' || incomingCwmpId === '2') {
         console.warn(
@@ -4259,6 +4386,27 @@ ${stringElements}
     if (rawInterval) {
       const pi = parseInt(String(rawInterval), 10);
       if (!isNaN(pi) && pi > 0) device.periodicInformInterval = pi;
+    }
+    const gpvCrUrl = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.ManagementServer.ConnectionRequestURL',
+      'Device.ManagementServer.ConnectionRequestURL',
+    ]);
+    if (gpvCrUrl && String(gpvCrUrl).startsWith('http')) {
+      device.connectionRequestUrl = String(gpvCrUrl).trim();
+    }
+    const gpvCrUser = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.ManagementServer.ConnectionRequestUsername',
+      'Device.ManagementServer.ConnectionRequestUsername',
+    ]);
+    if (gpvCrUser && String(gpvCrUser).trim() && !/^\*+$/.test(String(gpvCrUser).trim())) {
+      device.connectionRequestUsername = String(gpvCrUser).trim();
+    }
+    const gpvCrPass = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.ManagementServer.ConnectionRequestPassword',
+      'Device.ManagementServer.ConnectionRequestPassword',
+    ]);
+    if (gpvCrPass && String(gpvCrPass).trim() && !/^\*+$/.test(String(gpvCrPass).trim())) {
+      device.connectionRequestPassword = String(gpvCrPass).trim();
     }
     const gpvManufacturer = this.getFirstParam(pMap, ['InternetGatewayDevice.DeviceInfo.Manufacturer', 'Device.DeviceInfo.Manufacturer']);
     if (gpvManufacturer && !/^unknown|generic$/i.test(gpvManufacturer.trim())) {
@@ -4919,6 +5067,7 @@ ${stringElements}
       }
     }
 
+    const prevStageBeforeCompletion = session?.stage;
     device.lastInform = new Date();
     device.lastParameterSyncAt = new Date();
     device.status = 'online';
@@ -5040,6 +5189,23 @@ ${stringElements}
       `[CWMP ACS] Ingested Live GPV Response for ${device.serialNumber} | SSID: ${device.wifi24?.ssid ?? 'N/A'} | Rx: ${device.currentRxPowerDbm ?? 'N/A'} dBm | Status: ${device.lastParameterSyncStatus}`
     );
 
+    // Server-side automatic onboarding: push PeriodicInform=300s & ConnectionRequest credentials on first synced session
+    if (
+      session &&
+      (prevStageBeforeCompletion === 'BASELINE_SENT' || prevStageBeforeCompletion === 'OPTICAL_SENT') &&
+      pendingVerificationCommands.length === 0 &&
+      !device.periodicInformConfigured &&
+      device.lastParameterSyncStatus === 'SUCCESS'
+    ) {
+      const baseline = this.buildAutoManagementBaselineSpv(device, session, true);
+      session.stage = 'AUTO_MGMT_SPV_SENT';
+      await this.updateSession(session, connectionKey).catch(() => {});
+      console.log(
+        `[CWMP ACS -> CPE] Chaining Auto-ManagementServer SPV for ${device.serialNumber} (${baseline.creds.periodicInformIntervalSeconds}s Inform + ConnReq user '${baseline.creds.connectionRequestUsername}')`
+      );
+      return baseline.xml;
+    }
+
     return null;
   }
 
@@ -5078,7 +5244,7 @@ ${stringElements}
 </soapenv:Envelope>`;
   }
 
-  static getStats(tenantSlug?: string, reqHost?: string, allowGlobal: boolean = false) {
+  static getStats(tenantSlug?: string, reqHost?: string, allowGlobal: boolean = false, tenantCwmpPassword?: string) {
     const cleanSlug = (tenantSlug || '').trim().toLowerCase();
     const hasScopedTenant = Boolean(cleanSlug && cleanSlug !== 'default' && cleanSlug !== 'global');
     const hits = hasScopedTenant
@@ -5087,22 +5253,26 @@ ${stringElements}
     const scopedTotalHits = hasScopedTenant
       ? (this.tenantTotalHits.get(cleanSlug) || 0)
       : (allowGlobal ? this.totalHits : 0);
-    const host = (reqHost || process.env.ACS_HOST || 'localhost').split(':')[0];
-    const slug = hasScopedTenant ? cleanSlug : '';
-    const cwmpPathUrl = slug ? `http://${host}:7547/tr069/${slug}` : `http://${host}:7547/tr069`;
-    const cwmpSubdomainUrl = slug ? `http://${slug}.${host}:7547` : `http://${host}:7547`;
+    const urls = buildPrimaryCwmpUrls(reqHost, hasScopedTenant ? cleanSlug : '');
+    const creds = resolveTenantCwmpCredentials(hasScopedTenant ? cleanSlug : '', tenantCwmpPassword);
+
     return {
       success: true,
-      cwmpUrl: cwmpPathUrl,
-      cwmpPathUrl,
-      cwmpSubdomainUrl,
-      tenantSlug: slug,
+      cwmpUrl: urls.primaryUrl,
+      cwmpPathUrl: urls.cwmpPathUrl,
+      port80CwmpUrl: urls.port80Url,
+      cwmpSubdomainUrl: urls.subdomainUrl,
+      tenantSlug: creds.tenantSlug,
       totalHits: scopedTotalHits,
       activeListeningPort: 7547,
       authCredentials: {
-        username: process.env.CWMP_CONN_REQ_USER || 'admin',
-        password: process.env.CWMP_CONN_REQ_PASS || 'admin123',
-        informIntervalSeconds: Math.max(60, parseInt(process.env.CWMP_RECOMMENDED_INFORM_INTERVAL || '300', 10)),
+        acsUsername: creds.acsUsername,
+        acsPassword: creds.acsPassword,
+        username: creds.connectionRequestUsername,
+        password: creds.connectionRequestPassword,
+        connectionRequestUsername: creds.connectionRequestUsername,
+        connectionRequestPassword: creds.connectionRequestPassword,
+        informIntervalSeconds: creds.periodicInformIntervalSeconds,
       },
       recentHits: hits,
       serverStatus: 'LISTENING',

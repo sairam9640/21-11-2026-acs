@@ -29,6 +29,7 @@ export interface ITenant extends Document {
   subdomain: string; // e.g. 'rudra.ai-ispos.com'
   customDomain?: string;
   operatorKey: string;
+  cwmpPassword?: string;
   status: 'active' | 'trial' | 'suspended' | 'archived';
   owner: {
     name: string;
@@ -82,6 +83,7 @@ const TenantSchema = new Schema<ITenant>(
     subdomain: { type: String, required: true, unique: true, index: true, lowercase: true },
     customDomain: { type: String, sparse: true, unique: true },
     operatorKey: { type: String, required: true, unique: true, index: true },
+    cwmpPassword: { type: String, trim: true },
     status: {
       type: String,
       enum: ['active', 'trial', 'suspended', 'archived'],

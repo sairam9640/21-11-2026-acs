@@ -89,9 +89,9 @@ export const OperatorDashboard: React.FC = () => {
 
   const s = summary || {};
   const activeHost = window.location.hostname || 'localhost';
-  const tenantSlug = tenant?.slug || '';
-  const activeCwmpUrl = `http://${activeHost}:7547/tr069/${tenantSlug}`;
-  const port80CwmpUrl = `http://${activeHost}/tr069/${tenantSlug}`;
+  const tenantSlug = (tenant?.slug || '').trim().toLowerCase();
+  const activeCwmpUrl = cwmpStats?.cwmpPathUrl || `http://${activeHost}:7547/tr069/${tenantSlug}`;
+  const port80CwmpUrl = cwmpStats?.port80CwmpUrl || `http://${activeHost}/tr069/${tenantSlug}`;
 
   // Real Database and Telemetry values (Zero dummy fallback numbers)
   const totalOnline = s.onlineDevices ?? 0;
@@ -118,10 +118,10 @@ export const OperatorDashboard: React.FC = () => {
   const pppoePct = totalOnline > 0 ? (pppoeCount / totalOnline) : 0;
   const ipoePct = totalOnline > 0 ? (ipoeCount / totalOnline) : 0;
 
-  const acsUsername = tenantSlug || 'acs';
-  const acsPassword = 'cpe_cwmp_pass_2026';
-  const connReqUser = 'cpe';
-  const connReqPass = 'cpe_password';
+  const acsUsername = cwmpStats?.authCredentials?.acsUsername || tenantSlug || 'acs';
+  const acsPassword = cwmpStats?.authCredentials?.acsPassword || tenantSlug || 'acs';
+  const connReqUser = cwmpStats?.authCredentials?.connectionRequestUsername || (tenantSlug ? `cpe_${tenantSlug}` : 'cpe');
+  const connReqPass = cwmpStats?.authCredentials?.connectionRequestPassword || (tenantSlug ? `${tenantSlug}_cpe` : 'cpe_password');
 
   const handleCopyText = async (text: string, field: string) => {
     await copyToClipboard(text);
@@ -130,9 +130,9 @@ export const OperatorDashboard: React.FC = () => {
   };
 
   const handleCopyUrl = async () => {
-    await copyToClipboard(port80CwmpUrl);
+    await copyToClipboard(activeCwmpUrl);
     setCopied(true);
-    setCopiedField('port80');
+    setCopiedField('url');
     setTimeout(() => {
       setCopied(false);
       setCopiedField(null);
@@ -564,29 +564,29 @@ export const OperatorDashboard: React.FC = () => {
         maxWidth="lg"
       >
         <div className="space-y-4 text-xs font-sans">
-          {/* TR-069 Dedicated ACS URL Options */}
+          {/* Unified TR-069 / CWMP ACS URL Options */}
           <div className="space-y-2">
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase text-emerald-800">ACS URL — Port 80 (Recommended / Firewall-Safe)</span>
+                <span className="text-[10px] font-bold uppercase text-emerald-800">Primary TR-069 CWMP ACS URL — Port 7547 (Unified & Recommended)</span>
                 <span className="text-[9px] bg-emerald-200 text-emerald-900 font-extrabold px-1.5 py-0.5 rounded">RECOMMENDED</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="font-mono font-bold text-emerald-950 select-all break-all">{port80CwmpUrl}</span>
-                <Button size="sm" variant="secondary" onClick={() => handleCopyText(port80CwmpUrl, 'port80')} className="h-7 text-xs shrink-0 ml-2">
-                  {copiedField === 'port80' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                  <span>{copiedField === 'port80' ? 'Copied' : 'Copy'}</span>
+                <span className="font-mono font-bold text-emerald-950 select-all break-all">{activeCwmpUrl}</span>
+                <Button size="sm" variant="secondary" onClick={() => handleCopyText(activeCwmpUrl, 'url')} className="h-7 text-xs shrink-0 ml-2">
+                  {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                  <span>{copiedField === 'url' ? 'Copied' : 'Copy'}</span>
                 </Button>
               </div>
             </div>
 
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-              <span className="text-[10px] font-bold uppercase text-slate-600">ACS URL — Port 7547 (Requires TCP 7547 Open / Direct IP)</span>
+              <span className="text-[10px] font-bold uppercase text-slate-600">Alternate ACS URL — Port 80 HTTP Fallback</span>
               <div className="flex items-center justify-between">
-                <span className="font-mono font-bold text-slate-800 select-all break-all">{activeCwmpUrl}</span>
-                <Button size="sm" variant="secondary" onClick={() => handleCopyText(activeCwmpUrl, 'url')} className="h-7 text-xs shrink-0 ml-2">
-                  {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                  <span>{copiedField === 'url' ? 'Copied' : 'Copy'}</span>
+                <span className="font-mono font-bold text-slate-800 select-all break-all">{port80CwmpUrl}</span>
+                <Button size="sm" variant="secondary" onClick={() => handleCopyText(port80CwmpUrl, 'port80')} className="h-7 text-xs shrink-0 ml-2">
+                  {copiedField === 'port80' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                  <span>{copiedField === 'port80' ? 'Copied' : 'Copy'}</span>
                 </Button>
               </div>
             </div>
@@ -641,18 +641,18 @@ export const OperatorDashboard: React.FC = () => {
 
           {/* Connection Request & Periodic Inform Parameters */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <span className="text-[10px] text-slate-500 font-bold block">Conn Request User</span>
+            <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+              <span className="text-[10px] text-emerald-700 font-bold block">Conn Request User (Auto-Pushed)</span>
               <span className="font-mono font-semibold text-slate-700">{connReqUser}</span>
             </div>
-            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <span className="text-[10px] text-slate-500 font-bold block">Conn Request Pass</span>
+            <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+              <span className="text-[10px] text-emerald-700 font-bold block">Conn Request Pass (Auto-Pushed)</span>
               <span className="font-mono font-semibold text-slate-700">{connReqPass}</span>
             </div>
-            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <span className="text-[10px] text-slate-500 font-bold block">Periodic Inform</span>
+            <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+              <span className="text-[10px] text-emerald-700 font-bold block">Periodic Inform (Auto-Synced)</span>
               <span className="font-mono font-semibold text-emerald-600">
-                Enabled ({cwmpStats?.authCredentials?.informIntervalSeconds || 300}s Recommended)
+                Enabled ({cwmpStats?.authCredentials?.informIntervalSeconds || 300}s Auto on Connect)
               </span>
             </div>
           </div>

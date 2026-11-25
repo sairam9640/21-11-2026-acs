@@ -272,8 +272,18 @@ export const TenantDetail: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
                 <div className="p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
-                  <span className="text-[#94A3B8] block text-[11px] mb-1 font-sans font-bold">Direct TR-069 ACS URL (Customer ONT Config)</span>
+                  <span className="text-[#94A3B8] block text-[11px] mb-1 font-sans font-bold">Unified TR-069 CWMP ACS URL (ONT Config)</span>
                   <span className="text-[#047857] font-bold select-all text-sm">{data?.cwmpPathUrl || `http://${window.location.hostname || 'yourdomain.com'}:7547/tr069/${tenant.slug || 'operator'}`}</span>
+                </div>
+                <div className="p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
+                  <span className="text-[#94A3B8] block text-[11px] mb-1 font-sans font-bold">ACS Username / ACS Password (Slug)</span>
+                  <span className="text-[#1677FF] font-bold select-all text-sm">{data?.acsCredentials?.acsUsername || tenant.slug} / {data?.acsCredentials?.acsPassword || tenant.slug}</span>
+                </div>
+                <div className="p-3.5 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl">
+                  <span className="text-[#047857] block text-[11px] mb-1 font-sans font-bold">Auto-Pushed CPE Conn Request Credentials</span>
+                  <span className="text-[#065F46] font-bold select-all text-sm">
+                    {data?.acsCredentials?.connectionRequestUsername || `cpe_${tenant.slug}`} / {data?.acsCredentials?.connectionRequestPassword || `${tenant.slug}_cpe`} (300s Inform)
+                  </span>
                 </div>
                 <div className="p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
                   <span className="text-[#94A3B8] block text-[11px] mb-1 font-sans font-bold">Operator Key (Auth Token)</span>

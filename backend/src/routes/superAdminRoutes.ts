@@ -16,6 +16,7 @@ import { recordAuditLog } from '../middleware/audit.js';
 import { EventBusService } from '../services/eventBusService.js';
 import { EmailService } from '../services/emailService.js';
 import { WhatsAppService, EvolutionApiClient } from '../services/whatsAppService.js';
+import { buildPrimaryCwmpUrls, resolveTenantCwmpCredentials } from '../utils/cwmpCredentials.js';
 import QRCode from 'qrcode';
 import dns from 'dns';
 import net from 'net';
@@ -503,6 +504,7 @@ superAdminRouter.post('/tenants', async (req: AuthenticatedRequest, res: Respons
       slug: targetSlug,
       subdomain: computedSubdomain,
       operatorKey: `opk_${targetSlug}_${Math.random().toString(36).substring(2, 8)}`,
+      cwmpPassword: targetSlug,
       owner,
       plan: plan || {
         name: 'Growth ISP Plan',
@@ -558,10 +560,18 @@ superAdminRouter.post('/tenants', async (req: AuthenticatedRequest, res: Respons
       correlationId: req.correlationId || `sa_ten_${Date.now()}`,
     });
 
-    const cwmpUrl = `http://${tenant.slug}.${cleanHost}:7547`;
-    const cwmpPathUrl = `http://${cleanHost}:7547/tr069/${tenant.slug}`;
+    const urls = buildPrimaryCwmpUrls(cleanHost, tenant.slug);
+    const acsCredentials = resolveTenantCwmpCredentials(tenant.slug, (tenant as any).cwmpPassword);
 
-    return res.status(201).json({ success: true, tenant, cwmpUrl, cwmpPathUrl });
+    return res.status(201).json({
+      success: true,
+      tenant,
+      cwmpUrl: urls.primaryUrl,
+      cwmpPathUrl: urls.cwmpPathUrl,
+      port80CwmpUrl: urls.port80Url,
+      cwmpSubdomainUrl: urls.subdomainUrl,
+      acsCredentials,
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }
@@ -583,16 +593,18 @@ superAdminRouter.get('/tenants/:id', async (req: AuthenticatedRequest, res: Resp
     ]);
 
     const rawHost = (req.headers['x-forwarded-host'] as string) || (req.headers['host'] as string) || process.env.ACS_HOST || 'localhost';
-    const cleanHost = rawHost.split(':')[0];
     const targetSlug = tenant.slug || '';
-    const cwmpUrl = `http://${targetSlug}.${cleanHost}:7547`;
-    const cwmpPathUrl = `http://${cleanHost}:7547/tr069/${targetSlug}`;
+    const urls = buildPrimaryCwmpUrls(rawHost, targetSlug);
+    const acsCredentials = resolveTenantCwmpCredentials(targetSlug, (tenant as any).cwmpPassword);
 
     return res.json({
       success: true,
       tenant,
-      cwmpUrl,
-      cwmpPathUrl,
+      cwmpUrl: urls.primaryUrl,
+      cwmpPathUrl: urls.cwmpPathUrl,
+      port80CwmpUrl: urls.port80Url,
+      cwmpSubdomainUrl: urls.subdomainUrl,
+      acsCredentials,
       usage: {
         customers: { current: customerCount, limit: tenant.plan.maxCustomers },
         devices: { current: deviceCount, limit: tenant.plan.maxDevices },
@@ -789,12 +801,19 @@ superAdminRouter.put('/tenants/:id', async (req: AuthenticatedRequest, res: Resp
     });
 
     const rawHost = (req.headers['x-forwarded-host'] as string) || (req.headers['host'] as string) || process.env.ACS_HOST || 'localhost';
-    const cleanHost = rawHost.split(':')[0];
     const targetSlug = tenant.slug || '';
-    const cwmpUrl = `http://${targetSlug}.${cleanHost}:7547`;
-    const cwmpPathUrl = `http://${cleanHost}:7547/tr069/${targetSlug}`;
+    const urls = buildPrimaryCwmpUrls(rawHost, targetSlug);
+    const acsCredentials = resolveTenantCwmpCredentials(targetSlug, (tenant as any).cwmpPassword);
 
-    return res.json({ success: true, tenant, cwmpUrl, cwmpPathUrl });
+    return res.json({
+      success: true,
+      tenant,
+      cwmpUrl: urls.primaryUrl,
+      cwmpPathUrl: urls.cwmpPathUrl,
+      port80CwmpUrl: urls.port80Url,
+      cwmpSubdomainUrl: urls.subdomainUrl,
+      acsCredentials,
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }

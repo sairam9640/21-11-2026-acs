@@ -221,12 +221,17 @@ cwmpRouter.get('/api/v1/operator/cwmp/status', authenticateToken as any, async (
     const authReq = req as any;
     const isSuperAdmin = authReq.user?.role === 'super_admin';
     let tenantSlug = (req.headers['x-tenant-slug'] as string) || authReq.user?.tenantSlug || '';
-    if (!tenantSlug && authReq.user?.tenantId) {
-      const t = await Tenant.findById(authReq.user.tenantId).select('slug').lean();
-      if (t?.slug) tenantSlug = t.slug;
+    let tenantCwmpPassword: string | undefined;
+    if (authReq.user?.tenantId) {
+      const t = await Tenant.findById(authReq.user.tenantId).select('slug cwmpPassword').lean();
+      if (t?.slug && !tenantSlug) tenantSlug = t.slug;
+      if ((t as any)?.cwmpPassword) tenantCwmpPassword = (t as any).cwmpPassword;
+    } else if (tenantSlug) {
+      const t = await Tenant.findOne({ slug: tenantSlug.toLowerCase() }).select('cwmpPassword').lean();
+      if ((t as any)?.cwmpPassword) tenantCwmpPassword = (t as any).cwmpPassword;
     }
     const hostHeader = (req.headers['x-forwarded-host'] as string) || (req.headers['host'] as string) || process.env.ACS_HOST || 'localhost';
-    const stats = CwmpService.getStats(tenantSlug, hostHeader, isSuperAdmin && !tenantSlug);
+    const stats = CwmpService.getStats(tenantSlug, hostHeader, isSuperAdmin && !tenantSlug, tenantCwmpPassword);
     return res.json(stats);
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
