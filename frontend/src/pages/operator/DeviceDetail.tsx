@@ -945,9 +945,11 @@ export const DeviceDetail: React.FC = () => {
   const [surveyScanning, setSurveyScanning] = useState(false);
   const [surveyMessage, setSurveyMessage] = useState<string | null>(null);
 
-  // Summon State
+  // Summon & Periodic Inform State
   const [isSummoning, setIsSummoning] = useState(false);
   const [summonSuccess, setSummonSuccess] = useState<string | null>(null);
+  const [selectedInformInterval, setSelectedInformInterval] = useState<number>(300);
+  const [isUpdatingInterval, setIsUpdatingInterval] = useState(false);
 
   // Delete Device Modal State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -1413,6 +1415,32 @@ export const DeviceDetail: React.FC = () => {
     }
   };
 
+  const handleUpdatePeriodicInform = async (targetIntervalSec: number) => {
+    if (!id) return;
+    setIsUpdatingInterval(true);
+    setSummonSuccess(null);
+    try {
+      const res = await api.setPeriodicInformInterval(id, targetIntervalSec, true);
+      if (res.success) {
+        setSelectedInformInterval(targetIntervalSec);
+        setSummonSuccess(`✅ ${res.message}`);
+        if (res.commandId) {
+          start30sCommandTracking(res.commandId, `Setting Periodic Inform to ${targetIntervalSec}s & opening live session...`);
+        }
+        await fetchWorkspace();
+        setTimeout(() => setSummonSuccess(null), 6000);
+      } else {
+        setSummonSuccess(`❌ Failed: ${res.error || 'Could not update Periodic Inform interval'}`);
+        setTimeout(() => setSummonSuccess(null), 7000);
+      }
+    } catch (err: any) {
+      setSummonSuccess(`❌ Failed: ${err.message}`);
+      setTimeout(() => setSummonSuccess(null), 7000);
+    } finally {
+      setIsUpdatingInterval(false);
+    }
+  };
+
   // Fetch Parameters State
   const [isFetchingParams, setIsFetchingParams] = useState(false);
   const [fetchParamsMsg, setFetchParamsMsg] = useState<string | null>(null);
@@ -1620,13 +1648,23 @@ export const DeviceDetail: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      రిపోర్టింగ్ ఫ్రీక్వెన్సీ (Periodic Interval): <strong className="font-mono text-slate-700">{workspace.sessionTracker?.periodicIntervalSeconds || 300} సెకన్లు ({Math.round((workspace.sessionTracker?.periodicIntervalSeconds || 300) / 60)} నిమిషాలు)</strong>
+                      రిపోర్టింగ్ ఫ్రీక్వెన్సీ (Periodic Interval):{' '}
+                      <strong className="font-mono text-slate-700">
+                        {workspace.sessionTracker?.periodicIntervalSeconds || 300} సెకన్లు (
+                        {(workspace.sessionTracker?.periodicIntervalSeconds || 300) >= 60
+                          ? `${Math.round((workspace.sessionTracker?.periodicIntervalSeconds || 300) / 60)} నిమిషాలు`
+                          : `${workspace.sessionTracker?.periodicIntervalSeconds}s`}
+                        )
+                      </strong>
+                      <span className="ml-2 text-slate-400">
+                        • మాన్యువల్ సెషన్ గరిష్టంగా {workspace.sessionTracker?.sessionTimeoutSeconds || 120}s ఓపెన్ అవుతుంది
+                      </span>
                     </p>
                   </div>
                 </div>
 
-                {/* 3 Metric Badges: Last Inform, Next Inform, Instant Wakeup */}
-                <div className="flex flex-wrap items-center gap-3">
+                {/* 3 Metric Badges: Last Inform, Next Inform, Interval Selector & Instant Wakeup */}
+                <div className="flex flex-wrap items-center gap-2.5">
                   {/* Last Inform */}
                   <div className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-left">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">గత రిపోర్ట్ సమయం (Last Inform)</span>
@@ -1634,7 +1672,13 @@ export const DeviceDetail: React.FC = () => {
                       {workspace.sessionTracker?.lastInformAt ? new Date(workspace.sessionTracker.lastInformAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A'}
                     </span>
                     <span className="text-[10px] text-slate-500 ml-1.5">
-                      ({workspace.sessionTracker?.lastInformAgoSeconds != null ? `${Math.round(workspace.sessionTracker.lastInformAgoSeconds / 60)}m క్రితం` : 'రాలేదు'})
+                      (
+                      {workspace.sessionTracker?.lastInformAgoSeconds != null
+                        ? workspace.sessionTracker.lastInformAgoSeconds < 60
+                          ? `${workspace.sessionTracker.lastInformAgoSeconds}s క్రితం`
+                          : `${Math.round(workspace.sessionTracker.lastInformAgoSeconds / 60)}m క్రితం`
+                        : 'రాలేదు'}
+                      )
                     </span>
                   </div>
 
@@ -1645,8 +1689,41 @@ export const DeviceDetail: React.FC = () => {
                       {workspace.sessionTracker?.nextScheduledInformAt ? new Date(workspace.sessionTracker.nextScheduledInformAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A'}
                     </span>
                     <span className="text-[10px] text-blue-600 font-semibold ml-1.5">
-                      ({workspace.sessionTracker?.secondsUntilNextInform != null ? `${Math.round(workspace.sessionTracker.secondsUntilNextInform / 60)} నిమిషాల్లో` : 'N/A'})
+                      (
+                      {workspace.sessionTracker?.secondsUntilNextInform != null
+                        ? workspace.sessionTracker.secondsUntilNextInform < 60
+                          ? `${workspace.sessionTracker.secondsUntilNextInform}s లో`
+                          : `${Math.round(workspace.sessionTracker.secondsUntilNextInform / 60)} నిమిషాల్లో`
+                        : 'N/A'}
+                      )
                     </span>
+                  </div>
+
+                  {/* Quick Periodic Inform Selector */}
+                  <div className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <select
+                      value={selectedInformInterval}
+                      onChange={(e) => setSelectedInformInterval(Number(e.target.value))}
+                      className="text-xs font-semibold text-slate-700 bg-transparent focus:outline-none"
+                      aria-label="Select Periodic Inform Interval"
+                    >
+                      <option value={300}>300s (5m Recommended)</option>
+                      <option value={900}>900s (15m)</option>
+                      <option value={1800}>1800s (30m)</option>
+                      <option value={3600}>3600s (60m Low-Load)</option>
+                      <option value={60}>60s (Rapid)</option>
+                    </select>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleUpdatePeriodicInform(selectedInformInterval)}
+                      isLoading={isUpdatingInterval}
+                      disabled={!isOnline || isUpdatingInterval}
+                      className="text-[11px] px-2 py-1"
+                      title="Periodic Inform Interval సెట్ చేసి Connection Request ద్వారా తక్షణమే వర్తింపజేయండి"
+                    >
+                      Apply
+                    </Button>
                   </div>
 
                   {/* Instant Wakeup Button */}
@@ -1657,7 +1734,7 @@ export const DeviceDetail: React.FC = () => {
                     isLoading={isSummoning}
                     disabled={!isOnline || isSummoning}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs"
-                    title="CPE Connection Request ద్వారా తక్షణమే సెషన్ ఓపెన్ చేయండి"
+                    title="CPE Connection Request ద్వారా తక్షణమే సెషన్ ఓపెన్ చేయండి (గరిష్టంగా 120s)"
                   >
                     <Zap className="w-3.5 h-3.5 mr-1" />
                     <span>ఇప్పుడే సెషన్ ఓపెన్ చేయి</span>
@@ -1666,28 +1743,44 @@ export const DeviceDetail: React.FC = () => {
               </div>
             </div>
 
-            {/* Cached Report & Synchronization Status Banner */}
+            {/* Auto-Sync & Router Telemetry Report Banner */}
             {workspace.cachedReport && (
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700">
                 <div className="flex items-center space-x-2.5">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200 text-slate-800">
-                    {workspace.cachedReport.dataSource === 'CACHED_TR069_GPV' ? 'CACHED ROUTER REPORT' : 'UNSYNCHRONIZED'}
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                      workspace.cachedReport.dataSource === 'CACHED_TR069_GPV'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : workspace.cachedReport.dataSource === 'INFORM_SYNCED' || workspace.header?.lastInform
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {workspace.cachedReport.dataSource === 'CACHED_TR069_GPV'
+                      ? 'AUTO-SYNCED (LIVE CPE)'
+                      : workspace.cachedReport.dataSource === 'INFORM_SYNCED' || workspace.header?.lastInform
+                      ? 'AUTO-SYNCED (INFORM)'
+                      : 'AWAITING ROUTER INFORM'}
                   </span>
                   <span>
-                    Last Live CPE Sync:{' '}
+                    Last Auto-Sync:{' '}
                     <strong className="text-slate-900 font-mono">
-                      {workspace.cachedReport.lastSyncAt ? new Date(workspace.cachedReport.lastSyncAt).toLocaleString() : 'Never synced'}
+                      {workspace.cachedReport.lastSyncAt
+                        ? new Date(workspace.cachedReport.lastSyncAt).toLocaleString()
+                        : workspace.header?.lastInform
+                        ? new Date(workspace.header.lastInform).toLocaleString()
+                        : 'Pending first Inform'}
                     </strong>
                   </span>
                   {workspace.cachedReport.stale && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                      STALE (&gt;5m)
+                      REFRESH DUE
                     </span>
                   )}
                 </div>
                 <div className="flex items-center space-x-3 text-slate-500 text-[11px]">
                   <span>Raw Parameters: <strong className="font-mono text-slate-700">{workspace.cachedReport.rawParametersCount || 0}</strong></span>
-                  <span>Auto-Refresh: <strong className="text-slate-700">Every 5m (Cached)</strong></span>
+                  <span>Sync Mode: <strong className="text-slate-700">Auto on Every Inform + Connection Request</strong></span>
                 </div>
               </div>
             )}

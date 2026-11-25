@@ -24,6 +24,26 @@ import os from 'os';
 
 export const superAdminRouter = Router();
 
+function buildStaleReportingFilter(tenantId?: Types.ObjectId) {
+  const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+  const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const baseFilter: any = {
+    $or: [
+      { status: { $ne: 'online' } },
+      { lastInform: null },
+      {
+        lastInform: { $lt: fifteenMinsAgo },
+        $or: [{ periodicInformInterval: { $lte: 600 } }, { periodicInformInterval: { $exists: false } }],
+      },
+      { lastInform: { $lt: threeHoursAgo }, periodicInformInterval: { $gt: 600 } },
+    ],
+  };
+  if (tenantId) {
+    baseFilter.tenantId = tenantId;
+  }
+  return baseFilter;
+}
+
 // Apply Super Admin security boundary
 superAdminRouter.use(authenticateToken);
 superAdminRouter.use(requireRole(['super_admin']));
@@ -44,7 +64,7 @@ superAdminRouter.get('/dashboard', async (req: AuthenticatedRequest, res: Respon
 
     // 1. IF AN OPERATOR IS SELECTED BY SUPER ADMIN -> Scope 100% exclusively to that operator
     if (selectedTenant) {
-      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+      const staleReportingFilter = buildStaleReportingFilter(selectedTenant._id);
       const [
         totalCustomers,
         totalDevices,
@@ -70,14 +90,7 @@ superAdminRouter.get('/dashboard', async (req: AuthenticatedRequest, res: Respon
         Incident.countDocuments({ tenantId: selectedTenant._id, severity: 'critical', status: { $ne: 'resolved' } }),
         Incident.countDocuments({ tenantId: selectedTenant._id, status: { $ne: 'resolved' } }),
         Device.find({ tenantId: selectedTenant._id, status: 'online' }).sort({ lastInform: -1 }).limit(10),
-        Device.find({
-          tenantId: selectedTenant._id,
-          $or: [
-            { status: { $ne: 'online' } },
-            { lastInform: { $lt: fifteenMinsAgo } },
-            { lastInform: null },
-          ],
-        }).sort({ lastInform: -1 }).limit(10),
+        Device.find(staleReportingFilter).sort({ lastInform: -1 }).limit(10),
       ]);
 
       const offlineDevices = Math.max(0, totalDevices - onlineDevices);
@@ -171,7 +184,7 @@ superAdminRouter.get('/dashboard', async (req: AuthenticatedRequest, res: Respon
     }
 
     // 2. GLOBAL VIEW (SUPER ADMIN GLOBAL OVERVIEW WITH OPERATOR-WISE BREAKDOWN)
-    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const globalStaleFilter = buildStaleReportingFilter();
     const [
       totalTenants,
       activeTenants,
@@ -204,13 +217,7 @@ superAdminRouter.get('/dashboard', async (req: AuthenticatedRequest, res: Respon
       Incident.countDocuments({ status: { $ne: 'resolved' } }),
       Tenant.find().sort({ createdAt: -1 }),
       Device.find({ status: 'online' }).sort({ lastInform: -1 }).limit(8).populate('tenantId', 'displayName slug'),
-      Device.find({
-        $or: [
-          { status: { $ne: 'online' } },
-          { lastInform: { $lt: fifteenMinsAgo } },
-          { lastInform: null },
-        ],
-      }).sort({ lastInform: -1 }).limit(15).populate('tenantId', 'displayName slug'),
+      Device.find(globalStaleFilter).sort({ lastInform: -1 }).limit(15).populate('tenantId', 'displayName slug'),
       PendingDeviceMapping.countDocuments({ status: 'PENDING' }),
     ]);
 
@@ -348,18 +355,9 @@ superAdminRouter.get('/dashboard', async (req: AuthenticatedRequest, res: Respon
 superAdminRouter.get('/reporting-failures', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { tenantId, limit = 50, page = 1 } = req.query;
-    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
-    const filter: any = {
-      $or: [
-        { status: { $ne: 'online' } },
-        { lastInform: { $lt: fifteenMinsAgo } },
-        { lastInform: null },
-      ],
-    };
-
-    if (tenantId && Types.ObjectId.isValid(String(tenantId))) {
-      filter.tenantId = new Types.ObjectId(String(tenantId));
-    }
+    const filter = buildStaleReportingFilter(
+      tenantId && Types.ObjectId.isValid(String(tenantId)) ? new Types.ObjectId(String(tenantId)) : undefined
+    );
 
     const parsedLimit = Math.min(100, Math.max(1, Number(limit)));
     const parsedPage = Math.max(1, Number(page));

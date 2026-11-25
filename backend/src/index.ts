@@ -109,6 +109,13 @@ cwmpApp.use(firmwareRouter);
 
 const cwmpServer = http.createServer(cwmpApp);
 
+// Align Node HTTP keep-alive (> Nginx 65s keepalive_timeout) to prevent socket resets during frequent 60s Inform bursts
+server.keepAliveTimeout = 70_000;
+server.headersTimeout = 75_000;
+cwmpServer.keepAliveTimeout = 70_000;
+cwmpServer.headersTimeout = 75_000;
+cwmpServer.requestTimeout = 120_000;
+
 // 2. Socket.IO Realtime Engine with Authenticated Handshake
 const io = new SocketIOServer(server, {
   cors: {

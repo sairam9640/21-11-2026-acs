@@ -281,7 +281,7 @@ export const OperatorSettings: React.FC = () => {
                 </div>
                 <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
                   <span className="text-[10px] text-slate-500 font-bold block">Periodic Inform Interval</span>
-                  <span className="font-mono font-semibold text-emerald-600">60 seconds (Enabled)</span>
+                  <span className="font-mono font-semibold text-emerald-600">300s (5m) / 3600s (1h) Recommended</span>
                 </div>
               </div>
             </div>

@@ -92,6 +92,7 @@ export class CwmpService {
   private static tenantRecentHits = new Map<string, CwmpHitLog[]>();
   private static sessionsById = new Map<string, ActiveSessionContext>();
   private static sessionsByConnection = new Map<string, ActiveSessionContext>();
+  private static recentGpnAt = new Map<string, number>();
 
   /**
    * Extracts TR-069 Session ID from HTTP Cookie header
@@ -189,6 +190,81 @@ export class CwmpService {
       }
     } catch (err: any) {
       console.warn('[CWMP ACS] Failed to sync session update to Redis:', err.message);
+    }
+  }
+
+  /**
+   * Release per-socket connection mapping once a CWMP session completes so keepalive/CGNAT port reuse never collides
+   */
+  static async clearConnectionSession(connectionKey?: string): Promise<void> {
+    if (!connectionKey) return;
+    this.sessionsByConnection.delete(connectionKey);
+    try {
+      await RedisService.del(`cwmp:conn:${connectionKey}`);
+    } catch {
+      // ignore Redis cleanup errors
+    }
+  }
+
+  /**
+   * Automatically merges reported parameters from an Inform SOAP packet into device.rawParameters
+   * while preserving previously captured write-only Wi-Fi / PPPoE secrets.
+   */
+  private static mergeInformRawParameters(existingRaw: Record<string, any> | undefined, xml: string): Record<string, string> {
+    const merged: Record<string, string> = { ...(existingRaw || {}) };
+    if (!xml || typeof xml !== 'string') return merged;
+    const { rawMap } = CwmpXmlParser.extractParameterMap(xml);
+    for (const [k, v] of Object.entries(rawMap || {})) {
+      if (!k || v === undefined || v === null) continue;
+      const strVal = String(v);
+      const isSecretPath = /password|passphrase|presharedkey/i.test(k);
+      if (isSecretPath) {
+        const trimmed = strVal.trim();
+        if (!trimmed || /^\*+$/.test(trimmed) || trimmed === '••••••••') continue;
+      }
+      merged[k] = strVal;
+    }
+    return merged;
+  }
+
+  /**
+   * Persist device updates safely under concurrent Inform bursts (retries via atomic $set on VersionError/ParallelSaveError)
+   */
+  private static async saveDeviceResilient(device: any): Promise<void> {
+    try {
+      await device.save();
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (device?._id && (err?.name === 'VersionError' || err?.name === 'ParallelSaveError' || /version|parallel/i.test(msg))) {
+        await Device.updateOne(
+          { _id: device._id },
+          {
+            $set: {
+              status: device.status || 'online',
+              lastInform: device.lastInform || new Date(),
+              lastRawInformXml: device.lastRawInformXml,
+              lastParameterSyncAt: device.lastParameterSyncAt,
+              lastParameterSyncStatus: device.lastParameterSyncStatus,
+              periodicInformInterval: device.periodicInformInterval,
+              connectionRequestUrl: device.connectionRequestUrl,
+              connectionRequestUsername: device.connectionRequestUsername,
+              connectionRequestPassword: device.connectionRequestPassword,
+              ipAddress: device.ipAddress,
+              externalIpAddress: device.externalIpAddress,
+              uptimeSeconds: device.uptimeSeconds,
+              rawParameters: device.rawParameters,
+              ...(device.wifi24 ? { wifi24: device.wifi24 } : {}),
+              ...(device.wifi5g ? { wifi5g: device.wifi5g } : {}),
+              ...(Array.isArray(device.wanProfiles) ? { wanProfiles: device.wanProfiles } : {}),
+              ...(device.pendingConfig !== undefined ? { pendingConfig: device.pendingConfig } : {}),
+              ...(device.supportedParametersConfirmed !== undefined ? { supportedParametersConfirmed: device.supportedParametersConfirmed } : {}),
+              ...(device.opticalTelemetrySourcePath ? { opticalTelemetrySourcePath: device.opticalTelemetrySourcePath } : {}),
+            },
+          }
+        );
+        return;
+      }
+      throw err;
     }
   }
 
@@ -1275,7 +1351,18 @@ export class CwmpService {
         if ((informData as any).connectionRequestPassword) device.connectionRequestPassword = (informData as any).connectionRequestPassword;
 
         device.lastRawInformXml = xml;
-        if (!device.rawParameters) device.rawParameters = {};
+        device.rawParameters = this.mergeInformRawParameters(device.rawParameters, xml);
+        if (typeof (device as any).markModified === 'function') {
+          (device as any).markModified('rawParameters');
+        }
+        device.lastParameterSyncAt = new Date();
+        if (
+          !device.lastParameterSyncStatus ||
+          device.lastParameterSyncStatus === 'NEVER_SYNCED' ||
+          String(device.lastParameterSyncStatus).startsWith('FAULT_')
+        ) {
+          device.lastParameterSyncStatus = 'INFORM_SYNCED';
+        }
 
         if (!device.wifi24) {
           device.wifi24 = {
@@ -1357,7 +1444,7 @@ export class CwmpService {
 
         // Device ownership is immutable during CWMP telemetry ingestion (only modified via explicit UI action)
 
-        await device.save();
+        await this.saveDeviceResilient(device);
         resolvedDeviceId = device._id.toString();
         resolvedCustomerId = device.customerId?.toString();
 
@@ -1407,8 +1494,11 @@ export class CwmpService {
           connectionRequestUrl: informData.connectionRequestUrl,
           connectionRequestUsername: (informData as any).connectionRequestUsername,
           connectionRequestPassword: (informData as any).connectionRequestPassword,
+          ...(informData.periodicInformInterval ? { periodicInformInterval: informData.periodicInformInterval } : {}),
           lastRawInformXml: xml,
-          rawParameters: {},
+          rawParameters: this.mergeInformRawParameters({}, xml),
+          lastParameterSyncAt: new Date(),
+          lastParameterSyncStatus: 'INFORM_SYNCED',
           wanProfiles: initialWanProfiles,
           wifi24: {
             ssid: informData.wifiSsid24 || '',
@@ -2326,8 +2416,10 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         hasWifiAndWanDiscovery ||
         Boolean(dev?.opticalTelemetrySourcePath)
       );
-      if (!hasCompletedDiscovery && session.stage !== 'GPN_SENT') {
+      const lastGpnTs = this.recentGpnAt.get(session.serialNumber) || 0;
+      if (!hasCompletedDiscovery && session.stage !== 'GPN_SENT' && (Date.now() - lastGpnTs) >= 120_000) {
         session.stage = 'GPN_SENT';
+        this.recentGpnAt.set(session.serialNumber, Date.now());
         const rootPath = session.vendor === 'TR181_STANDARD' ? 'Device.' : 'InternetGatewayDevice.';
         const gpnXml = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
@@ -2341,6 +2433,19 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
 </soapenv:Envelope>`;
         console.log(`[CWMP ACS -> CPE] Dispatched GPN root discovery for ${session.serialNumber} (${rootPath})`);
         return gpnXml;
+      }
+
+      // Guard against 60s Periodic Inform congestion: skip full periodic GPV when telemetry already synced cleanly within cooldown
+      const telemetryCooldownSec = Math.max(60, parseInt(process.env.CWMP_TELEMETRY_COOLDOWN_SECONDS || '300', 10));
+      const lastSyncTs = (dev as any)?.lastParameterSyncAt ? new Date((dev as any).lastParameterSyncAt).getTime() : 0;
+      const hasSyncedTree = rawKeys.length > 5 && (dev as any)?.lastParameterSyncStatus === 'SUCCESS';
+      if (hasSyncedTree && lastSyncTs > 0 && (Date.now() - lastSyncTs) < telemetryCooldownSec * 1000) {
+        session.stage = 'COMPLETED';
+        await this.clearConnectionSession(connectionKey);
+        console.log(
+          `[CWMP ACS] Inform heartbeat synced for ${session.serialNumber}; skipping heavy GPV within ${telemetryCooldownSec}s cooldown (${Math.round((Date.now() - lastSyncTs) / 1000)}s ago). Returning 204.`
+        );
+        return null;
       }
 
       // Periodic Inform Telemetry Sync: Strictly query confirmed paths + core Management/DeviceInfo + verified optical path (never speculative unverified optical or Hosts.Host.1..16 batches)
@@ -3023,7 +3128,7 @@ ${stringElements}
 
         targetProfile.cpeObjectPath = resolvedCpePath;
         device.markModified('wanProfiles');
-        await device.save();
+        await this.saveDeviceResilient(device);
         console.log(`[Native CWMP DB] Persisted resolved cpeObjectPath '${resolvedCpePath}' for profile '${targetProfile.name || targetProfile._id}' on ${device.serialNumber}`);
 
         // Pass dynamic targetProfile into the same parameter-writing function that the edit path uses: buildTr069WanParams
@@ -3219,7 +3324,7 @@ ${orderedParams.map((p: any) => `        <ParameterValueStruct>
         }
         if (updatedWan) {
           device.markModified('wanProfiles');
-          await device.save();
+          await this.saveDeviceResilient(device);
         }
       }
 
@@ -3557,7 +3662,7 @@ Timestamp: ${new Date().toISOString()}
           console.log(`[CWMP ACS] 🚫 AddObject Fault 9003 confirmed for ${device.serialNumber}. Flagging device.addObjectNotSupported=true and switching to POLL-THEN-PROVISION mode.`);
           (device as any).addObjectNotSupported = true;
           (device as any).wanSlotPollPending = true;
-          await device.save();
+          await this.saveDeviceResilient(device);
 
           if (pendingCmd) {
             // Extract target slot from stored params
@@ -3641,7 +3746,7 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         );
         if (session) session.stage = 'GPN_SENT';
         device.lastParameterSyncStatus = `FAULT_${fault.faultCode}_DISCOVERY_FALLBACK`;
-        await device.save();
+        await this.saveDeviceResilient(device);
 
         const isTr181 = session?.vendor === 'TR181_STANDARD';
         const gpnRoot = isTr181 ? 'Device.' : 'InternetGatewayDevice.';
@@ -3800,7 +3905,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
             device.markModified('wanProfiles');
           }
         }
-        await device.save();
+        await this.saveDeviceResilient(device);
         return null;
       }
 
@@ -3825,7 +3930,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         );
 
         device.lastParameterSyncStatus = 'FAULT_9005_OPTICAL';
-        await device.save();
+        await this.saveDeviceResilient(device);
         console.log(
           `[CWMP ACS] Cached parameter as UNSUPPORTED: ${session.activeOpticalCandidate}. Baseline Wi-Fi/WAN data remains preserved.`
         );
@@ -4631,6 +4736,7 @@ ${stringElements}
     if (session && (session.stage === 'BASELINE_SENT' || session.stage === 'OPTICAL_SENT' || session.stage === 'VERIFICATION_GPV_SENT')) {
       session.stage = 'COMPLETED';
       await this.updateSession(session, connectionKey).catch(() => {});
+      await this.clearConnectionSession(connectionKey).catch(() => {});
     }
     await device.save();
 
@@ -4807,7 +4913,7 @@ ${stringElements}
       authCredentials: {
         username: process.env.CWMP_CONN_REQ_USER || 'admin',
         password: process.env.CWMP_CONN_REQ_PASS || 'admin123',
-        informIntervalSeconds: 60,
+        informIntervalSeconds: Math.max(60, parseInt(process.env.CWMP_RECOMMENDED_INFORM_INTERVAL || '300', 10)),
       },
       recentHits: hits,
       serverStatus: 'LISTENING',

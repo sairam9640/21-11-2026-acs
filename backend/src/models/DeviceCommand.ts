@@ -11,6 +11,7 @@ export type CommandActionType =
   | 'REFRESH_TELEMETRY'
   | 'SET_WIFI_CONFIG'
   | 'SET_WAN_CONFIG'
+  | 'SET_PERIODIC_INFORM'
   | 'DELETE_WAN_CONFIG'
   | 'DeleteObject'
   | 'AddObject'
@@ -109,6 +110,7 @@ const DeviceCommandSchema = new Schema<IDeviceCommand>(
         'REFRESH_TELEMETRY',
         'SET_WIFI_CONFIG',
         'SET_WAN_CONFIG',
+        'SET_PERIODIC_INFORM',
         'DELETE_WAN_CONFIG',
         'DeleteObject',
         'AddObject',

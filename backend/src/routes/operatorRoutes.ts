@@ -96,12 +96,12 @@ function isDeviceAlive(device: any): boolean {
  */
 async function reconcileFleetLiveness(tenantId: Types.ObjectId): Promise<void> {
   const minCutoff = new Date(Date.now() - 20 * 60 * 1000);
-  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const healWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const [staleCandidates, healCandidates] = await Promise.all([
     Device.find({ tenantId, status: 'online', $or: [{ lastInform: { $lt: minCutoff } }, { lastInform: null }] })
       .select('_id lastInform periodicInformInterval rawParameters.InternetGatewayDevice.ManagementServer.PeriodicInformInterval rawParameters.Device.ManagementServer.PeriodicInformInterval')
       .lean(),
-    Device.find({ tenantId, status: 'offline', lastInform: { $gte: twoHoursAgo } })
+    Device.find({ tenantId, status: 'offline', lastInform: { $gte: healWindowStart } })
       .select('_id lastInform periodicInformInterval rawParameters.InternetGatewayDevice.ManagementServer.PeriodicInformInterval rawParameters.Device.ManagementServer.PeriodicInformInterval')
       .lean(),
   ]);
@@ -3614,6 +3614,100 @@ operatorRouter.post('/devices/:id/summon', async (req: AuthenticatedRequest, res
 });
 
 /**
+ * 8.0.5.0 Configure Router PeriodicInformInterval & Open Immediate Verification Session
+ */
+operatorRouter.post('/devices/:id/periodic-inform', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = new Types.ObjectId(req.tenantId);
+    const device = await Device.findOne(getSafeDeviceQuery(req.params.id, tenantId));
+    if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
+
+    const requestedSec = Number(req.body?.intervalSeconds ?? 300);
+    if (!Number.isFinite(requestedSec) || requestedSec < 60 || requestedSec > 86400) {
+      return res.status(400).json({
+        success: false,
+        error: 'PeriodicInformInterval must be between 60 and 86400 seconds (recommended: 300s or 3600s).',
+      });
+    }
+    const intervalSeconds = Math.round(requestedSec);
+    const enableInform = req.body?.enabled !== false;
+
+    const rawKeys = Object.keys((device as any).rawParameters || {});
+    const isTr181 =
+      (device as any).protocol === 'TR-369' ||
+      String(device.modelName || '').toUpperCase().includes('TR181') ||
+      rawKeys.some((k) => k.startsWith('Device.ManagementServer.'));
+    const prefix = isTr181 ? 'Device.ManagementServer.' : 'InternetGatewayDevice.ManagementServer.';
+    const paramValues: Array<[string, any, string]> = [
+      [`${prefix}PeriodicInformEnable`, enableInform, 'xsd:boolean'],
+      [`${prefix}PeriodicInformInterval`, intervalSeconds, 'xsd:unsignedInt'],
+    ];
+
+    const cmd = await DeviceCommand.create({
+      tenantId: device.tenantId,
+      deviceId: device._id,
+      serialNumber: device.serialNumber,
+      action: 'SET_PERIODIC_INFORM',
+      commandType: 'SetParameterValues',
+      rpcMethod: 'SetParameterValues',
+      status: 'pending',
+      affectedParameterPaths: paramValues.map(([name]) => name),
+      verificationTargetValues: {
+        [`${prefix}PeriodicInformEnable`]: String(enableInform),
+        [`${prefix}PeriodicInformInterval`]: String(intervalSeconds),
+      },
+      parameters: {
+        intervalSeconds,
+        enabled: enableInform,
+        tr069ParamValues: paramValues,
+        parameterList: paramValues,
+      },
+      requestedBy: {
+        userId: req.user!.id,
+        role: req.user!.role,
+        email: req.user!.email,
+      },
+      queuedAt: new Date(),
+      correlationId: req.correlationId || `periodic_inform_${Date.now()}`,
+    });
+
+    await Device.updateOne(
+      { _id: device._id },
+      { $set: { periodicInformInterval: intervalSeconds, periodicInformConfigured: true } }
+    );
+
+    const wokeUp = device.serialNumber
+      ? await triggerGenieAcsConnectionRequest(device.serialNumber).catch(() => false)
+      : false;
+
+    await recordAuditLog({
+      tenantId,
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      actorRole: req.user!.role,
+      action: 'DEVICE_PERIODIC_INFORM_UPDATED',
+      targetResource: 'Device',
+      targetId: device._id.toString(),
+      targetIdentifier: device.serialNumber,
+      afterState: { intervalSeconds, enabled: enableInform, connectionRequestTriggered: wokeUp },
+      correlationId: req.correlationId || `periodic_inform_${Date.now()}`,
+    });
+
+    return res.json({
+      success: true,
+      commandId: cmd._id,
+      intervalSeconds,
+      connectionRequestTriggered: wokeUp,
+      message: wokeUp
+        ? `Periodic Inform set to ${intervalSeconds}s and instant Connection Request sent.`
+        : `Periodic Inform (${intervalSeconds}s) queued; router will apply automatically on next session or click Summon.`,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 8.0.5.1 Bulk Summon All ONTs / Fleet Live Poll Trigger
  */
 operatorRouter.post('/devices/summon-all', async (req: AuthenticatedRequest, res: Response) => {
@@ -4637,6 +4731,8 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           nextScheduledInformFormatted: nextInformDate.toLocaleString('en-IN'),
           secondsUntilNextInform: secondsUntilNext,
           isSessionActive,
+          sessionTimeoutSeconds: 120,
+          liveWindowSeconds: 45,
           sessionStatus: isSessionActive ? 'IN_SESSION' : device.status === 'online' ? 'WAITING_NEXT_INTERVAL' : 'OFFLINE',
         },
         header: {
@@ -4973,18 +5069,28 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
         }),
         // Source-of-truth metadata for when live data was last pulled from CPE
         cachedReport: (() => {
-          const lastSyncAt: Date | undefined = (d as any).lastParameterSyncAt;
+          const lastSyncAt: Date | undefined = (d as any).lastParameterSyncAt || device.lastInform || undefined;
           const lastLivePollAt: Date | undefined = (d as any).lastLivePollAt;
           const FIVE_MIN_MS = 5 * 60 * 1000;
+          const syncThresholdMs = Math.max(FIVE_MIN_MS, getDeviceLivenessThresholdMs(d));
           const ageMs = lastSyncAt ? Date.now() - new Date(lastSyncAt).getTime() : Infinity;
           const pollAgeMs = lastLivePollAt ? Date.now() - new Date(lastLivePollAt).getTime() : Infinity;
+          const dataSource = rawKeys.length > 0
+            ? 'CACHED_TR069_GPV'
+            : device.lastInform
+            ? 'INFORM_SYNCED'
+            : 'AWAITING_INFORM';
+          const lastSyncStatus = (d as any).lastParameterSyncStatus && (d as any).lastParameterSyncStatus !== 'NEVER_SYNCED'
+            ? (d as any).lastParameterSyncStatus
+            : (device.lastInform ? 'INFORM_SYNCED' : 'AWAITING_INFORM');
           return {
             lastSyncAt: lastSyncAt || null,
             lastLivePollAt: lastLivePollAt || null,
-            lastSyncStatus: (d as any).lastParameterSyncStatus || 'NEVER_SYNCED',
+            lastSyncStatus,
+            autoSynced: Boolean(rawKeys.length > 0 || device.lastInform),
             rawParametersCount: rawKeys.length,
-            dataSource: rawKeys.length > 0 ? 'CACHED_TR069_GPV' : 'NO_DATA',
-            stale: ageMs > FIVE_MIN_MS,
+            dataSource,
+            stale: ageMs > syncThresholdMs,
             staleMinutes: lastSyncAt ? Math.floor(ageMs / 60_000) : null,
             livePollThrottled: pollAgeMs < FIVE_MIN_MS,
             livePollThrottledRemainingSeconds: pollAgeMs < FIVE_MIN_MS ? Math.ceil((FIVE_MIN_MS - pollAgeMs) / 1000) : 0,

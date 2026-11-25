@@ -651,7 +651,9 @@ export const OperatorDashboard: React.FC = () => {
             </div>
             <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
               <span className="text-[10px] text-slate-500 font-bold block">Periodic Inform</span>
-              <span className="font-mono font-semibold text-emerald-600">Enabled (60s)</span>
+              <span className="font-mono font-semibold text-emerald-600">
+                Enabled ({cwmpStats?.authCredentials?.informIntervalSeconds || 300}s Recommended)
+              </span>
             </div>
           </div>
 

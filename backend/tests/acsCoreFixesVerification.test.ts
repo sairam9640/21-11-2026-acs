@@ -432,4 +432,99 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
     expect(updatedNokia.wifi24?.password).toBe('Nokia24Pass!');
     expect(updatedNokia.wifi5g?.password).toBe('Nokia5GPass!');
   });
+
+  it('6. Inform automatically merges rawParameters & sync timestamp, throttles 60s heavy GPV floods, and dispatches SET_PERIODIC_INFORM immediately', async () => {
+    const testIp = '103.55.66.77';
+    const rapidSerial = 'ALCL_NOKIA_RAPID60';
+    await Device.deleteMany({ serialNumber: rapidSerial });
+
+    try {
+      const informXml60 = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:Inform>
+      <DeviceId>
+        <Manufacturer>ALCL</Manufacturer>
+        <OUI>A47B2C</OUI>
+        <ProductClass>G-2425G-A</ProductClass>
+        <SerialNumber>${rapidSerial}</SerialNumber>
+      </DeviceId>
+      <Event><EventCode>2 PERIODIC</EventCode></Event>
+      <ParameterList>
+        <ParameterValueStruct><Name>InternetGatewayDevice.DeviceInfo.SoftwareVersion</Name><Value>3FE49362IJHK01</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.DeviceInfo.UpTime</Name><Value>720</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.ManagementServer.PeriodicInformInterval</Name><Value>60</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.ManagementServer.ConnectionRequestURL</Name><Value>http://100.64.10.25:7547/cr</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Value>Rapid60_WiFi</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username</Name><Value>rapid60@isp.in</Value></ParameterValueStruct>
+      </ParameterList>
+    </cwmp:Inform>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+      const inf1 = await CwmpService.handleInform(informXml60, testIp, undefined, 'acs_fix_tenant');
+      const devAfterInform: any = await Device.findOne({ serialNumber: rapidSerial });
+      expect(devAfterInform).toBeTruthy();
+      expect(devAfterInform.status).toBe('online');
+      expect(devAfterInform.periodicInformInterval).toBe(60);
+      expect(devAfterInform.lastParameterSyncAt).toBeTruthy();
+      expect(devAfterInform.lastParameterSyncStatus).toBe('INFORM_SYNCED');
+      expect(devAfterInform.rawParameters?.['InternetGatewayDevice.ManagementServer.PeriodicInformInterval']).toBe('60');
+      expect(devAfterInform.rawParameters?.['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID']).toBe('Rapid60_WiFi');
+
+      // Mark full telemetry GPV sync as recently completed
+      await Device.updateOne(
+        { _id: devAfterInform._id },
+        {
+          $set: {
+            supportedParametersConfirmed: true,
+            lastParameterSyncStatus: 'SUCCESS',
+            lastParameterSyncAt: new Date(),
+          },
+        }
+      );
+
+      // Next routine 60s Periodic Inform without pending commands MUST return null (HTTP 204) instead of flooding CPE
+      const rpcDuringCooldown = await CwmpService.checkPendingRpcOrPoll(
+        testIp,
+        inf1.sessionId,
+        undefined,
+        'acs_fix_tenant',
+        `${testIp}:51234`
+      );
+      expect(rpcDuringCooldown).toBeNull();
+
+      // Pending SET_PERIODIC_INFORM command (e.g. switching to 3600s) MUST dispatch immediately even within cooldown
+      await DeviceCommand.create({
+        tenantId: tenantA._id,
+        deviceId: devAfterInform._id,
+        serialNumber: rapidSerial,
+        action: 'SET_PERIODIC_INFORM',
+        commandType: 'SetParameterValues',
+        rpcMethod: 'SetParameterValues',
+        status: 'pending',
+        queuedAt: new Date(),
+        parameters: {
+          tr069ParamValues: [
+            ['InternetGatewayDevice.ManagementServer.PeriodicInformEnable', true, 'xsd:boolean'],
+            ['InternetGatewayDevice.ManagementServer.PeriodicInformInterval', 3600, 'xsd:unsignedInt'],
+          ],
+        },
+      });
+
+      const inf2 = await CwmpService.handleInform(informXml60, testIp, undefined, 'acs_fix_tenant');
+      const rpcForIntervalUpdate = await CwmpService.checkPendingRpcOrPoll(
+        testIp,
+        inf2.sessionId,
+        undefined,
+        'acs_fix_tenant',
+        `${testIp}:51235`
+      );
+      expect(rpcForIntervalUpdate).toContain('<cwmp:SetParameterValues>');
+      expect(rpcForIntervalUpdate).toContain('PeriodicInformInterval');
+      expect(rpcForIntervalUpdate).toContain('3600');
+    } finally {
+      await Device.deleteMany({ serialNumber: rapidSerial });
+    }
+  });
 });

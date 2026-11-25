@@ -586,6 +586,13 @@ class ApiService {
     });
   }
 
+  async setPeriodicInformInterval(id: string, intervalSeconds: number, enabled = true) {
+    return this.request(`/operator/devices/${id}/periodic-inform`, {
+      method: 'POST',
+      body: JSON.stringify({ intervalSeconds, enabled }),
+    });
+  }
+
   async summonAllDevices() {
     return this.request('/operator/devices/summon-all', {
       method: 'POST',
