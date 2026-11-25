@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { CwmpVendorProfiles } from './cwmpVendorProfiles.js';
 
 /**
  * Robust TR-069 / SOAP Universal XML Parser & Telemetry Normalizer
@@ -253,57 +254,17 @@ export class CwmpXmlParser {
 
   /**
    * Normalizes Optical RX power to standard float dBm (e.g. -21.45 dBm)
-   * Supports: 0.1 µW raw power, 0.01 dBm scaled integer, and direct float string.
+   * Delegates to unified CwmpVendorProfiles scaling logic (0.1 µW, 0.01 dBm, direct float).
    */
-  static normalizeOpticalRxPower(raw: string | number | undefined): number | undefined {
-    if (raw === undefined || raw === null || raw === '') return undefined;
-    const cleanStr = String(raw).replace(/dBm|dbm|\s+/g, '').trim();
-    const num = parseFloat(cleanStr);
-    if (isNaN(num)) return undefined;
-
-    // Disconnected optical signal (LOS)
-    if (num === 0) return -40.0;
-
-    // Case A: Realtek/Broadcom raw power in 0.1 µW (num > 100) -> convert to dBm
-    // Formula: dBm = 10 * log10((num / 10) / 1000)
-    if (num > 100) {
-      const uW = num / 10;
-      const dbm = 10 * Math.log10(uW / 1000);
-      return Number(dbm.toFixed(2));
-    }
-
-    // Case B: Scaled Integer (e.g. -2145 means -21.45 dBm)
-    if (num < -100) {
-      return Number((num / 100).toFixed(2));
-    }
-
-    // Case C: Standard direct float string (e.g. "-21.45")
-    return Number(num.toFixed(2));
+  static normalizeOpticalRxPower(raw: string | number | undefined, paramPath = ''): number | undefined {
+    return CwmpVendorProfiles.normalizeOpticalRx('CHINA_TELECOM', paramPath, raw)?.normalizedValue;
   }
 
   /**
    * Normalizes Optical TX power to standard float dBm (typically +1.0 to +4.0 dBm)
    */
-  static normalizeOpticalTxPower(raw: string | number | undefined): number | undefined {
-    if (raw === undefined || raw === null || raw === '') return undefined;
-    const cleanStr = String(raw).replace(/dBm|dbm|\s+/g, '').trim();
-    const num = parseFloat(cleanStr);
-    if (isNaN(num)) return undefined;
-
-    // Case A: Raw power in 0.1 µW (num > 1000) -> convert to dBm
-    if (num > 1000) {
-      const uW = num / 10;
-      const dbm = 10 * Math.log10(uW / 1000);
-      return Number(dbm.toFixed(2));
-    }
-
-    // Case B: Scaled integer in 0.01 dBm (e.g. 240 => +2.40 dBm)
-    if (num >= 100 && num <= 1000) {
-      return Number((num / 100).toFixed(2));
-    }
-
-    // Case C: Direct float string (e.g. 2.45)
-    return Number(num.toFixed(2));
+  static normalizeOpticalTxPower(raw: string | number | undefined, paramPath = ''): number | undefined {
+    return CwmpVendorProfiles.normalizeOpticalTx('CHINA_TELECOM', paramPath, raw)?.normalizedValue;
   }
 
   /**

@@ -527,4 +527,130 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
       await Device.deleteMany({ serialNumber: rapidSerial });
     }
   });
+
+  it('7. Syrotech SY-GPON-2020-WADONT: runs full GPN after sparse Inform, converts 0.1uW optical RX/TX (63 => -22.01dBm, 15849 => +2dBm), syncs DeviceInfo, Dual-Band Wi-Fi, and Route WAN Config', async () => {
+    const testIp = '103.55.66.88';
+    const syroSerial = 'SYRO_GPON_2020_FULL';
+    await Device.deleteMany({ serialNumber: syroSerial });
+
+    try {
+      // 1. Real-world Syrotech Inform carrying sparse SSID + TR069/PPP keys (MUST still trigger GPN!)
+      const syroInform = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:Inform>
+      <DeviceId>
+        <Manufacturer>SYROTECH</Manufacturer>
+        <OUI>3894E0</OUI>
+        <ProductClass>SY-GPON-2020-WADONT</ProductClass>
+        <SerialNumber>${syroSerial}</SerialNumber>
+      </DeviceId>
+      <Event><EventCode>2 PERIODIC</EventCode></Event>
+      <ParameterList>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Value>Syrotech_Home_2.4G</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ExternalIPAddress</Name><Value>100.64.22.15</Value></ParameterValueStruct>
+      </ParameterList>
+    </cwmp:Inform>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+      const inf = await CwmpService.handleInform(syroInform, testIp, undefined, 'acs_fix_tenant');
+      // Next empty POST MUST dispatch GetParameterNames (not short-circuit because Inform contained 1 SSID + 1 WAN key!)
+      const gpnReq = await CwmpService.checkPendingRpcOrPoll(testIp, inf.sessionId, undefined, 'acs_fix_tenant');
+      expect(gpnReq).toContain('<cwmp:GetParameterNames>');
+
+      // 2. CPE returns GPN containing DeviceInfo, X_CT_COM_ (underscore) Optical/WAN, and Dual-Band Wi-Fi
+      const syroGpnResp = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:GetParameterNamesResponse>
+      <ParameterList>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.DeviceInfo.Manufacturer</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.DeviceInfo.ModelName</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.DeviceInfo.HardwareVersion</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.DeviceInfo.SoftwareVersion</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.DeviceInfo.UpTime</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.RXPower</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.TXPower</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.TransceiverTemperature</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Channel</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Standard</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Name</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Username</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.ConnectionType</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.DefaultGateway</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.DNSServers</Name><Writable>0</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.X_CT_COM_WANGponLinkConfig.Mode</Name><Writable>1</Writable></ParameterInfoStruct>
+        <ParameterInfoStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.X_CT_COM_WANGponLinkConfig.VLANIDMark</Name><Writable>1</Writable></ParameterInfoStruct>
+      </ParameterList>
+    </cwmp:GetParameterNamesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+      const syroGpvReq = await CwmpService.handleParameterNamesResponse(syroGpnResp, testIp, inf.sessionId, undefined, 'acs_fix_tenant');
+      expect(syroGpvReq).toContain('DeviceInfo.ModelName');
+      expect(syroGpvReq).toContain('DeviceInfo.HardwareVersion');
+      expect(syroGpvReq).toContain('X_CT_COM_GponInterfaceConfig.RXPower');
+      expect(syroGpvReq).toContain('X_CT_COM_WANGponLinkConfig.VLANIDMark');
+      expect(syroGpvReq).toContain('WANPPPConnection.1.DefaultGateway');
+
+      // 3. CPE sends GPV Response with Syrotech 0.1 uW optical values (63 => -22.01 dBm, 15849 => +2.00 dBm), DeviceInfo, Wi-Fi & Route WAN
+      const syroGpvResp = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Body>
+    <cwmp:GetParameterValuesResponse>
+      <ParameterList>
+        <ParameterValueStruct><Name>InternetGatewayDevice.DeviceInfo.Manufacturer</Name><Value>SYROTECH</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.DeviceInfo.ModelName</Name><Value>SY-GPON-2020-WADONT-V2</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.DeviceInfo.HardwareVersion</Name><Value>SY-HW-2.1</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.DeviceInfo.SoftwareVersion</Name><Value>V3.2.8-SYRO</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.DeviceInfo.UpTime</Name><Value>86400</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.RXPower</Name><Value>63</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.TXPower</Name><Value>15849</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.TransceiverTemperature</Name><Value>44500</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name><Value>Syrotech_Home_2.4G</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel</Name><Value>6</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID</Name><Value>Syrotech_Home_5G</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Channel</Name><Value>0</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Standard</Name><Value>a,n,ac</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Name</Name><Value>2_INTERNET_R_VID_401</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Username</Name><Value>syro_cust@fiber.in</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.ConnectionType</Name><Value>IP_Routed</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.ExternalIPAddress</Name><Value>103.88.14.99</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.DefaultGateway</Name><Value>103.88.14.1</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.DNSServers</Name><Value>8.8.8.8,1.1.1.1</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.X_CT_COM_WANGponLinkConfig.Mode</Name><Value>1</Value></ParameterValueStruct>
+        <ParameterValueStruct><Name>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.X_CT_COM_WANGponLinkConfig.VLANIDMark</Name><Value>401</Value></ParameterValueStruct>
+      </ParameterList>
+    </cwmp:GetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+      await CwmpService.handleParameterValuesResponse(syroGpvResp, testIp, inf.sessionId, undefined, 'acs_fix_tenant');
+      const syroDev: any = await Device.findOne({ serialNumber: syroSerial });
+      expect(syroDev.modelName).toBe('SY-GPON-2020-WADONT-V2');
+      expect(syroDev.hardwareVersion).toBe('SY-HW-2.1');
+      expect(syroDev.softwareVersion).toBe('V3.2.8-SYRO');
+      expect(syroDev.uptimeSeconds).toBe(86400);
+      expect(syroDev.currentRxPowerDbm).toBeCloseTo(-22.01, 1);
+      expect(syroDev.currentTxPowerDbm).toBeCloseTo(2.0, 1);
+      expect(syroDev.temperatureC).toBe(44.5);
+      expect(syroDev.wifi24?.ssid).toBe('Syrotech_Home_2.4G');
+      expect(syroDev.wifi5g?.ssid).toBe('Syrotech_Home_5G');
+      const internetRoute = syroDev.wanProfiles?.find((p: any) => p.vlanId === 401);
+      expect(internetRoute).toBeTruthy();
+      expect(internetRoute.mode).toBe('Route');
+      expect(internetRoute.vlanMode).toBe('TAG');
+      expect(internetRoute.pppoeUsername).toBe('syro_cust@fiber.in');
+      expect(internetRoute.gateway).toBe('103.88.14.1');
+      expect(internetRoute.dnsServers).toBe('8.8.8.8,1.1.1.1');
+      expect(internetRoute.primaryDns).toBe('8.8.8.8');
+      expect(syroDev.lastParameterSyncStatus).toBe('SUCCESS');
+    } finally {
+      await Device.deleteMany({ serialNumber: syroSerial });
+    }
+  });
 });

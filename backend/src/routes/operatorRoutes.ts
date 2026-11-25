@@ -4193,8 +4193,14 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
     const rawKeys = Object.keys(rawParams);
     
     // Optical Telemetry Resolution (Dynamic Extraction + Live Calibrated Levels)
-    const rxParamKey = rawKeys.find((k) => /Optical(Rx|Receive)Power|RxPower|ReceivePower/i.test(k));
-    const txParamKey = rawKeys.find((k) => /Optical(Tx|Transmit)Power|TxPower|TransmitPower/i.test(k));
+    const rxParamKey = rawKeys.find((k) =>
+      /rxpower|rx_power|opticalpowerrx|rxopticalpower|receiveopticalpower|opticalsignallevel|receivepower|rxdba|opt_rx|optrx/i.test(k) &&
+      !/ping|traceroute|wlan|wifi|beacon|transmit/i.test(k)
+    );
+    const txParamKey = rawKeys.find((k) =>
+      /txpower|tx_power|opticalpowertx|txopticalpower|transmitopticalpower|transmitpower|txdba|opt_tx|opttx/i.test(k) &&
+      !/ping|traceroute|wlan|wifi|beacon|receive/i.test(k)
+    );
 
     let rxDbm: number | null = null;
     let txDbm: number | null = null;
@@ -4698,10 +4704,13 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
     const realWanGateway = (wanGatewayKey && rawParams[wanGatewayKey] && rawParams[wanGatewayKey] !== '0.0.0.0' ? rawParams[wanGatewayKey] : null) || internetWan?.gateway || null;
     const realWanDns = (wanDnsKey && rawParams[wanDnsKey] ? rawParams[wanDnsKey] : null) || internetWan?.dns || internetWan?.dnsServers || null;
     const realWanSubnet = (wanSubnetKey && rawParams[wanSubnetKey] ? rawParams[wanSubnetKey] : null) || internetWan?.subnetMask || null;
-    const realWanUptimeSec = wanUptimeKey ? parseInt(String(rawParams[wanUptimeKey]), 10) : null;
-    const realWanUptimeStr = !isNaN(realWanUptimeSec as number) && (realWanUptimeSec as number) > 0
-      ? `${Math.floor((realWanUptimeSec as number) / 86400)}d ${Math.floor(((realWanUptimeSec as number) % 86400) / 3600)}h ${Math.floor(((realWanUptimeSec as number) % 3600) / 60)}m`
-      : (d.uptimeSeconds ? `${Math.floor(d.uptimeSeconds / 86400)}d ${Math.floor((d.uptimeSeconds % 86400) / 3600)}h` : null);
+    const rawDeviceUptimeVal = rawParams['InternetGatewayDevice.DeviceInfo.UpTime'] ?? rawParams['Device.DeviceInfo.UpTime'];
+    const resolvedUptimeSec = !isNaN(parseInt(String(wanUptimeKey ? rawParams[wanUptimeKey] : ''), 10))
+      ? parseInt(String(rawParams[wanUptimeKey!]), 10)
+      : (d.uptimeSeconds != null ? Number(d.uptimeSeconds) : (rawDeviceUptimeVal != null ? parseInt(String(rawDeviceUptimeVal), 10) : null));
+    const realWanUptimeStr = resolvedUptimeSec != null && !isNaN(resolvedUptimeSec) && resolvedUptimeSec > 0
+      ? `${Math.floor(resolvedUptimeSec / 86400)}d ${Math.floor((resolvedUptimeSec % 86400) / 3600)}h ${Math.floor((resolvedUptimeSec % 3600) / 60)}m`
+      : null;
 
     const mainWanVlan = internetWan?.vlanId ?? (device as any).wanVlan ?? customerObj?.wanConfig?.vlanId ?? null;
 
@@ -4739,20 +4748,24 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           id: device._id,
           deviceIdStr: (device as any).deviceIdStr || device.serialNumber,
           serialNumber: device.serialNumber,
-          model: device.modelName || 'GPON ONT',
-          vendor: device.manufacturer || 'Generic',
-          oui: (device as any).oui || (device.serialNumber ? device.serialNumber.slice(0, 6).toUpperCase() : 'N/A'),
-          firmwareVersion: device.softwareVersion || 'N/A',
-          softwareVersion: device.softwareVersion || 'N/A',
-          hardwareVersion: device.hardwareVersion || 'N/A',
+          model: (!device.modelName || /^gpon[-_ ]?ont|igd|unknown$/i.test(device.modelName))
+            ? (rawParams['InternetGatewayDevice.DeviceInfo.ModelName'] || rawParams['Device.DeviceInfo.ModelName'] || rawParams['InternetGatewayDevice.DeviceInfo.ProductClass'] || device.modelName || 'GPON ONT')
+            : device.modelName,
+          vendor: (!device.manufacturer || /^generic|unknown$/i.test(device.manufacturer))
+            ? (rawParams['InternetGatewayDevice.DeviceInfo.Manufacturer'] || rawParams['Device.DeviceInfo.Manufacturer'] || device.manufacturer || 'Generic')
+            : device.manufacturer,
+          oui: (device as any).oui || rawParams['InternetGatewayDevice.DeviceInfo.ManufacturerOUI'] || (device.serialNumber ? device.serialNumber.slice(0, 6).toUpperCase() : 'N/A'),
+          firmwareVersion: device.softwareVersion || rawParams['InternetGatewayDevice.DeviceInfo.SoftwareVersion'] || rawParams['Device.DeviceInfo.SoftwareVersion'] || 'N/A',
+          softwareVersion: device.softwareVersion || rawParams['InternetGatewayDevice.DeviceInfo.SoftwareVersion'] || rawParams['Device.DeviceInfo.SoftwareVersion'] || 'N/A',
+          hardwareVersion: device.hardwareVersion || rawParams['InternetGatewayDevice.DeviceInfo.HardwareVersion'] || rawParams['Device.DeviceInfo.HardwareVersion'] || 'N/A',
           status: device.status || 'offline',
           uptime: realWanUptimeStr || 'N/A',
           lastInform: device.lastInform || new Date(),
           lastSeen: device.lastInform || new Date(),
           ip: realWanIp || 'Unassigned',
           wanIp: realWanIp || 'Unassigned',
-          mac: (device.macAddress || 'N/A').toUpperCase(),
-          wanMac: (device.macAddress || 'N/A').toUpperCase(),
+          mac: (device.macAddress || rawParams['InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1.MACAddress'] || rawParams['Device.Ethernet.Interface.1.MACAddress'] || 'N/A').toUpperCase(),
+          wanMac: (device.macAddress || rawParams['InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1.MACAddress'] || rawParams['Device.Ethernet.Interface.1.MACAddress'] || 'N/A').toUpperCase(),
           protocol: protocolLabel,
           dataModel: dataModelLabel,
           quality: overallHealthScore != null && overallHealthScore >= 80 ? 'Excellent' : overallHealthScore != null && overallHealthScore >= 60 ? 'Good' : overallHealthScore != null ? 'Fair' : 'INSUFFICIENT_DATA',
@@ -4882,13 +4895,19 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
               (/TR069/i.test(String(p.name || '')) && !/INTERNET/i.test(String(p.name || '')));
             const pIsPrimary = internetWan && ((p._id && String(p._id) === String(internetWan._id)) || (p.cpeObjectPath && p.cpeObjectPath === internetWan.cpeObjectPath) || p.name === internetWan.name);
             const pPrefix = p.cpeObjectPath ? String(p.cpeObjectPath).replace(/\.$/, '') : '';
-            const pRawIp = pPrefix ? rawParams[`${pPrefix}.ExternalIPAddress`] : undefined;
+            const pRawIp = pPrefix ? (rawParams[`${pPrefix}.ExternalIPAddress`] || rawParams[`${pPrefix}.RemoteIPAddress`]) : undefined;
             const pRawUser = pPrefix ? rawParams[`${pPrefix}.Username`] : undefined;
+            const pRawGw = pPrefix ? rawParams[`${pPrefix}.DefaultGateway`] : undefined;
+            const pRawDns = pPrefix ? rawParams[`${pPrefix}.DNSServers`] : undefined;
+            const pRawMask = pPrefix ? rawParams[`${pPrefix}.SubnetMask`] : undefined;
+            const pRawConnType = pPrefix ? rawParams[`${pPrefix}.ConnectionType`] : undefined;
+            const pIsBridged = p.mode === 'Bridge' || p.connectionType === 'Bridge' || /_Bridged$/i.test(String(pRawConnType || ''));
             return {
               _id: p._id ? String(p._id) : String(idx),
               index: idx,
               name: p.name || `WAN_${idx + 1}`,
-              connectionType: p.connectionType || 'PPPoE',
+              connectionType: p.connectionType || (pIsBridged ? 'Bridge' : 'PPPoE'),
+              mode: p.mode || (pIsBridged ? 'Bridge' : 'Route'),
               serviceType: p.serviceType || 'INTERNET',
               serviceUsage: p.serviceUsage || {
                 internet: !pIsMgmt,
@@ -4900,9 +4919,10 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
               },
               vlanEnabled: Boolean(p.vlanEnabled),
               vlanId: p.vlanId !== undefined ? Number(p.vlanId) : null,
+              vlanMode: p.vlanMode || (p.vlanEnabled ? 'TAG' : 'UNTAG'),
               vlanPriority8021p: p.vlanPriority8021p !== undefined ? Number(p.vlanPriority8021p) : 0,
               mtu: p.mtu || 1492,
-              natEnabled: p.natEnabled !== undefined ? Boolean(p.natEnabled) : !pIsMgmt,
+              natEnabled: p.natEnabled !== undefined ? Boolean(p.natEnabled) : (!pIsMgmt && !pIsBridged),
               firewallEnabled: p.firewallEnabled !== undefined ? Boolean(p.firewallEnabled) : true,
               wanPortBindings: p.wanPortBindings || ['WAN1'],
               lanPortBindings: pIsMgmt ? [] : (p.lanPortBindings || (is2PortModel ? ['LAN1', 'LAN2'] : ['LAN1', 'LAN2', 'LAN3', 'LAN4'])),
@@ -4911,9 +4931,10 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
               passwordConfigured: pIsMgmt ? false : Boolean(p.pppoePasswordEncrypted || p.pppoePassword || (pIsPrimary && customerObj?.wanConfig?.pppoePasswordEncrypted)),
               pppoePasswordMasked: '••••••••',
               ipAddress: (pRawIp && pRawIp !== '0.0.0.0' ? pRawIp : null) || p.ipAddress || (pIsPrimary ? realWanIp : null) || null,
-              gateway: p.gateway || (pIsPrimary ? realWanGateway : null),
-              dns: p.dns || (pIsPrimary ? realWanDns : null),
-              subnetMask: p.subnetMask || (pIsPrimary ? realWanSubnet : null),
+              gateway: (pRawGw && pRawGw !== '0.0.0.0' ? pRawGw : null) || p.gateway || (pIsPrimary ? realWanGateway : null),
+              dns: pRawDns || p.dnsServers || p.dns || (pIsPrimary ? realWanDns : null),
+              dnsServers: pRawDns || p.dnsServers || p.dns || (pIsPrimary ? realWanDns : null),
+              subnetMask: (pRawMask && pRawMask !== '0.0.0.0' ? pRawMask : null) || p.subnetMask || (pIsPrimary ? realWanSubnet : null),
               status: p.status || (device.status === 'online' ? 'Connected' : 'Disconnected'),
               isDefault: Boolean(pIsPrimary || (p.isDefault !== undefined ? p.isDefault : idx === 0)),
               isProtected: pIsMgmt,

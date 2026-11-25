@@ -264,8 +264,93 @@ export class CwmpService {
         );
         return;
       }
-      throw err;
+    throw err;
     }
+  }
+
+  private static isOpticalRxPath(path: string): boolean {
+    return (
+      /rxpower|rx_power|opticalpowerrx|rxopticalpower|receiveopticalpower|opticalsignallevel|receivepower|rxdba|opt_rx|optrx/i.test(path) &&
+      !/ping|traceroute|wlan|wifi|beacon|transmit/i.test(path) &&
+      !path.endsWith('.')
+    );
+  }
+
+  private static isOpticalTxPath(path: string): boolean {
+    return (
+      /txpower|tx_power|opticalpowertx|txopticalpower|transmitopticalpower|transmitpower|txdba|opt_tx|opttx/i.test(path) &&
+      !/ping|traceroute|wlan|wifi|beacon|receive/i.test(path) &&
+      !path.endsWith('.')
+    );
+  }
+
+  /**
+   * Selects prioritized confirmed TR-069/TR-181 telemetry paths across Device Details,
+   * Optical RX/TX, Wi-Fi, WAN Route/Bridge/VLAN, and LAN Hosts with a safe batch ceiling
+   * so Syrotech / Realtek TR-069 daemons never choke on 200+ parameter GPV packets.
+   */
+  private static selectConfirmedTelemetryPaths(
+    names: string[],
+    unsupportedSet: Set<string> = new Set(),
+    maxBatchSize = 90
+  ): {
+    paths: string[];
+    opticalRxCandidates: string[];
+    opticalTxCandidates: string[];
+    opticalCompanionCandidates: string[];
+  } {
+    const confirmedParams: string[] = [];
+    const pushConfirmed = (p: string, cap = maxBatchSize) => {
+      if (p && !p.endsWith('.') && !unsupportedSet.has(p) && confirmedParams.length < cap && !confirmedParams.includes(p)) {
+        confirmedParams.push(p);
+      }
+    };
+
+    // 1. Priority 1: Core Device Identity, Management & Health Telemetry
+    const coreMgmtParams = names.filter((n) =>
+      /(?:ManagementServer\.(?:PeriodicInformInterval|PeriodicInformEnable|ConnectionRequestURL)|DeviceInfo\.(?:Manufacturer|OUI|ManufacturerOUI|ModelName|ProductClass|HardwareVersion|SoftwareVersion|SerialNumber|Description|UpTime|CPUUsage|MemoryUsage)|DeviceInfo\.MemoryStatus\.(?:Total|Free)|DeviceInfo\.ProcessStatus\.CPUUsage|LANDevice\.1\.LANEthernetInterfaceConfig\.1\.MACAddress)$/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const mp of coreMgmtParams) pushConfirmed(mp, maxBatchSize);
+
+    // 2. Priority 2: Confirmed Optical RX / TX / Companion Transceiver Sensors (before verbose Hosts!)
+    const opticalRxCandidates = names.filter((n) => this.isOpticalRxPath(n) && !unsupportedSet.has(n));
+    const opticalTxCandidates = names.filter((n) => this.isOpticalTxPath(n) && !unsupportedSet.has(n));
+    const opticalCompanionCandidates = names.filter((n) =>
+      /(?:epon|gpon|pon|optical|x_ct[-_]com_|x_syrotech).*(?:bias|volt|vottage|temp)/i.test(n) &&
+      !/ping|traceroute|wlan|wifi/i.test(n) &&
+      !n.endsWith('.') &&
+      !unsupportedSet.has(n)
+    );
+    for (const optRx of opticalRxCandidates) pushConfirmed(optRx, maxBatchSize);
+    for (const optTx of opticalTxCandidates) pushConfirmed(optTx, maxBatchSize);
+    for (const comp of opticalCompanionCandidates) pushConfirmed(comp, maxBatchSize);
+
+    // 3. Priority 3: ALL Wi-Fi Interfaces (SSID, Band evidence, Standard, Channel, Passphrase)
+    const allWifiParams = names.filter((n) =>
+      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(?:SSID|Enable|Status|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT[-_]COM_RFBand|X_HW_RFBand|X_ZTE[-_]COM_RFBand|X_ALU_COM_RFBand|X_SYROTECH_Band|X_REALTEK_Band|X_HW_WorkMode|OperatingFrequencyBand|SupportedFrequencyBands|PreSharedKey\.1\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|WPA\.PreSharedKey)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|Status|LowerLayers|SSIDReference|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)))$/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const wp of allWifiParams) pushConfirmed(wp, maxBatchSize);
+
+    // 4. Priority 4: ALL WAN / Route / Bridge / PPPoE / IP / VLAN Connections across EVERY slot (TR-098 - and _ + TR-181)
+    const allWanParams = names.filter((n) =>
+      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|Password|ExternalIPAddress|RemoteIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|ServiceList|X_CT[-_]COM_ServiceList|X_HW_SERVICELIST|X_CT[-_]COM_LanInterface|X_CT[-_]COM_VlanID|X_CT[-_]COM_IPMode|X_HW_VLAN|X_ZTE[-_]COM_VLAN|X_TPLINK_VlanID|VLANID|VLANEnabled|DNSServers|DefaultGateway|SubnetMask|MaxMTUSize|CurrentMTUSize|Uptime|LastConnectionError|PPPoEACName)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:X_CT[-_]COM_WAN(?:Epon|Gpon)?LinkConfig)\.(?:VLANIDMark|Mode|802_1pMark)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.VLANID|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)$/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const wanp of allWanParams) pushConfirmed(wanp, maxBatchSize);
+
+    // 5. Priority 5: LAN Host count + confirmed host entries within remaining batch budget
+    const lanHosts = names.find((n) => /LANDevice\.\d+\.(Hosts\.HostNumberOfEntries|HostNumberOfEntries)$|Device\.Hosts\.HostNumberOfEntries$/i.test(n));
+    if (lanHosts) pushConfirmed(lanHosts, maxBatchSize);
+
+    const hostParams = names.filter((n) =>
+      /(?:LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:IPAddress|MACAddress|HostName|UserHostName|ClientID|Active|InterfaceType|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:IPAddress|PhysAddress|HostName|Active|InterfaceType)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)$/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const hp of hostParams) pushConfirmed(hp, maxBatchSize);
+
+    return { paths: confirmedParams, opticalRxCandidates, opticalTxCandidates, opticalCompanionCandidates };
   }
 
   /**
@@ -489,34 +574,68 @@ export class CwmpService {
       if (!isNaN(v)) data.vlanId = v;
     }
 
-    // Optical Power extraction
-    const rawRx = this.getFirstParam(pMap, [
+    // Optical Power extraction (exact paths + dynamic fallback for Syrotech / Realtek / OEM extensions)
+    let rawRx = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.X_SyroTech.GPON.OpticalRxPower',
+      'InternetGatewayDevice.WANDevice.1.X_SYROTECH_OpticalInfo.RxPower',
       'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalRxPower',
       'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.RxPower',
       'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.RXPower',
       'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.RXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.RXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.RXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.RXPower',
+      'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.RXPower',
+      'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.RXPower',
       'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.TransceiverRxPower',
       'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.RXPower',
       'InternetGatewayDevice.WANDevice.1.X_VSOL_OpticalInfo.RxPower',
-      'InternetGatewayDevice.WANDevice.1.X_SYROTECH_OpticalInfo.RxPower',
       'InternetGatewayDevice.WANDevice.1.X_NETLINK_OpticalInfo.RxPower',
       'InternetGatewayDevice.WANDevice.1.X_TPLINK_OptInfo.RxPower',
       'InternetGatewayDevice.WANDevice.1.X_NOKIA_OpticalInfo.RxPower',
       'Device.Optical.Interface.1.OpticalSignalLevel',
+      'Device.Optical.Interface.1.RxPower',
     ]);
-    data.opticalRxPower = CwmpXmlParser.normalizeOpticalRxPower(rawRx);
+    let rxPathMatched = '';
+    if (!rawRx) {
+      for (const [k, v] of pMap.entries()) {
+        if (this.isOpticalRxPath(k) && v !== undefined && v !== '' && v !== 'N/A') {
+          rawRx = v;
+          rxPathMatched = k;
+          break;
+        }
+      }
+    }
+    data.opticalRxPower = CwmpXmlParser.normalizeOpticalRxPower(rawRx, rxPathMatched);
 
-    const rawTx = this.getFirstParam(pMap, [
+    let rawTx = this.getFirstParam(pMap, [
       'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalTxPower',
       'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.TxPower',
       'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.TXPower',
       'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.TXPower',
       'InternetGatewayDevice.WANDevice.1.X_VSOL_OpticalInfo.TxPower',
+      'InternetGatewayDevice.WANDevice.1.X_SYROTECH_OpticalInfo.TxPower',
       'InternetGatewayDevice.WANDevice.1.X_TPLINK_OptInfo.TxPower',
       'InternetGatewayDevice.WANDevice.1.X_NOKIA_OpticalInfo.TxPower',
       'Device.Optical.Interface.1.TransmitOpticalPower',
+      'Device.Optical.Interface.1.TxPower',
     ]);
-    data.opticalTxPower = CwmpXmlParser.normalizeOpticalTxPower(rawTx);
+    let txPathMatched = '';
+    if (!rawTx) {
+      for (const [k, v] of pMap.entries()) {
+        if (this.isOpticalTxPath(k) && v !== undefined && v !== '' && v !== 'N/A') {
+          rawTx = v;
+          txPathMatched = k;
+          break;
+        }
+      }
+    }
+    data.opticalTxPower = CwmpXmlParser.normalizeOpticalTxPower(rawTx, txPathMatched);
 
     const rawBias = this.getFirstParam(pMap, [
       'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalBiasCurrent',
@@ -2406,15 +2525,11 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         }
       }
 
-      // Check whether full Wi-Fi + WAN parameter discovery has already completed via GPN
+      // Check whether full GPN/GPV tree discovery has genuinely completed (never skip GPN due to a sparse Inform containing 1 SSID + 1 WAN key)
       const rawKeys = Object.keys(dev?.rawParameters || {});
-      const hasWifiAndWanDiscovery =
-        rawKeys.some((k) => /WLANConfiguration\.\d+\.SSID|Device\.WiFi\.SSID\.\d+\.SSID/i.test(k)) &&
-        rawKeys.some((k) => /WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)|Device\.(?:PPP|IP)\.Interface/i.test(k));
       const hasCompletedDiscovery = Boolean(
         (dev as any)?.supportedParametersConfirmed ||
-        hasWifiAndWanDiscovery ||
-        Boolean(dev?.opticalTelemetrySourcePath)
+        (Boolean(dev?.opticalTelemetrySourcePath) && rawKeys.length >= 25)
       );
       const lastGpnTs = this.recentGpnAt.get(session.serialNumber) || 0;
       if (!hasCompletedDiscovery && session.stage !== 'GPN_SENT' && (Date.now() - lastGpnTs) >= 120_000) {
@@ -2479,15 +2594,11 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         }
       }
 
-      // Include all confirmed Wi-Fi (including band identification), WAN/PPPoE, VLAN & active LAN Host parameter paths from dev.rawParameters
+      // Include all confirmed DeviceInfo, Optical, Wi-Fi, WAN Route/VLAN, and Host paths from dev.rawParameters
       if (dev?.rawParameters && rawKeys.length > 0) {
-        for (const rk of rawKeys) {
-          if (
-            /(?:WLANConfiguration\.\d+\.(?:SSID|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|Enable|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|X_ALU_COM_RFBand|OperatingFrequencyBand|PreSharedKey\.1\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey))|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|LowerLayers|SSIDReference|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey))|WAN(?:PPP|IP)Connection\.\d+\.(?:Name|Username|Password|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|VLANID|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|DefaultGateway|DNSServers)|X_CT-COM_WAN(?:Epon|Gpon)?LinkConfig\.(?:VLANIDMark|Mode)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID|LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:MACAddress|IPAddress|InterfaceType|HostName|Active|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:PhysAddress|IPAddress|InterfaceType|HostName|Active)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(rk) &&
-            !rk.endsWith('.')
-          ) {
-            addUnique(rk);
-          }
+        const selectedPeriodic = this.selectConfirmedTelemetryPaths(rawKeys, new Set(), 90);
+        for (const rk of selectedPeriodic.paths) {
+          addUnique(rk);
         }
       } else {
         for (const bp of CwmpVendorProfiles.getSafeBaselineParameters(session.vendor, session.modelName)) {
@@ -2732,46 +2843,7 @@ ${stringElements}
       }).catch((err) => console.warn('[CWMP ACS] Error resolving GPN command:', err.message));
     }
 
-    // Build the query parameter list strictly from parameters that EXIST on the CPE
-    const confirmedParams: string[] = [];
-    const pushConfirmed = (p: string, maxLen = 240) => {
-      if (p && !p.endsWith('.') && confirmedParams.length < maxLen && !confirmedParams.includes(p)) {
-        confirmedParams.push(p);
-      }
-    };
-
-    // 1. Priority 1: Core Management & Uptime telemetry (keeps PeriodicInformInterval & UpTime accurate)
-    const coreMgmtParams = names.filter((n) =>
-      /(?:ManagementServer\.(?:PeriodicInformInterval|PeriodicInformEnable|ConnectionRequestURL)|DeviceInfo\.(?:UpTime|SoftwareVersion))$/i.test(n) &&
-      !n.endsWith('.')
-    );
-    for (const mp of coreMgmtParams) pushConfirmed(mp, 240);
-
-    // 2. Priority 2: ALL Wi-Fi Interfaces (SSID, Band evidence, Standard, Channel, KeyPassphrase across vendor extensions, AccessPoint SSIDReference)
-    const allWifiParams = names.filter((n) =>
-      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(?:SSID|Enable|Status|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|X_ZTE-COM_RFBand|X_ALU_COM_RFBand|X_HW_WorkMode|OperatingFrequencyBand|SupportedFrequencyBands|PreSharedKey\.1\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|WPA\.PreSharedKey)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|Status|LowerLayers|SSIDReference|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)))$/i.test(n) &&
-      !n.endsWith('.')
-    );
-    for (const wp of allWifiParams) pushConfirmed(wp, 180);
-
-    // 3. Priority 3: ALL WAN / PPPoE / IP / VLAN Connections across EVERY slot (TR-098 & TR-181)
-    const allWanParams = names.filter((n) =>
-      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|Password|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|ServiceList|X_CT-COM_ServiceList|X_CT_COM_ServiceList|X_HW_SERVICELIST|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|X_TPLINK_VlanID|VLANID|DNSServers|DefaultGateway|SubnetMask|Uptime|LastConnectionError|PPPoEACName)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:X_CT-COM_WANEponLinkConfig|X_CT-COM_WANGponLinkConfig|X_CT-COM_WANLinkConfig)\.(?:VLANIDMark|Mode|802_1pMark)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.VLANID|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)$/i.test(n) &&
-      !n.endsWith('.')
-    );
-    for (const wanp of allWanParams) pushConfirmed(wanp, 210);
-
-    // 4. Priority 4: Confirmed LAN Host entries (ONLY actual instances returned by GPN — NEVER speculate Host.1..16!)
-    const lanHosts = names.find((n) => /LANDevice\.\d+\.(Hosts\.HostNumberOfEntries|HostNumberOfEntries)$|Device\.Hosts\.HostNumberOfEntries$/i.test(n));
-    if (lanHosts) pushConfirmed(lanHosts, 230);
-
-    const hostParams = names.filter((n) =>
-      /(?:LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:IPAddress|MACAddress|HostName|UserHostName|ClientID|Active|InterfaceType|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:IPAddress|PhysAddress|HostName|Active|InterfaceType)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)$/i.test(n) &&
-      !n.endsWith('.')
-    );
-    for (const hp of hostParams) pushConfirmed(hp, 235);
-
-    // 5. Priority 5: Confirmed Optical / PON telemetry parameters (filtering out known UNSUPPORTED cached paths)
+    // Build the prioritized GPV query list strictly from parameters that EXIST on the CPE (capped cleanly for Syrotech/Realtek stability)
     let unsupportedSet = new Set<string>();
     if (session) {
       const cachedUnsupported = await SupportedParameterCache.find({
@@ -2782,27 +2854,17 @@ ${stringElements}
       unsupportedSet = new Set(cachedUnsupported.map((c: any) => c.parameterPath));
     }
 
-    const opticalRxCandidates = names.filter((n) =>
-      /rxpower|rx_power|opticalsignallevel|receivepower|rxdba|opt_rx/i.test(n) &&
-      !/ping|traceroute|wlan|wifi|beacon/i.test(n) && !n.endsWith('.') && !unsupportedSet.has(n)
-    );
-    const opticalTxCandidates = names.filter((n) =>
-      /txpower|tx_power|transmitopticalpower|opt_tx/i.test(n) &&
-      !/ping|traceroute|wlan|wifi|beacon/i.test(n) && !n.endsWith('.') && !unsupportedSet.has(n)
-    );
-    const opticalCompanionCandidates = names.filter((n) =>
-      /(epon|gpon|pon|optical).*(bias|volt|temp)/i.test(n) &&
-      !/ping|traceroute|wlan|wifi/i.test(n) && !n.endsWith('.') && !unsupportedSet.has(n)
-    );
+    const {
+      paths: confirmedParams,
+      opticalRxCandidates,
+      opticalTxCandidates,
+      opticalCompanionCandidates,
+    } = this.selectConfirmedTelemetryPaths(names, unsupportedSet, 90);
 
     console.log(
       `[CWMP ACS] Discovered Optical Telemetry on ${session?.serialNumber}: [RX: ${opticalRxCandidates.length}] [TX: ${opticalTxCandidates.length}] [Companions: ${opticalCompanionCandidates.length}]`,
       { rx: opticalRxCandidates, tx: opticalTxCandidates }
     );
-
-    for (const optRx of opticalRxCandidates) pushConfirmed(optRx, 250);
-    for (const optTx of opticalTxCandidates) pushConfirmed(optTx, 250);
-    for (const comp of opticalCompanionCandidates) pushConfirmed(comp, 255);
 
     if (session && confirmedParams.length > 0) {
       session.stage = 'OPTICAL_SENT';
@@ -3909,39 +3971,51 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         return null;
       }
 
-      if (session?.stage === 'OPTICAL_SENT' && session.activeOpticalCandidate) {
-        await SupportedParameterCache.findOneAndUpdate(
-          {
-            vendor: session.vendor,
-            modelName: session.modelName,
-            parameterPath: session.activeOpticalCandidate,
-          },
-          {
-            $set: {
-              status: 'UNSUPPORTED',
-              manufacturer: session.manufacturer,
-              firmwareVersion: session.firmwareVersion,
-              lastCheckedAt: new Date(),
-              lastErrorCode: fault.faultCode,
-              lastRawFault: fault.faultString || 'CWMP Fault 9005',
+      if (session?.stage === 'OPTICAL_SENT' && (session.activeOpticalCandidate || (session.lastQueriedPaths && session.lastQueriedPaths.length > 0))) {
+        const paramFaultMatch = (fault.faultString || xml).match(/(?:Invalid parameter name[: ]*|parameter[: ]+)((?:InternetGatewayDevice|Device)\.[A-Za-z0-9._-]+)/i);
+        const exactFaultPath = paramFaultMatch ? paramFaultMatch[1].trim() : undefined;
+        const pathToBlacklist = exactFaultPath || session.activeOpticalCandidate;
+
+        if (pathToBlacklist) {
+          await SupportedParameterCache.findOneAndUpdate(
+            {
+              vendor: session.vendor,
+              modelName: session.modelName,
+              parameterPath: pathToBlacklist,
             },
-          },
-          { upsert: true }
-        );
+            {
+              $set: {
+                status: 'UNSUPPORTED',
+                manufacturer: session.manufacturer,
+                firmwareVersion: session.firmwareVersion,
+                lastCheckedAt: new Date(),
+                lastErrorCode: fault.faultCode,
+                lastRawFault: fault.faultString || 'CWMP Fault 9005',
+              },
+            },
+            { upsert: true }
+          );
+          console.log(
+            `[CWMP ACS] Cached parameter as UNSUPPORTED: ${pathToBlacklist}. Baseline Wi-Fi/WAN data remains preserved.`
+          );
+        }
 
-        device.lastParameterSyncStatus = 'FAULT_9005_OPTICAL';
+        device.lastParameterSyncStatus = `FAULT_${fault.faultCode}_OPTICAL`;
         await this.saveDeviceResilient(device);
-        console.log(
-          `[CWMP ACS] Cached parameter as UNSUPPORTED: ${session.activeOpticalCandidate}. Baseline Wi-Fi/WAN data remains preserved.`
-        );
 
-        // If the aborted OPTICAL_SENT GPV also carried non-optical Wi-Fi / WAN / Hosts parameters that haven't been synced yet, retry them cleanly without optical paths
-        const remainingNonOptical = (session.lastQueriedPaths || []).filter(
-          (p) => !/rxpower|rx_power|optical|txpower|tx_power|opt_rx|opt_tx|bias|volt|temp/i.test(p)
-        );
+        // If the fault specifically implicated a non-optical path, retry remaining paths keeping optical intact; otherwise fall back cleanly without optical
+        const remainingPaths = (session.lastQueriedPaths || []).filter((p) => {
+          if (exactFaultPath && !this.isOpticalRxPath(exactFaultPath) && !this.isOpticalTxPath(exactFaultPath)) {
+            return p !== exactFaultPath;
+          }
+          return !this.isOpticalRxPath(p) && !this.isOpticalTxPath(p) && !/optical|bias|vottage|rxpower|txpower/i.test(p);
+        });
+        const remainingNonOptical = remainingPaths.length > 48 ? remainingPaths.slice(0, 48) : remainingPaths;
         if (remainingNonOptical.length > 0) {
           session.stage = 'BASELINE_SENT';
-          session.activeOpticalCandidate = undefined;
+          if (!exactFaultPath || this.isOpticalRxPath(exactFaultPath)) {
+            session.activeOpticalCandidate = undefined;
+          }
           session.lastQueriedPaths = [...remainingNonOptical];
           const stringElements = remainingNonOptical.map((p) => `        <string>${p}</string>`).join('\n');
           console.log(`[CWMP ACS -> CPE] Dispatching non-optical fallback GPV (${remainingNonOptical.length} params) for ${session.serialNumber}`);
@@ -4159,6 +4233,25 @@ ${stringElements}
       const pi = parseInt(String(rawInterval), 10);
       if (!isNaN(pi) && pi > 0) device.periodicInformInterval = pi;
     }
+    const gpvManufacturer = this.getFirstParam(pMap, ['InternetGatewayDevice.DeviceInfo.Manufacturer', 'Device.DeviceInfo.Manufacturer']);
+    if (gpvManufacturer && !/^unknown|generic$/i.test(gpvManufacturer.trim())) {
+      device.manufacturer = CwmpVendorProfiles.detectVendor(gpvManufacturer, device.modelName) === 'SYROTECH' ? 'SYROTECH' : gpvManufacturer.trim();
+    }
+    const gpvModel = this.getFirstParam(pMap, ['InternetGatewayDevice.DeviceInfo.ModelName', 'Device.DeviceInfo.ModelName', 'InternetGatewayDevice.DeviceInfo.ProductClass', 'Device.DeviceInfo.ProductClass']);
+    if (gpvModel && !/^unknown|generic|gpon[-_ ]?ont|igd$/i.test(gpvModel.trim())) {
+      device.modelName = gpvModel.trim();
+    }
+    const gpvHwVer = this.getFirstParam(pMap, ['InternetGatewayDevice.DeviceInfo.HardwareVersion', 'Device.DeviceInfo.HardwareVersion']);
+    if (gpvHwVer && gpvHwVer.trim()) device.hardwareVersion = gpvHwVer.trim();
+    const gpvSwVer = this.getFirstParam(pMap, ['InternetGatewayDevice.DeviceInfo.SoftwareVersion', 'Device.DeviceInfo.SoftwareVersion', 'InternetGatewayDevice.DeviceInfo.X_HW_SoftwareVersion']);
+    if (gpvSwVer && gpvSwVer.trim()) device.softwareVersion = gpvSwVer.trim();
+    const gpvMac = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1.MACAddress',
+      'Device.Ethernet.Interface.1.MACAddress',
+      'InternetGatewayDevice.DeviceInfo.MACAddress',
+      'Device.DeviceInfo.MACAddress',
+    ]);
+    if (gpvMac && gpvMac.trim() && gpvMac !== '00:00:00:00:00:00') device.macAddress = gpvMac.trim();
     const rawUptime = this.getFirstParam(pMap, [
       'InternetGatewayDevice.DeviceInfo.UpTime',
       'Device.DeviceInfo.UpTime',
@@ -4232,29 +4325,42 @@ ${stringElements}
       const isPpp = prefix.includes('WANPPPConnection');
       const connName = pMap.get(`${prefix}.Name`) || '';
       const connUser = pMap.get(`${prefix}.Username`) || '';
-      const connIp = pMap.get(`${prefix}.ExternalIPAddress`) || '';
+      const connIp = pMap.get(`${prefix}.ExternalIPAddress`) || pMap.get(`${prefix}.RemoteIPAddress`) || '';
+      const connGateway = pMap.get(`${prefix}.DefaultGateway`) || '';
+      const connDns = pMap.get(`${prefix}.DNSServers`) || '';
+      const connSubnet = pMap.get(`${prefix}.SubnetMask`) || '';
+      const connAddressing = pMap.get(`${prefix}.AddressingType`) || '';
+      const connNat = pMap.get(`${prefix}.NATEnabled`);
+      const connMtuRaw = pMap.get(`${prefix}.MaxMTUSize`) || pMap.get(`${prefix}.CurrentMTUSize`);
       const connStatus = pMap.get(`${prefix}.ConnectionStatus`) || (connIp && connIp !== '0.0.0.0' ? 'Connected' : 'Connecting');
       const connEnable = pMap.get(`${prefix}.Enable`) !== '0' && pMap.get(`${prefix}.Enable`) !== 'false';
       const slotMatch = prefix.match(/WANConnectionDevice\.(\d+)\./i);
       const slotNum = slotMatch ? slotMatch[1] : '1';
 
-      // Resolve VLAN ID from live pMap, rawParameters, or slot link config
+      // Resolve VLAN ID from live pMap, rawParameters, or slot link config (supports X_CT-COM_ and X_CT_COM_)
       let connVlan: number | null = null;
       const rawMap = ((device as any)?.rawParameters || {}) as Record<string, any>;
-      const vlanRaw = pMap.get(`${prefix}.X_CT-COM_VlanID`) || 
-                      pMap.get(`${prefix}.X_HW_VLAN`) || 
-                      pMap.get(`${prefix}.VLANID`) || 
-                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`) ||
-                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`) ||
-                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`) ||
-                      pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`) ||
-                      rawMap[`${prefix}.X_CT-COM_VlanID`] || 
-                      rawMap[`${prefix}.X_HW_VLAN`] || 
-                      rawMap[`${prefix}.VLANID`] || 
-                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`] ||
-                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`] ||
-                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`] ||
-                      rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`];
+      const getSlotOrConn = (keys: string[]) => {
+        for (const k of keys) {
+          const val = pMap.get(k) ?? rawMap[k];
+          if (val !== undefined && val !== '') return val;
+        }
+        return undefined;
+      };
+      const vlanRaw = getSlotOrConn([
+        `${prefix}.X_CT-COM_VlanID`,
+        `${prefix}.X_CT_COM_VlanID`,
+        `${prefix}.X_HW_VLAN`,
+        `${prefix}.X_ZTE-COM_VLAN`,
+        `${prefix}.VLANID`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT_COM_WANEponLinkConfig.VLANIDMark`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT_COM_WANGponLinkConfig.VLANIDMark`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANLinkConfig.VLANIDMark`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT_COM_WANLinkConfig.VLANIDMark`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.VLANID`,
+      ]);
       if (vlanRaw) {
         const v = parseInt(String(vlanRaw), 10);
         if (!isNaN(v) && v > 0) connVlan = v;
@@ -4273,17 +4379,25 @@ ${stringElements}
 
       // Resolve mode (Bridge vs Route) and VLAN mode (TAG vs UNTAG)
       const rawConnType = pMap.get(`${prefix}.ConnectionType`) || rawMap[`${prefix}.ConnectionType`] || '';
-      const isBridged = rawConnType === 'IP_Bridged' || /bridge/i.test(connName) || existingProfile?.mode === 'Bridge';
+      const isBridged = /_Bridged$/i.test(rawConnType) || /bridge/i.test(connName) || existingProfile?.mode === 'Bridge';
       const resolvedMode = isBridged ? 'Bridge' : 'Route';
+      const resolvedConnectionType = isPpp ? 'PPPoE' : isBridged ? 'Bridge' : (/static/i.test(connAddressing) ? 'Static' : 'IPoE_DHCP');
 
-      const rawEponMode = pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`) ||
-                          rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`] ||
-                          pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`) ||
-                          rawMap[`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`];
+      const rawEponMode = getSlotOrConn([
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.Mode`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT_COM_WANEponLinkConfig.Mode`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.Mode`,
+        `InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT_COM_WANGponLinkConfig.Mode`,
+      ]);
       const isVlanTagMode = rawEponMode !== undefined ? String(rawEponMode) === '1' : (existingProfile?.vlanMode === 'TAG' || Boolean(connVlan));
 
       // Resolve service type
-      const serviceList = pMap.get(`${prefix}.X_CT-COM_ServiceList`) || pMap.get(`${prefix}.X_CT_COM_ServiceList`) || pMap.get(`${prefix}.X_HW_SERVICELIST`) || pMap.get(`${prefix}.ServiceList`) || rawMap[`${prefix}.X_CT-COM_ServiceList`] || '';
+      const serviceList = getSlotOrConn([
+        `${prefix}.X_CT-COM_ServiceList`,
+        `${prefix}.X_CT_COM_ServiceList`,
+        `${prefix}.X_HW_SERVICELIST`,
+        `${prefix}.ServiceList`,
+      ]) || '';
       const isTr069 = (/TR069/i.test(connName) || /TR069/i.test(serviceList)) && !/INTERNET|VOIP|VOICE/i.test(connName + serviceList);
       const isVoip = /VOIP|VOICE/i.test(connName) || /VOIP|VOICE/i.test(serviceList);
       const isInternet = /INTERNET/i.test(connName) || /INTERNET/i.test(serviceList) || isPpp || (!isTr069 && !isVoip);
@@ -4294,10 +4408,11 @@ ${stringElements}
         ? this.pickNonMaskedSecret(pMap, [`${prefix}.Password`, `${prefix}.X_CT-COM_Password`, `${prefix}.X_HW_Password`])
         : undefined;
 
+      const dnsParts = connDns ? connDns.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
       discoveredWanProfiles.push({
         name: connName || fallbackName,
         enableWan: connEnable,
-        connectionType: isPpp ? 'PPPoE' : (isBridged ? 'Bridge' : 'IP_Routed'),
+        connectionType: resolvedConnectionType,
         serviceType: resolvedService,
         serviceUsage: {
           internet: isInternet,
@@ -4314,12 +4429,19 @@ ${stringElements}
         vlanId: connVlan || undefined,
         vlanMode: isVlanTagMode ? 'TAG' : 'UNTAG',
         vlanEnabled: isVlanTagMode && Boolean(connVlan),
-        ipAssignment: isPpp ? 'DHCP' : 'DHCP',
+        ipAssignment: /static/i.test(connAddressing) ? 'Static' : 'DHCP',
+        natEnabled: connNat !== undefined ? (connNat !== '0' && connNat !== 'false') : !isBridged,
+        ...(connMtuRaw && !isNaN(Number(connMtuRaw)) ? { mtu: Number(connMtuRaw) } : {}),
         isProtected: isTr069,
         cpeObjectPath: `${prefix}.`,
         pppoeUsername: connUser,
         ...(connPass ? { pppoePasswordEncrypted: connPass } : {}),
-        ipAddress: connIp || null,
+        ipAddress: (connIp && connIp !== '0.0.0.0') ? connIp : null,
+        gateway: (connGateway && connGateway !== '0.0.0.0') ? connGateway : undefined,
+        dnsServers: connDns || undefined,
+        ...(dnsParts[0] ? { primaryDns: dnsParts[0] } : {}),
+        ...(dnsParts[1] ? { secondaryDns: dnsParts[1] } : {}),
+        subnetMask: (connSubnet && connSubnet !== '0.0.0.0') ? connSubnet : undefined,
         status: connStatus === 'Connected' ? 'Connected' : 'Connecting',
         isDefault: isInternet,
       });
@@ -4362,10 +4484,22 @@ ${stringElements}
           if (existing) {
             // Update live telemetry and configuration fields directly from CPE
             if (incoming.status) existing.status = incoming.status;
+            if (incoming.enableWan !== undefined) existing.enableWan = incoming.enableWan;
             if (incoming.ipAddress && incoming.ipAddress !== '0.0.0.0') existing.ipAddress = incoming.ipAddress;
+            if (incoming.gateway) existing.gateway = incoming.gateway;
+            if (incoming.dnsServers) existing.dnsServers = incoming.dnsServers;
+            if (incoming.primaryDns) existing.primaryDns = incoming.primaryDns;
+            if (incoming.secondaryDns) existing.secondaryDns = incoming.secondaryDns;
+            if (incoming.subnetMask) existing.subnetMask = incoming.subnetMask;
             if (incoming.pppoeUsername) existing.pppoeUsername = incoming.pppoeUsername;
             if (incoming.pppoePasswordEncrypted) existing.pppoePasswordEncrypted = incoming.pppoePasswordEncrypted;
             if (incoming.vlanId) existing.vlanId = incoming.vlanId;
+            if (incoming.vlanMode) existing.vlanMode = incoming.vlanMode;
+            if (incoming.vlanEnabled !== undefined) existing.vlanEnabled = incoming.vlanEnabled;
+            if (incoming.mode) existing.mode = incoming.mode;
+            if (incoming.ipAssignment) existing.ipAssignment = incoming.ipAssignment;
+            if (incoming.natEnabled !== undefined) existing.natEnabled = incoming.natEnabled;
+            if (incoming.mtu) existing.mtu = incoming.mtu;
             if (incoming.cpeObjectPath) existing.cpeObjectPath = incoming.cpeObjectPath;
             if (incoming.serviceType) existing.serviceType = incoming.serviceType;
             if (incoming.bearerService) existing.bearerService = incoming.bearerService;
@@ -4580,18 +4714,13 @@ ${stringElements}
 
     device.lastParameterSyncStatus = 'PARTIAL_SUCCESS';
 
-    // 2. Optical Telemetry Extraction (Dynamic Multi-Vendor Scanning)
+    // 2. Optical Telemetry Extraction (Dynamic Multi-Vendor Scanning for Syrotech / Realtek / CTC / Huawei / ZTE / Genexis)
     let activeCandidate = session?.activeOpticalCandidate;
     let rxValRaw: string | undefined = activeCandidate ? pMap.get(activeCandidate) : undefined;
 
-    // If activeCandidate was not in pMap or returned empty, scan all keys in pMap for Optical RX
     if (!rxValRaw) {
       for (const [k, v] of pMap.entries()) {
-        if (
-          /rxpower|rx_power|opticalsignallevel|receivepower|rxdba|opt_rx/i.test(k) &&
-          !/ping|traceroute|wlan|wifi|beacon|transmit/i.test(k) &&
-          v !== undefined && v !== '' && v !== '0' && v !== '-40.0' && v !== 'N/A'
-        ) {
+        if (this.isOpticalRxPath(k) && v !== undefined && v !== '' && v !== '-40.0' && v !== 'N/A') {
           activeCandidate = k;
           rxValRaw = v;
           break;
@@ -4602,83 +4731,113 @@ ${stringElements}
     const vendor = session?.vendor || 'CHINA_TELECOM';
     const normalizedRx = rxValRaw ? CwmpVendorProfiles.normalizeOpticalRx(vendor, activeCandidate || '', rxValRaw) : null;
 
+    // Extract TX, Bias, Voltage, Temperature independently so companion metrics still update even if RX is missing/LOS
+    let txPathCandidate = '';
+    let rawTx = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalTxPower',
+      'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.TxPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.TXPower',
+      'InternetGatewayDevice.WANDevice.1.X_VSOL_OpticalInfo.TxPower',
+      'InternetGatewayDevice.WANDevice.1.X_SYROTECH_OpticalInfo.TxPower',
+      'Device.Optical.Interface.1.TransmitOpticalPower',
+      'Device.Optical.Interface.1.TxPower',
+    ]);
+    if (!rawTx) {
+      for (const [k, v] of pMap.entries()) {
+        if (this.isOpticalTxPath(k) && v !== undefined && v !== '' && v !== '0' && v !== 'N/A') {
+          rawTx = v;
+          txPathCandidate = k;
+          break;
+        }
+      }
+    }
+    const normalizedTx = rawTx ? CwmpVendorProfiles.normalizeOpticalTx(vendor, txPathCandidate, rawTx) : undefined;
+    if (normalizedTx) device.currentTxPowerDbm = normalizedTx.normalizedValue;
+
+    const rawBias = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalBiasCurrent',
+      'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.TXBiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.BiasCurrent',
+      'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.BiasCurrent',
+      'Device.Optical.Interface.1.TxBiasCurrent',
+    ]);
+    const bias = CwmpXmlParser.normalizeBiasCurrent(rawBias);
+    if (bias !== undefined) device.biasCurrentMa = bias;
+
+    const rawVolt = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalVoltage',
+      'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.Voltage',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.Voltage',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.Voltage',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.SupplyVoltage',
+      'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.Voltage',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.SupplyVoltage',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.SupplyVoltage',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.SupplyVottage',
+      'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.SupplyVoltage',
+      'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.SupplyVottage',
+      'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.SupplyVoltage',
+      'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.SupplyVoltage',
+      'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.SupplyVoltage',
+      'Device.Optical.Interface.1.Voltage',
+    ]);
+    const volt = CwmpXmlParser.normalizeVoltage(rawVolt);
+    if (volt !== undefined) device.opticalVoltageV = volt;
+
+    const rawTemp = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.Temperature',
+      'InternetGatewayDevice.DeviceInfo.X_HW_BoardTemp',
+      'InternetGatewayDevice.DeviceInfo.X_ZTE-COM_BoardTemperature',
+      'InternetGatewayDevice.DeviceInfo.Temperature',
+      'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.Temperature',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.Temperature',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.Temperature',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.TransceiverTemperature',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.TransceiverTemperature',
+      'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.TransceiverTemperature',
+      'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.TransceiverTemperature',
+      'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.TransceiverTemperature',
+      'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.TransceiverTemperature',
+      'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.TransceiverTemperature',
+      'Device.DeviceInfo.TemperatureStatus.TemperatureSensor.1.Value',
+      'Device.Optical.Interface.1.Temperature',
+    ]);
+    let resolvedRawTemp = rawTemp;
+    if (!resolvedRawTemp) {
+      for (const [k, v] of pMap.entries()) {
+        if (/(?:epon|gpon|pon|optical|x_ct[-_]com_|x_syrotech|transceiver|board).*temp/i.test(k) && v !== undefined && v !== '' && v !== '0') {
+          resolvedRawTemp = v;
+          break;
+        }
+      }
+    }
+    const temp = CwmpXmlParser.normalizeTemperature(resolvedRawTemp);
+    if (temp !== undefined) {
+      device.temperatureC = temp;
+      (device as any).opticalTemperature = temp;
+    }
+
     if (normalizedRx && normalizedRx.isReliable) {
       device.currentRxPowerDbm = normalizedRx.normalizedValue;
       device.opticalTelemetrySourcePath = activeCandidate;
       device.opticalStatus =
         normalizedRx.normalizedValue < -27.0 ? 'critical' :
         normalizedRx.normalizedValue < -24.5 ? 'warning' : 'normal';
-
-      // Dynamically find TX Power from pMap
-      let rawTx = this.getFirstParam(pMap, [
-        'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalTxPower',
-        'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.TxPower',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.X_VSOL_OpticalInfo.TxPower',
-        'Device.Optical.Interface.1.TransmitOpticalPower',
-      ]);
-      if (!rawTx) {
-        for (const [k, v] of pMap.entries()) {
-          if (
-            /txpower|tx_power|transmitopticalpower|opt_tx/i.test(k) &&
-            !/ping|traceroute|wlan|wifi/i.test(k) &&
-            v !== undefined && v !== '' && v !== '0' && v !== 'N/A'
-          ) {
-            rawTx = v;
-            break;
-          }
-        }
-      }
-      const normalizedTx = CwmpVendorProfiles.normalizeOpticalTx(vendor, '', rawTx);
-      if (normalizedTx) device.currentTxPowerDbm = normalizedTx.normalizedValue;
-
-      const rawBias = this.getFirstParam(pMap, [
-        'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalBiasCurrent',
-        'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.BiasCurrent',
-        'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.TXBiasCurrent',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.BiasCurrent',
-        'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.BiasCurrent',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.BiasCurrent',
-        'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.BiasCurrent',
-        'Device.Optical.Interface.1.TxBiasCurrent',
-      ]);
-      const bias = CwmpXmlParser.normalizeBiasCurrent(rawBias);
-      if (bias !== undefined) device.biasCurrentMa = bias;
-
-      const rawVolt = this.getFirstParam(pMap, [
-        'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.OpticalVoltage',
-        'InternetGatewayDevice.DeviceInfo.X_HW_GPON.OpticalModuleInformation.Voltage',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.Voltage',
-        'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.Voltage',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.SupplyVoltage',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.SupplyVottage',
-        'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.SupplyVoltage',
-        'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.SupplyVottage',
-        'InternetGatewayDevice.WANDevice.1.X_ZTE-COM_WANPONInterfaceConfig.SupplyVoltage',
-        'Device.Optical.Interface.1.Voltage',
-      ]);
-      const volt = CwmpXmlParser.normalizeVoltage(rawVolt);
-      if (volt !== undefined) device.opticalVoltageV = volt;
-
-      const rawTemp = this.getFirstParam(pMap, [
-        'InternetGatewayDevice.WANDevice.1.X_HW_DEBUG.SMP.ONT.Temperature',
-        'InternetGatewayDevice.DeviceInfo.X_HW_BoardTemp',
-        'InternetGatewayDevice.DeviceInfo.X_ZTE-COM_BoardTemperature',
-        'InternetGatewayDevice.DeviceInfo.Temperature',
-        'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.Temperature',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.TransceiverTemperature',
-        'InternetGatewayDevice.WANDevice.1.X_CMCC_EponInterfaceConfig.TransceiverTemperature',
-        'Device.DeviceInfo.TemperatureStatus.TemperatureSensor.1.Value',
-        'Device.Optical.Interface.1.Temperature',
-      ]);
-      const temp = CwmpXmlParser.normalizeTemperature(rawTemp);
-      if (temp !== undefined) device.temperatureC = temp;
 
       // Process Continuous Optical Telemetry, Deduplication, History (20 Limit), and Critical/Recovery Alerts
       await CwmpService.processOpticalTelemetryChange(
@@ -4711,6 +4870,9 @@ ${stringElements}
         );
       }
 
+      device.lastParameterSyncStatus = 'SUCCESS';
+    } else if (ssid24 || discoveredWanProfiles.length > 0 || (device as any).supportedParametersConfirmed) {
+      // Non-optical GPV succeeded (or CPE returned Wi-Fi/WAN/DeviceInfo cleanly) -> mark SUCCESS so periodic sync cooldown activates cleanly
       device.lastParameterSyncStatus = 'SUCCESS';
     }
 

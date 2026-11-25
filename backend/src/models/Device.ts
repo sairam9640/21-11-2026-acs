@@ -370,6 +370,7 @@ const DeviceSchema = new Schema<IDevice>(
     ],
 
     // Hardware metrics — no defaults; only set when real TR-069 data is received
+    uptimeSeconds: { type: Number },
     cpuUsagePercent: { type: Number },
     memoryUsagePercent: { type: Number },
     temperatureC: { type: Number },

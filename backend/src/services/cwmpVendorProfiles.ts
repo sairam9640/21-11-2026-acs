@@ -42,8 +42,11 @@ export class CwmpVendorProfiles {
     const text = ((manufacturer || '') + ' ' + (modelName || '') + ' ' + (oui || '') + ' ' + (productClass || '') + ' ' + (rawXml || '')).toLowerCase();
     let detected: CpeVendor = 'CHINA_TELECOM';
 
-    // 1. Syrotech ONTs (SY-GPON series, 1110WD, GXD, Luna platform)
-    if (/syrotech|sy-gpon|syro|1110wd|gxd|r28080/i.test(text) || oui === '3894E0' || oui === '7CA96B' || oui === '5447E8' || oui === 'B8B7DB' || oui === '989DB2') {
+    // 1. Syrotech ONTs (SY-GPON / SY-EPON series, 1110WD, 2020WA, 2010WA, 4020, GXD, Luna platform)
+    if (
+      /syrotech|sy-gpon|sy-epon|syro|1110wd|2020wa|2010wa|1020|4020|gxd|r28080|x_syrotech/i.test(text) ||
+      ['3894E0', '7CA96B', '5447E8', 'B8B7DB', '989DB2', 'E4CA12'].includes((oui || '').toUpperCase())
+    ) {
       detected = 'SYROTECH';
     }
     // 2. Realtek / OEM Realtek chipsets (OUI 00E04C, XPON+1GE, etc.)
@@ -264,7 +267,9 @@ export class CwmpVendorProfiles {
           'InternetGatewayDevice.X_SyroTech.GPON.OpticalRxPower',
           'InternetGatewayDevice.WANDevice.1.X_SYROTECH_OpticalInfo.RxPower',
           'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.RXPower',
           'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.RXPower',
           'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.RXPower',
           'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.RXPower',
           'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.RXPower',
@@ -428,11 +433,24 @@ export class CwmpVendorProfiles {
       ];
     }
 
-    if (rxPath.includes('X_CT-COM_EponInterfaceConfig')) {
+    if (rxPath.includes('X_CT-COM_EponInterfaceConfig') || rxPath.includes('X_CT_COM_EponInterfaceConfig')) {
+      const base = rxPath.substring(0, rxPath.lastIndexOf('.'));
       return [
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.TXPower',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.BiasCurrent',
-        'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.TransceiverTemperature',
+        `${base}.TXPower`,
+        `${base}.BiasCurrent`,
+        `${base}.TransceiverTemperature`,
+        `${base}.SupplyVoltage`,
+      ];
+    }
+
+    if (rxPath.includes('X_CT-COM_GponInterfaceConfig') || rxPath.includes('X_CT_COM_GponInterfaceConfig') || rxPath.includes('X_GponInterfaceConfig')) {
+      const base = rxPath.substring(0, rxPath.lastIndexOf('.'));
+      return [
+        `${base}.TXPower`,
+        `${base}.TransceiverTemperature`,
+        `${base}.SupplyVoltage`,
+        `${base}.Voltage`,
+        `${base}.BiasCurrent`,
       ];
     }
 
@@ -532,31 +550,41 @@ export class CwmpVendorProfiles {
     raw: string | number | undefined
   ): OpticalTelemetryScalingResult | undefined {
     if (raw === undefined || raw === null || raw === '') return undefined;
-    const cleanStr = String(raw).replace(/dBm|dbm|\s+/g, '').trim();
+    const rawStr = String(raw).trim();
+    const explicitDbm = /dbm/i.test(rawStr);
+    const cleanStr = rawStr.replace(/dBm|dbm|\s+/g, '').trim();
     const num = parseFloat(cleanStr);
     if (isNaN(num)) return undefined;
 
-    if (num === 0) {
+    if (num === 0 || num <= -4000) {
       return { rawValue: cleanStr, normalizedValue: -40.0, unit: 'dBm', scaleFactor: 1, sourcePath: paramPath, vendor, isReliable: true };
     }
 
     let scale = 1;
-    let normalized = num;
+    let normalized = Math.abs(num);
 
-    // TR-181 Device.Optical.Interface.1.OpticalSignalLevel is in 0.001 dBm
-    if (paramPath.startsWith('Device.Optical.') || Math.abs(num) >= 10000) {
-      scale = 1000;
-      normalized = Math.abs(num) / 1000;
-    }
-    // TR-098 vendor extensions (Huawei, ZTE, CTC, VSOL) report in 0.01 dBm (e.g. -2145 or 2145)
-    else if (Math.abs(num) >= 100) {
-      scale = 100;
-      normalized = Math.abs(num) / 100;
-    }
-    // Float representation (e.g. -21.45 or 21.45)
-    else {
-      scale = 1;
-      normalized = Math.abs(num);
+    if (num < 0) {
+      // TR-181 Device.Optical.Interface.1.OpticalSignalLevel can use 0.001 dBm
+      if (paramPath.startsWith('Device.Optical.') && num < -1000) {
+        scale = 1000;
+        normalized = Math.abs(num) / 1000;
+      } else if (num < -100) {
+        // Scaled integer in 0.01 dBm (e.g. -2145 => -21.45 dBm)
+        scale = 100;
+        normalized = Math.abs(num) / 100;
+      } else {
+        scale = 1;
+        normalized = Math.abs(num);
+      }
+    } else if (explicitDbm || (!Number.isInteger(num) && num >= 5 && num <= 40)) {
+      scale = num >= 100 ? 100 : 1;
+      normalized = scale === 100 ? num / 100 : num;
+    } else {
+      // Syrotech / Realtek / Broadcom / CTC report positive raw optical power in 0.1 µW (e.g. 63 => -22.01 dBm, 100 => -20.0 dBm, 316 => -15.0 dBm)
+      const uW = num / 10;
+      const dbmVal = 10 * Math.log10(uW / 1000);
+      scale = 10;
+      normalized = dbmVal >= 0 ? 0.5 : Math.abs(dbmVal);
     }
 
     if (normalized > 50) normalized = 40.0;
@@ -579,16 +607,20 @@ export class CwmpVendorProfiles {
     raw: string | number | undefined
   ): OpticalTelemetryScalingResult | undefined {
     if (raw === undefined || raw === null || raw === '') return undefined;
-    const cleanStr = String(raw).replace(/dBm|dbm|\s+/g, '').trim();
+    const rawStr = String(raw).trim();
+    const explicitDbm = /dbm/i.test(rawStr);
+    const cleanStr = rawStr.replace(/dBm|dbm|\s+/g, '').trim();
     const num = parseFloat(cleanStr);
     if (isNaN(num)) return undefined;
 
     let scale = 1;
     let normalized = num;
 
-    if (Math.abs(num) >= 1000) {
-      scale = 1000;
-      normalized = num / 1000;
+    if (!explicitDbm && num > 1000) {
+      // Raw power in 0.1 µW (e.g. 15849 => +2.00 dBm)
+      const uW = num / 10;
+      normalized = 10 * Math.log10(uW / 1000);
+      scale = 10;
     } else if (Math.abs(num) >= 100) {
       scale = 100;
       normalized = num / 100;
