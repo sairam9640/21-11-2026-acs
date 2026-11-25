@@ -194,6 +194,33 @@ export class CwmpService {
   }
 
   /**
+   * Checks if the CPE currently has an active or recently opened CWMP session
+   */
+  static getActiveSessionForDevice(serialNumber?: string): {
+    active: boolean;
+    opened: boolean;
+    sessionId?: string;
+    stage?: string;
+    openedAt?: Date;
+  } {
+    if (!serialNumber) return { active: false, opened: false };
+    const aliases = new Set(CwmpXmlParser.getSerialNumberAliases(serialNumber));
+    const cutoff = Date.now() - 120_000;
+    for (const s of this.sessionsById.values()) {
+      if (aliases.has(s.serialNumber) && s.timestamp >= cutoff && s.stage !== 'MISMATCH_BLOCKED') {
+        return {
+          active: s.stage !== 'COMPLETED',
+          opened: true,
+          sessionId: s.sessionId,
+          stage: s.stage,
+          openedAt: new Date(s.timestamp),
+        };
+      }
+    }
+    return { active: false, opened: false };
+  }
+
+  /**
    * Release per-socket connection mapping once a CWMP session completes so keepalive/CGNAT port reuse never collides
    */
   static async clearConnectionSession(connectionKey?: string): Promise<void> {

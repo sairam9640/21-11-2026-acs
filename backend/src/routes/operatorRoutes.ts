@@ -4726,7 +4726,17 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
     const nextInformDate = new Date(lastInformDate.getTime() + periodicIntervalSec * 1000);
     const msUntilNext = nextInformDate.getTime() - Date.now();
     const secondsUntilNext = Math.max(0, Math.round(msUntilNext / 1000));
-    const isSessionActive = (Date.now() - lastInformDate.getTime()) <= 45000;
+    const liveCwmp = CwmpService.getActiveSessionForDevice(device.serialNumber);
+    const recentInform = Boolean(device.lastInform) && (Date.now() - lastInformDate.getTime()) <= 45000;
+    const isSessionActive = liveCwmp.active || recentInform;
+    const isSessionOpened = liveCwmp.opened || recentInform;
+    const sessionIndicatorLabel = liveCwmp.active
+      ? 'SESSION LIVE'
+      : isSessionOpened
+      ? 'SESSION OPENED'
+      : device.status === 'online'
+      ? 'WAITING NEXT INFORM'
+      : 'OFFLINE';
 
     return res.json({
       success: true,
@@ -4740,6 +4750,10 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
           nextScheduledInformFormatted: nextInformDate.toLocaleString('en-IN'),
           secondsUntilNextInform: secondsUntilNext,
           isSessionActive,
+          isSessionOpened,
+          liveCwmpStage: liveCwmp.stage || null,
+          liveCwmpSessionId: liveCwmp.sessionId || null,
+          sessionIndicatorLabel,
           sessionTimeoutSeconds: 120,
           liveWindowSeconds: 45,
           sessionStatus: isSessionActive ? 'IN_SESSION' : device.status === 'online' ? 'WAITING_NEXT_INTERVAL' : 'OFFLINE',

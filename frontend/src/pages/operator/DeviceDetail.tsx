@@ -598,7 +598,7 @@ export const DeviceDetail: React.FC = () => {
     setIsRefreshingClients(false);
   };
 
-  const fetchWorkspace = async (targetId?: string | any) => {
+  const fetchWorkspace = async (targetId?: string | any, silent = false) => {
     let resolvedId: string | null = null;
     if (typeof targetId === 'string' && targetId && targetId !== '[object Object]' && !targetId.includes('[object')) {
       resolvedId = targetId.trim();
@@ -607,19 +607,25 @@ export const DeviceDetail: React.FC = () => {
     }
 
     if (!resolvedId) return;
-    setIsLoading(true);
-    setError(null);
+    if (!silent) {
+      setIsLoading(true);
+      setError(null);
+    }
     try {
       const res = await api.get(`/operator/devices/${encodeURIComponent(resolvedId)}/workspace`);
       if (res.success && res.workspace) {
         setWorkspace(res.workspace);
-      } else {
+      } else if (!silent) {
         setError(res.error || 'Failed to load device workspace');
       }
     } catch (err: any) {
-      setError(err.message || 'Error fetching device workspace');
+      if (!silent) {
+        setError(err.message || 'Error fetching device workspace');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -632,10 +638,10 @@ export const DeviceDetail: React.FC = () => {
     setDiagResult(null);
     if (id) {
       fetchWorkspace(id);
-      // Auto-refresh telemetry & status every 5 minutes
+      // Silent real-time refresh every 15s so SESSION LIVE / SESSION OPENED updates automatically
       const pollInterval = setInterval(() => {
-        fetchWorkspace(id);
-      }, 5 * 60 * 1000);
+        fetchWorkspace(id, true);
+      }, 15_000);
       return () => clearInterval(pollInterval);
     }
   }, [id]);
@@ -1543,11 +1549,28 @@ export const DeviceDetail: React.FC = () => {
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div>
-                  <div className="flex items-center space-x-2.5">
+                  <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
                     <h2 className="text-lg font-bold text-[#0F172A] font-mono tracking-tight">{workspace.header.serialNumber}</h2>
                     <Badge variant={isOnline ? 'success' : 'danger'} dot>
                       {isOnline ? 'ONLINE' : 'OFFLINE'}
                     </Badge>
+                    {(isSummoning || isUpdatingInterval) ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                        ● OPENING SESSION...
+                      </span>
+                    ) : (workspace.sessionTracker?.isSessionActive || workspace.sessionTracker?.isSessionOpened) ? (
+                      <span
+                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-400 shadow-xs animate-pulse"
+                        title={`Live CWMP Session Active (${workspace.sessionTracker?.liveCwmpStage || 'INFORM_ACKED'})`}
+                      >
+                        <span className="w-2 h-2 rounded-full bg-emerald-600 mr-1.5" />
+                        SESSION LIVE • SESSION OPENED
+                      </span>
+                    ) : isOnline ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                        SESSION IDLE
+                      </span>
+                    ) : null}
                     <Badge variant={workspace.header.protocol.includes('TR-369') ? 'purple' : 'info'}>
                       {workspace.header.protocol}
                     </Badge>
@@ -1637,14 +1660,22 @@ export const DeviceDetail: React.FC = () => {
                       <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">
                         రౌటర్ లైవ్ CWMP సెషన్ ట్రాకర్ (Live Session Schedule)
                       </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                        workspace.sessionTracker?.isSessionActive
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse'
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide ${
+                        (isSummoning || isUpdatingInterval)
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                          : (workspace.sessionTracker?.isSessionActive || workspace.sessionTracker?.isSessionOpened)
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-400 animate-pulse'
                           : isOnline
                           ? 'bg-blue-50 text-blue-800 border border-blue-200'
                           : 'bg-slate-100 text-slate-600 border border-slate-200'
                       }`}>
-                        {workspace.sessionTracker?.isSessionActive ? '● లైవ్ సెషన్ ఓపెన్ లో ఉంది (IN SESSION)' : isOnline ? 'నెక్స్ట్ సెషన్ కోసం వేచి ఉంది (WAITING)' : 'ఆఫ్‌లైన్ (OFFLINE)'}
+                        {(isSummoning || isUpdatingInterval)
+                          ? '● OPENING SESSION...'
+                          : (workspace.sessionTracker?.isSessionActive || workspace.sessionTracker?.isSessionOpened)
+                          ? '● SESSION LIVE — SESSION OPENED'
+                          : isOnline
+                          ? 'WAITING NEXT INFORM (SESSION CLOSED)'
+                          : 'OFFLINE'}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500 mt-0.5">
