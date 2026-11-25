@@ -130,9 +130,9 @@ export const OperatorDashboard: React.FC = () => {
   };
 
   const handleCopyUrl = async () => {
-    await copyToClipboard(activeCwmpUrl);
+    await copyToClipboard(port80CwmpUrl);
     setCopied(true);
-    setCopiedField('url');
+    setCopiedField('port80');
     setTimeout(() => {
       setCopied(false);
       setCopiedField(null);
@@ -580,10 +580,10 @@ export const OperatorDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1">
-              <span className="text-[10px] font-bold uppercase text-blue-700">ACS URL — Port 7547 (Standard CWMP Port)</span>
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+              <span className="text-[10px] font-bold uppercase text-slate-600">ACS URL — Port 7547 (Requires TCP 7547 Open / Direct IP)</span>
               <div className="flex items-center justify-between">
-                <span className="font-mono font-bold text-blue-900 select-all break-all">{activeCwmpUrl}</span>
+                <span className="font-mono font-bold text-slate-800 select-all break-all">{activeCwmpUrl}</span>
                 <Button size="sm" variant="secondary" onClick={() => handleCopyText(activeCwmpUrl, 'url')} className="h-7 text-xs shrink-0 ml-2">
                   {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
                   <span>{copiedField === 'url' ? 'Copied' : 'Copy'}</span>
@@ -661,8 +661,8 @@ export const OperatorDashboard: React.FC = () => {
               <span className="text-base font-extrabold text-slate-900 font-mono">{cwmpStats?.totalHits || 0}</span>
             </div>
             <div className="p-3 border border-slate-200 rounded-xl bg-slate-50">
-              <span className="text-[10px] text-slate-500 font-bold block">Listening Port</span>
-              <span className="text-base font-extrabold text-emerald-600 font-mono">Port 7547 TCP</span>
+              <span className="text-[10px] text-slate-500 font-bold block">Active Endpoint</span>
+              <span className="text-base font-extrabold text-emerald-600 font-mono">Port 80 (HTTP) / 7547</span>
             </div>
           </div>
 

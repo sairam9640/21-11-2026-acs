@@ -200,6 +200,9 @@ export interface IDevice extends Document {
   lastLivePollAt?: Date; // Timestamp when operator last triggered a live poll (summon/refresh-telemetry)
   periodicInformInterval?: number;
   periodicInformConfigured?: boolean;
+  supportedParametersConfirmed?: boolean;
+  pppoeUsername?: string;
+  wanVlan?: number;
   opticalTelemetrySourcePath?: string;
   cwmpSessionId?: string;
   // Firmware capability flags — set by ACS after live probing
@@ -220,6 +223,9 @@ const DeviceSchema = new Schema<IDevice>(
     lastParameterSyncAt: { type: Date },
     lastParameterSyncStatus: { type: String },
     lastLivePollAt: { type: Date, index: true }, // Operator-triggered live poll timestamp
+    supportedParametersConfirmed: { type: Boolean, default: false },
+    pppoeUsername: { type: String },
+    wanVlan: { type: Number },
     opticalTelemetrySourcePath: { type: String },
     cwmpSessionId: { type: String },
     tenantId: { type: Schema.Types.ObjectId, ref: 'Tenant', required: true, index: true },

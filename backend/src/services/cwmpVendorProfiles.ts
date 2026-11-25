@@ -165,11 +165,17 @@ export class CwmpVendorProfiles {
     if (vendor === 'TR181_STANDARD') {
       return [
         'Device.WiFi.SSID.1.SSID',
+        'Device.WiFi.SSID.1.LowerLayers',
         'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
         'Device.WiFi.Radio.1.Channel',
+        'Device.WiFi.Radio.1.OperatingFrequencyBand',
+        'Device.WiFi.Radio.1.OperatingStandards',
         'Device.WiFi.SSID.2.SSID',
+        'Device.WiFi.SSID.2.LowerLayers',
         'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
         'Device.WiFi.Radio.2.Channel',
+        'Device.WiFi.Radio.2.OperatingFrequencyBand',
+        'Device.WiFi.Radio.2.OperatingStandards',
         'Device.WiFi.AccessPoint.1.AssociatedDeviceNumberOfEntries',
         'Device.WiFi.AccessPoint.1.AssociatedDevice.',
         'Device.WiFi.AccessPoint.2.AssociatedDeviceNumberOfEntries',
@@ -182,6 +188,7 @@ export class CwmpVendorProfiles {
         'Device.IP.Interface.1.Status',
         'Device.IP.Interface.2.IPv4Address.1.IPAddress',
         'Device.Ethernet.VLANTermination.1.VLANID',
+        'Device.ManagementServer.PeriodicInformInterval',
         'Device.Hosts.HostNumberOfEntries',
         'Device.Hosts.Host.',
         'Device.Optical.Interface.1.OpticalSignalLevel',
@@ -198,23 +205,14 @@ export class CwmpVendorProfiles {
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.PreSharedKey.1.PreSharedKey`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.Channel`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.Standard`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.BeaconType`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.Enable`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.TotalAssociations`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.AssociatedDevice.`,
     ] : [];
 
-    // Explicit baseline host queries for devices that do not support wildcard partial paths
-    const explicitHostParams: string[] = [];
-    for (let h = 1; h <= 16; h++) {
-      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
-      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
-      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.HostName`);
-      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.UserHostName`);
-      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.InterfaceType`);
-      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.Active`);
-      explicitHostParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.LeaseTimeRemaining`);
-    }
-
-    // Comprehensive Universal TR-098 Baseline (Using standard TR-069 subtrees to prevent Fault 9005):
+    // Comprehensive Universal TR-098 Baseline (never fabricates Hosts.Host.1..16 or non-existent WLAN instances):
     return [
       'InternetGatewayDevice.DeviceInfo.Manufacturer',
       'InternetGatewayDevice.DeviceInfo.ManufacturerOUI',
@@ -230,32 +228,19 @@ export class CwmpVendorProfiles {
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Standard',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.BeaconType',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Enable',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.TotalAssociations',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.AssociatedDevice.',
-      // Wi-Fi 5 GHz
+      // Wi-Fi 5 GHz (Only included when model is dual-band; exact instances are confirmed via GPN before periodic polling)
       ...wlan5gParams,
-      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.TotalAssociations`,
-      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gInstance}.AssociatedDevice.`,
-      // Secondary / Multi-Band WLAN Association Hooks (TP-Link 3, Generic 2 & 5)
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.SSID',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.SSID',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.TotalAssociations',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.AssociatedDevice.',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.TotalAssociations',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.AssociatedDevice.',
-      // LAN Host Count & Full Connected Host Subtree (Hostnames, MACs, IPs, Active status)
+      // LAN Host Count & Subtree (Do NOT speculate Hosts.Host.1..16 which causes Fault 9005 when fewer clients exist)
       'InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries',
       'InternetGatewayDevice.LANDevice.1.Hosts.Host.',
-      // Explicit top hosts for full inventory without wildcard reliance
-      ...explicitHostParams,
-      // Universal WAN Connection Subtree (Discovers all active PPP and IP connection slots without leaf path mismatches)
+      // Universal WAN Connection Subtree + standard slot-1 PPPoE Username leaf
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.',
+      'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username',
       // Management Server & Connection Request Authentication
       'InternetGatewayDevice.ManagementServer.ConnectionRequestURL',
       'InternetGatewayDevice.ManagementServer.ConnectionRequestUsername',
@@ -650,24 +635,35 @@ export class CwmpVendorProfiles {
   static determineWifiBand(
     rawParams: Record<string, any>,
     instance: number,
-    ssid: string
+    ssid = ''
   ): '2.4GHz' | '5GHz' | '6GHz' | 'UNKNOWN' {
     const rawKeys = Object.keys(rawParams);
 
-    // 1. Explicit Band Parameter (Universal + Vendor extensions e.g. TP-Link, Huawei, ZTE)
+    // Resolve TR-181 Radio index if SSID LowerLayers points to Device.WiFi.Radio.N
+    const radioRefKey = rawKeys.find((k) =>
+      new RegExp(`Device\\.WiFi\\.SSID\\.${instance}\\.LowerLayers$`, 'i').test(k)
+    );
+    const radioRefVal = radioRefKey && rawParams[radioRefKey] ? String(rawParams[radioRefKey]) : '';
+    const linkedRadioMatch = radioRefVal.match(/Radio\.(\d+)/i);
+    const radioIdx = linkedRadioMatch ? Number(linkedRadioMatch[1]) : instance;
+
+    // 1. Explicit Band Parameter (Universal + Vendor extensions e.g. TP-Link, Huawei, ZTE, Realtek, Syrotech)
     const bandKey = rawKeys.find((k) =>
-      new RegExp(`(WLANConfiguration\\.${instance}\\.(X_TP_Band|X_RFBand|RFBand|OperatingFrequencyBand|SupportedFrequencyBands)|Device\\.WiFi\\.Radio\\.${instance}\\.OperatingFrequencyBand)`, 'i').test(k)
+      new RegExp(
+        `(WLANConfiguration\\.${instance}\\.(X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|X_ZTE-COM_RFBand|OperatingFrequencyBand|SupportedFrequencyBands|X_HW_WorkMode)|Device\\.WiFi\\.Radio\\.${radioIdx}\\.OperatingFrequencyBand)`,
+        'i'
+      ).test(k)
     );
     if (bandKey && rawParams[bandKey]) {
       const val = String(rawParams[bandKey]).toLowerCase();
-      if (val.includes('5g') || val.includes('5ghz') || val.includes('5.0')) return '5GHz';
-      if (val.includes('2.4') || val.includes('2g') || val.includes('2.4ghz')) return '2.4GHz';
       if (val.includes('6g') || val.includes('6ghz')) return '6GHz';
+      if (val.includes('5g') || val.includes('5ghz') || val.includes('5.0') || val.trim() === '5') return '5GHz';
+      if (val.includes('2.4') || val.includes('2g') || val.includes('2.4ghz')) return '2.4GHz';
     }
 
-    // 2. Explicit Operating Channel Numbers (1-14 = 2.4G, 36-165 = 5G)
+    // 2. Explicit Operating Channel Numbers (1-14 = 2.4G, 36-165 = 5G; 0 = Auto -> check evidence below)
     const chanKey = rawKeys.find((k) =>
-      new RegExp(`(WLANConfiguration\\.${instance}\\.Channel|Device\\.WiFi\\.Radio\\.${instance}\\.Channel)`, 'i').test(k)
+      new RegExp(`(WLANConfiguration\\.${instance}\\.Channel|Device\\.WiFi\\.Radio\\.${radioIdx}\\.Channel)$`, 'i').test(k)
     );
     if (chanKey && rawParams[chanKey] !== undefined) {
       const chan = parseInt(String(rawParams[chanKey]), 10);
@@ -677,45 +673,64 @@ export class CwmpVendorProfiles {
       }
     }
 
-    // 3. Explicit Operating Standards
+    // 3. Explicit Operating Standards (handles '11a,11n,11ac', 'a,n,ac', 'a/n/ac', 'ac', 'b,g,n', 'b,g,n,ax', etc.)
     const stdKey = rawKeys.find((k) =>
-      new RegExp(`(WLANConfiguration\\.${instance}\\.(Standard|OperatingStandards)|Device\\.WiFi\\.Radio\\.${instance}\\.OperatingStandards)`, 'i').test(k)
+      new RegExp(
+        `(WLANConfiguration\\.${instance}\\.(Standard|OperatingStandards)|Device\\.WiFi\\.Radio\\.${radioIdx}\\.OperatingStandards)$`,
+        'i'
+      ).test(k)
     );
     if (stdKey && rawParams[stdKey]) {
-      const val = String(rawParams[stdKey]).toLowerCase();
-      if (val.includes('11ac') || val.includes('11a,') || val.includes('ac,') || val === 'a') return '5GHz';
-      if (val.includes('11ax')) return '5GHz';
-      if (val.includes('11b') || val.includes('11g') || val.includes('b,g,n')) return '2.4GHz';
+      const val = String(rawParams[stdKey]).toLowerCase().trim();
+      const hasBand24Token = /(?:^|[,/\s])(?:11)?[bg](?:$|[,/\s])/i.test(val);
+      const hasAcToken = /11ac|(?:^|[,/\s])ac(?:$|[,/\s])/i.test(val);
+      const hasAToken = /(?:^|[,/\s])(?:11)?a(?:$|[,/\s])/i.test(val);
+      const hasAxToken = /11ax|(?:^|[,/\s])ax(?:$|[,/\s])/i.test(val);
+
+      if (hasAcToken) return '5GHz';
+      if (hasAToken && !hasBand24Token) return '5GHz';
+      if (hasBand24Token) return '2.4GHz';
+      if (hasAxToken) return '5GHz';
     }
 
-    // 4. Possible Channels String Evidence
+    // 4. Operating Channel Bandwidth (80MHz / 160MHz only exist on 5GHz/6GHz)
+    const bwKey = rawKeys.find((k) =>
+      new RegExp(
+        `(WLANConfiguration\\.${instance}\\.(OperatingChannelBandwidth|X_CT-COM_ChannelWidth|ChannelWidth)|Device\\.WiFi\\.Radio\\.${radioIdx}\\.OperatingChannelBandwidth)$`,
+        'i'
+      ).test(k)
+    );
+    if (bwKey && rawParams[bwKey]) {
+      const bw = String(rawParams[bwKey]).toLowerCase();
+      if (/80mhz|160mhz|80\+|\/80/.test(bw)) return '5GHz';
+    }
+
+    // 5. Possible Channels String Evidence
     const possKey = rawKeys.find((k) =>
-      new RegExp(`(WLANConfiguration\\.${instance}\\.PossibleChannels)`, 'i').test(k)
+      new RegExp(`WLANConfiguration\\.${instance}\\.PossibleChannels$`, 'i').test(k)
     );
     if (possKey && rawParams[possKey]) {
       const p = String(rawParams[possKey]);
-      if (/36|40|44|48|149|153|157|161|165/.test(p) && !/1,2,3,4,5/.test(p)) return '5GHz';
-      if (/1,2,3,4,5|1-11|1-13|1-14/.test(p)) return '2.4GHz';
+      if (/\b(36|40|44|48|52|56|60|64|100|149|153|157|161|165)\b/.test(p) && !/\b1,2,3,4,5\b|1-11|1-13|1-14/.test(p)) {
+        return '5GHz';
+      }
+      if (/\b1,2,3,4,5\b|1-11|1-13|1-14/.test(p)) return '2.4GHz';
     }
 
-    // 5. Explicit Radio Reference in TR-181
-    const radioRefKey = rawKeys.find((k) =>
-      new RegExp(`(Device\\.WiFi\\.SSID\\.${instance}\\.LowerLayers)`, 'i').test(k)
-    );
-    if (radioRefKey && rawParams[radioRefKey]) {
-      const ref = String(rawParams[radioRefKey]);
-      if (/Radio\\.2/i.test(ref)) return '5GHz';
-      if (/Radio\\.1/i.test(ref)) return '2.4GHz';
+    // 6. Explicit Radio Reference in TR-181 (Radio.2 -> 5GHz when distinct from Radio.1)
+    if (radioRefVal) {
+      if (/Radio\.2\b/i.test(radioRefVal)) return '5GHz';
+      if (/Radio\.1\b/i.test(radioRefVal)) return '2.4GHz';
     }
 
-    // 6. Explicit SSID Name Hint (e.g. ends with _5G / -5G vs _2.4G / -2.4G)
+    // 7. Explicit SSID Name Hint (e.g. ends with _5G / -5G / 5GHz vs _2.4G / -2.4G)
     if (ssid) {
       const cleanSsid = ssid.toUpperCase();
-      if (/[-_ ]5G(HZ)?$/i.test(cleanSsid) || /[-_ ]5\\.0G/i.test(cleanSsid)) return '5GHz';
-      if (/[-_ ]2\\.4G(HZ)?$/i.test(cleanSsid) || /[-_ ]2G/i.test(cleanSsid)) return '2.4GHz';
+      if (/[-_ ]5G(HZ)?$/i.test(cleanSsid) || /[-_ ]5\.0G/i.test(cleanSsid) || /[-_( ]5G(?:HZ)?[-_) ]/i.test(cleanSsid)) return '5GHz';
+      if (/[-_ ]2\.4G(HZ)?$/i.test(cleanSsid) || /[-_ ]2G$/i.test(cleanSsid) || /[-_( ]2\.4G(?:HZ)?[-_) ]/i.test(cleanSsid)) return '2.4GHz';
     }
 
-    // 7. Standard TR-098 Default Primary Instance 1
+    // 8. Standard TR-098 Default Primary Instance 1
     if (instance === 1) {
       return '2.4GHz';
     }

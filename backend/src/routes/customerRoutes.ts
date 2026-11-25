@@ -10,6 +10,7 @@ import { Ticket } from '../models/Ticket.js';
 import { DeviceManagementService } from '../services/deviceManagementService.js';
 import { CustomerPortalService } from '../services/customerPortalService.js';
 import { triggerGenieAcsConnectionRequest } from '../services/connectionRequestService.js';
+import { CwmpVendorProfiles } from '../services/cwmpVendorProfiles.js';
 
 export const customerRouter = Router();
 
@@ -50,6 +51,63 @@ customerRouter.get('/home', async (req: AuthenticatedRequest, res: Response) => 
         ? devAny.currentTxPowerDbm
         : null);
 
+    const rawParams = devAny?.rawParameters || {};
+    const rawKeys = Object.keys(rawParams);
+    const pickRawBand = (band: '2.4GHz' | '5GHz') => {
+      const stored = band === '5GHz' ? devAny?.wifi5g : devAny?.wifi24;
+      const addEntry = Array.isArray(devAny?.additionalSsids)
+        ? devAny.additionalSsids.find((s: any) => s.band === band && s.ssid && !/guest|iot/i.test(s.ssid)) ||
+          devAny.additionalSsids.find((s: any) => s.band === band && s.ssid)
+        : undefined;
+      for (let i = 1; i <= 8; i++) {
+        const ssidKey = rawKeys.find((k) => new RegExp(`(?:WLANConfiguration\\.${i}\\.SSID|Device\\.WiFi\\.SSID\\.${i}\\.SSID)$`, 'i').test(k));
+        const sVal = ssidKey ? rawParams[ssidKey] : undefined;
+        if (!sVal || /guest|iot/i.test(String(sVal))) continue;
+        if (CwmpVendorProfiles.determineWifiBand(rawParams, i, String(sVal)) === band) {
+          const chanKey = rawKeys.find((k) => new RegExp(`(?:WLANConfiguration\\.${i}\\.Channel|Device\\.WiFi\\.Radio\\.${i}\\.Channel)$`, 'i').test(k));
+          const enKey = rawKeys.find((k) => new RegExp(`(?:WLANConfiguration\\.${i}\\.Enable|Device\\.WiFi\\.SSID\\.${i}\\.Enable)$`, 'i').test(k));
+          const chanNum = chanKey ? parseInt(String(rawParams[chanKey]), 10) : NaN;
+          return {
+            ssid: String(sVal),
+            password: stored?.password || addEntry?.password || '',
+            channel: !isNaN(chanNum) ? chanNum : (stored?.channel ?? (band === '5GHz' ? 44 : 6)),
+            enabled: enKey ? !(rawParams[enKey] === '0' || rawParams[enKey] === false || rawParams[enKey] === 'false') : (stored?.enabled ?? true),
+          };
+        }
+      }
+      return {
+        ssid: stored?.ssid || addEntry?.ssid || '',
+        password: stored?.password || addEntry?.password || '',
+        channel: stored?.channel ?? addEntry?.channel ?? (band === '5GHz' ? 44 : 6),
+        enabled: stored?.enabled ?? (addEntry?.enabled ?? true),
+      };
+    };
+
+    const wifi24Data = pickRawBand('2.4GHz');
+    const wifi5gData = pickRawBand('5GHz');
+
+    const wanList = Array.isArray(devAny?.wanProfiles) ? devAny.wanProfiles : [];
+    const internetWan =
+      wanList.find((p: any) => (p.bearerService === 'INTERNET' || p.serviceType === 'INTERNET') && p.connectionType === 'PPPoE' && p.status === 'Connected') ||
+      wanList.find((p: any) => (p.bearerService === 'INTERNET' || p.serviceType === 'INTERNET') && p.connectionType === 'PPPoE') ||
+      wanList.find((p: any) => p.serviceType !== 'TR069' && !p.isProtected && p.pppoeUsername) ||
+      wanList.find((p: any) => p.serviceType !== 'TR069' && !p.isProtected) ||
+      wanList[0];
+
+    let liveRawPppUser = '';
+    for (const k of rawKeys) {
+      const m = k.match(/(.*(?:WANPPPConnection\.\d+|Device\.PPP\.Interface\.\d+))\.Username$/i);
+      if (m && rawParams[k]) {
+        const pref = m[1];
+        const nm = rawParams[`${pref}.Name`] || '';
+        const sv = rawParams[`${pref}.X_CT-COM_ServiceList`] || '';
+        if (!/TR069/i.test(`${nm} ${sv}`)) {
+          liveRawPppUser = String(rawParams[k]).trim();
+          break;
+        }
+      }
+    }
+
     return res.json({
       success: true,
       customer: {
@@ -68,22 +126,22 @@ customerRouter.get('/home', async (req: AuthenticatedRequest, res: Response) => 
         lastReported: devAny?.lastInform,
       },
       wifi: {
-        ssid24: devAny?.wifi24?.ssid || 'Home-WiFi-2.4G',
-        password24: devAny?.wifi24?.password || '',
-        channel24: devAny?.wifi24?.channel ?? 6,
-        enabled24: devAny?.wifi24?.enabled ?? true,
-        ssid5g: devAny?.wifi5g?.ssid || 'Home-WiFi-5G',
-        password5g: devAny?.wifi5g?.password || '',
-        channel5g: devAny?.wifi5g?.channel ?? 44,
-        enabled5g: devAny?.wifi5g?.enabled ?? true,
-        enabled: devAny?.wifi24?.enabled ?? true,
+        ssid24: wifi24Data.ssid,
+        password24: wifi24Data.password,
+        channel24: wifi24Data.channel,
+        enabled24: wifi24Data.enabled,
+        ssid5g: wifi5gData.ssid,
+        password5g: wifi5gData.password,
+        channel5g: wifi5gData.channel,
+        enabled5g: wifi5gData.enabled,
+        enabled: wifi24Data.enabled,
       },
       wan: {
-        connectionType: devAny?.wanProfiles?.[0]?.connectionType || customer.wanConfig?.connectionType || 'PPPoE',
-        pppoeUsername: devAny?.wanProfiles?.[0]?.pppoeUsername || customer.wanConfig?.pppoeUsername || '',
-        ipAddress: devAny?.ipAddress || devAny?.wanProfiles?.[0]?.ipAddress || '',
-        vlanId: devAny?.wanProfiles?.[0]?.vlanId || customer.wanConfig?.vlanId || 100,
-        status: devAny?.wanProfiles?.[0]?.status || (devAny?.status === 'online' ? 'Connected' : 'Disconnected'),
+        connectionType: internetWan?.connectionType || customer.wanConfig?.connectionType || 'PPPoE',
+        pppoeUsername: internetWan?.pppoeUsername || liveRawPppUser || devAny?.pppoeUsername || customer.wanConfig?.pppoeUsername || '',
+        ipAddress: internetWan?.ipAddress || devAny?.ipAddress || '',
+        vlanId: internetWan?.vlanId ?? devAny?.wanVlan ?? customer.wanConfig?.vlanId ?? null,
+        status: internetWan?.status || (devAny?.status === 'online' ? 'Connected' : 'Disconnected'),
       },
       connectedDevicesCount: devAny?.connectedClients?.length || (devAny?.lanHostCount || 0),
       maintenanceBanner: null,

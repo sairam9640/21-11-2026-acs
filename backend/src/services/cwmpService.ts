@@ -35,6 +35,7 @@ export interface CwmpInformData {
   wifiPass5g?: string;
   vlanId?: number;
   wanConnectionStatus?: string;
+  periodicInformInterval?: number;
   lanHostCount?: number;
   connectedClients?: IConnectedClient[];
   events?: string[];
@@ -205,6 +206,32 @@ export class CwmpService {
   }
 
   /**
+   * Extracts the first non-empty, non-masked Wi-Fi or PPPoE secret across vendor aliases
+   */
+  private static pickNonMaskedSecret(paramMap: Map<string, string>, candidatePaths: string[]): string | undefined {
+    for (const p of candidatePaths) {
+      if (paramMap.has(p)) {
+        const val = paramMap.get(p);
+        if (val !== undefined) {
+          const trimmed = String(val).trim();
+          if (trimmed && !/^\*+$/.test(trimmed) && trimmed !== '••••••••' && trimmed !== 'null' && trimmed !== 'undefined') {
+            return trimmed;
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private static mapToRecord(paramMap: Map<string, string>): Record<string, string> {
+    const obj: Record<string, string> = {};
+    for (const [k, v] of paramMap.entries()) {
+      obj[k] = v;
+    }
+    return obj;
+  }
+
+  /**
    * Robust Inform XML Parser
    */
   static parseInformXml(xml: string): CwmpInformData {
@@ -263,35 +290,82 @@ export class CwmpService {
       this.getFirstParam(pMap, ['Device.ManagementServer.ConnectionRequestPassword', 'InternetGatewayDevice.ManagementServer.ConnectionRequestPassword']) ||
       CwmpXmlParser.extractTag(xml, 'ConnectionRequestPassword');
 
-    data.wanIp = this.getFirstParam(pMap, [
+    // Dynamic Multi-Slot PPPoE / WAN extraction (prefer active INTERNET PPPoE slot over slot 1 TR069)
+    let bestPppScore = -1;
+    let bestPppUser = '';
+    let bestPppIp = '';
+    let bestPppStatus = '';
+    let bestVlanRaw = '';
+    for (const [k, v] of pMap.entries()) {
+      const m = k.match(/((?:InternetGatewayDevice\.WANDevice\.\d+\.WANConnectionDevice\.\d+\.WANPPPConnection\.\d+)|(?:Device\.PPP\.Interface\.\d+))\.Username$/i);
+      if (m && v && String(v).trim()) {
+        const prefix = m[1];
+        const nameVal = pMap.get(`${prefix}.Name`) || '';
+        const svcVal = pMap.get(`${prefix}.X_CT-COM_ServiceList`) || pMap.get(`${prefix}.ServiceList`) || '';
+        const statusVal = pMap.get(`${prefix}.ConnectionStatus`) || pMap.get(`${prefix}.Status`) || '';
+        const ipVal = pMap.get(`${prefix}.ExternalIPAddress`) || pMap.get(`${prefix}.IPCPLocalIPAddress`) || '';
+        const isMgmt = /TR069|VOIP|VOICE/i.test(`${nameVal} ${svcVal}`) && !/INTERNET/i.test(`${nameVal} ${svcVal}`);
+        const score = (isMgmt ? 0 : 100) + (/connected/i.test(statusVal) ? 50 : 0) + (ipVal && ipVal !== '0.0.0.0' ? 25 : 0);
+        if (score > bestPppScore) {
+          bestPppScore = score;
+          bestPppUser = String(v).trim();
+          if (ipVal && ipVal !== '0.0.0.0') bestPppIp = ipVal;
+          if (statusVal) bestPppStatus = statusVal;
+          const slotMatch = prefix.match(/WANConnectionDevice\.(\d+)\./i);
+          const slotNum = slotMatch ? slotMatch[1] : '1';
+          bestVlanRaw =
+            pMap.get(`${prefix}.X_HW_VLAN`) ||
+            pMap.get(`${prefix}.X_CT-COM_VlanID`) ||
+            pMap.get(`${prefix}.VLANID`) ||
+            pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`) ||
+            pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`) ||
+            bestVlanRaw;
+        }
+      }
+    }
+
+    data.wanIp = bestPppIp || this.getFirstParam(pMap, [
       'Device.IP.Interface.1.IPv4Address.1.IPAddress',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ExternalIPAddress',
+      'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.ExternalIPAddress',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.2.ExternalIPAddress',
       'Device.PPP.Interface.1.IPCPLocalIPAddress',
     ]);
 
-    data.pppoeUsername = this.getFirstParam(pMap, [
+    data.pppoeUsername = bestPppUser || this.getFirstParam(pMap, [
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username',
+      'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Username',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.2.Username',
       'Device.PPP.Interface.1.Username',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.X_HW_PPPoEUsername',
     ]);
 
-    const wanStatus = this.getFirstParam(pMap, [
+    const wanStatus = bestPppStatus || this.getFirstParam(pMap, [
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ConnectionStatus',
+      'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.ConnectionStatus',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.ConnectionStatus',
       'Device.IP.Interface.1.Status',
     ]);
     if (wanStatus) data.wanConnectionStatus = wanStatus;
 
-    const vlanRaw = this.getFirstParam(pMap, [
+    const rawPi = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.ManagementServer.PeriodicInformInterval',
+      'Device.ManagementServer.PeriodicInformInterval',
+    ]);
+    if (rawPi) {
+      const pi = parseInt(String(rawPi), 10);
+      if (!isNaN(pi) && pi > 0) data.periodicInformInterval = pi;
+    }
+
+    const vlanRaw = bestVlanRaw || this.getFirstParam(pMap, [
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.X_HW_VLAN',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.X_HW_VLAN',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.X_ZTE-COM_VLAN',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.X_TPLINK_VlanID',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.X_ALU_COM_VlanID',
       'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.X_BROADCOM_COM_VLAN',
+      'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.X_CT-COM_VlanID',
       'Device.Ethernet.VLANTermination.1.VLANID',
     ]);
     if (vlanRaw) {
@@ -354,30 +428,76 @@ export class CwmpService {
     ]);
     data.temperatureC = CwmpXmlParser.normalizeTemperature(rawTemp);
 
-    // Wi-Fi SSIDs & Passwords
-    data.wifiSsid24 = this.getFirstParam(pMap, [
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID',
-      'Device.WiFi.SSID.1.SSID',
-    ]);
-    data.wifiPass24 = this.getFirstParam(pMap, [
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
-      'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
-    ]);
+    // Wi-Fi SSIDs & Passwords across TR-098 instances 1..8 & TR-181 (using band detection + non-masked secrets)
+    const pMapObj = this.mapToRecord(pMap);
+    for (let i = 1; i <= 8; i++) {
+      const s =
+        pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.SSID`) ||
+        pMap.get(`Device.WiFi.SSID.${i}.SSID`);
+      if (!s) continue;
+      const band = CwmpVendorProfiles.determineWifiBand(pMapObj, i, s);
+      const pwd = this.pickNonMaskedSecret(pMap, [
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.PreSharedKey`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_CT-COM_KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_HW_KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_TP_PreSharedKey`,
+        `Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${i}.Security.PreSharedKey`,
+      ]);
+      if (band === '5GHz' && !data.wifiSsid5g) {
+        data.wifiSsid5g = s;
+        if (pwd) data.wifiPass5g = pwd;
+      } else if (band === '2.4GHz' && !data.wifiSsid24) {
+        data.wifiSsid24 = s;
+        if (pwd) data.wifiPass24 = pwd;
+      }
+    }
 
-    data.wifiSsid5g = this.getFirstParam(pMap, [
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.SSID',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.SSID',
-      'Device.WiFi.SSID.2.SSID',
-    ]);
-    data.wifiPass5g = this.getFirstParam(pMap, [
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.KeyPassphrase',
-      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
-      'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
-    ]);
+    if (!data.wifiSsid24) {
+      data.wifiSsid24 = this.getFirstParam(pMap, [
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID',
+        'Device.WiFi.SSID.1.SSID',
+      ]);
+    }
+    if (!data.wifiPass24) {
+      data.wifiPass24 = this.pickNonMaskedSecret(pMap, [
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
+        'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
+      ]);
+    }
+
+    if (!data.wifiSsid5g) {
+      for (const fallbackIdx of [3, 5, 2, 6]) {
+        const candidateSsid = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.SSID`);
+        if (candidateSsid && CwmpVendorProfiles.determineWifiBand(pMapObj, fallbackIdx, candidateSsid) !== '2.4GHz') {
+          data.wifiSsid5g = candidateSsid;
+          data.wifiPass5g = this.pickNonMaskedSecret(pMap, [
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.KeyPassphrase`,
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.KeyPassphrase`,
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.PreSharedKey`,
+          ]);
+          break;
+        }
+      }
+      if (!data.wifiSsid5g) {
+        data.wifiSsid5g = this.getFirstParam(pMap, ['Device.WiFi.SSID.2.SSID']);
+      }
+    }
+    if (!data.wifiPass5g) {
+      data.wifiPass5g = this.pickNonMaskedSecret(pMap, [
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.KeyPassphrase',
+        'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
+      ]);
+    }
 
     const rawHostCount = this.getFirstParam(pMap, [
       'InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries',
@@ -442,6 +562,7 @@ export class CwmpService {
       const resolvedService = isTr069 ? 'TR069' : (isVoip ? 'VOIP' : 'INTERNET');
 
       const fallbackName = `${slotNum}_${resolvedService}_R${vlan ? `_VID_${vlan}` : ''}`;
+      const pppPass = this.pickNonMaskedSecret(pMap, [`${prefix}.Password`, `${prefix}.X_CT-COM_Password`]);
       const gateway = pMap.get(`${prefix}.DefaultGateway`) || '';
       const mask = pMap.get(`${prefix}.SubnetMask`) || '';
 
@@ -453,6 +574,7 @@ export class CwmpService {
         linkMode: 'PPP',
         cpeObjectPath: `${prefix}.`,
         pppoeUsername: user,
+        ...(pppPass ? { pppoePasswordEncrypted: pppPass } : {}),
         ipAddress: extIp || null,
         vlanId: vlan,
         vlanMode: isVlanTagMode ? 'TAG' : 'UNTAG',
@@ -1122,6 +1244,9 @@ export class CwmpService {
 
         if (informData.wanIp) device.ipAddress = informData.wanIp;
         device.externalIpAddress = clientIp;
+        if (informData.pppoeUsername) (device as any).pppoeUsername = informData.pppoeUsername;
+        if (informData.vlanId !== undefined) (device as any).wanVlan = informData.vlanId;
+        if (informData.periodicInformInterval) device.periodicInformInterval = informData.periodicInformInterval;
         if (informData.softwareVersion) device.softwareVersion = informData.softwareVersion;
         if (informData.hardwareVersion) device.hardwareVersion = informData.hardwareVersion;
         if (informData.macAddress) device.macAddress = informData.macAddress;
@@ -2162,8 +2287,16 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         }
       }
 
-      // If device has not performed root parameter discovery, dispatch GPN root discovery first
-      const hasCompletedDiscovery = (dev as any)?.supportedParametersConfirmed || (dev?.rawParameters && Object.keys(dev.rawParameters).length > 20) || Boolean(dev?.opticalTelemetrySourcePath);
+      // Check whether full Wi-Fi + WAN parameter discovery has already completed via GPN
+      const rawKeys = Object.keys(dev?.rawParameters || {});
+      const hasWifiAndWanDiscovery =
+        rawKeys.some((k) => /WLANConfiguration\.\d+\.SSID|Device\.WiFi\.SSID\.\d+\.SSID/i.test(k)) &&
+        rawKeys.some((k) => /WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)|Device\.(?:PPP|IP)\.Interface/i.test(k));
+      const hasCompletedDiscovery = Boolean(
+        (dev as any)?.supportedParametersConfirmed ||
+        hasWifiAndWanDiscovery ||
+        Boolean(dev?.opticalTelemetrySourcePath)
+      );
       if (!hasCompletedDiscovery && session.stage !== 'GPN_SENT') {
         session.stage = 'GPN_SENT';
         const rootPath = session.vendor === 'TR181_STANDARD' ? 'Device.' : 'InternetGatewayDevice.';
@@ -2181,39 +2314,50 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         return gpnXml;
       }
 
-      // Periodic Inform Telemetry Sync: Query safe baseline (Wi-Fi, WAN) + confirmed optical telemetry path + discovered parameters
+      // Periodic Inform Telemetry Sync: Strictly query confirmed paths + core Management/DeviceInfo + verified optical path (never speculative unverified optical or Hosts.Host.1..16 batches)
       session.stage = 'BASELINE_SENT';
-      const baselineParams = CwmpVendorProfiles.getSafeBaselineParameters(session.vendor, session.modelName);
-      
-      const queryParams: string[] = [...baselineParams];
+      const queryParams: string[] = [];
+      const addUnique = (p: string) => {
+        if (p && !p.endsWith('.') && !queryParams.includes(p)) queryParams.push(p);
+      };
+
+      const isTr181Dev = session.vendor === 'TR181_STANDARD' || rawKeys.some((k) => k.startsWith('Device.'));
+      if (isTr181Dev) {
+        addUnique('Device.DeviceInfo.UpTime');
+        addUnique('Device.DeviceInfo.SoftwareVersion');
+        addUnique('Device.ManagementServer.ConnectionRequestURL');
+        addUnique('Device.ManagementServer.PeriodicInformInterval');
+      } else {
+        addUnique('InternetGatewayDevice.DeviceInfo.UpTime');
+        addUnique('InternetGatewayDevice.DeviceInfo.SoftwareVersion');
+        addUnique('InternetGatewayDevice.ManagementServer.ConnectionRequestURL');
+        addUnique('InternetGatewayDevice.ManagementServer.PeriodicInformInterval');
+        addUnique('InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries');
+      }
+
       const verifiedOpticalPath = dev?.opticalTelemetrySourcePath;
       if (verifiedOpticalPath) {
-        if (!queryParams.includes(verifiedOpticalPath)) {
-          queryParams.push(verifiedOpticalPath);
-        }
-        const companions = CwmpVendorProfiles.getOpticalCompanionPaths(verifiedOpticalPath);
-        for (const comp of companions) {
-          if (!queryParams.includes(comp)) queryParams.push(comp);
-        }
-      } else {
-        const cand = CwmpVendorProfiles.getOpticalCandidates(session.vendor);
-        for (const cp of cand) {
-          if (!queryParams.includes(cp)) queryParams.push(cp);
+        addUnique(verifiedOpticalPath);
+        for (const comp of CwmpVendorProfiles.getOpticalCompanionPaths(verifiedOpticalPath)) {
+          if (rawKeys.length === 0 || rawKeys.includes(comp)) {
+            addUnique(comp);
+          }
         }
       }
 
-      // Dynamically include all confirmed Wi-Fi, WAN & LAN Host/Client parameter paths from dev.rawParameters
-      if (dev?.rawParameters) {
-        for (const rk of Object.keys(dev.rawParameters)) {
+      // Include all confirmed Wi-Fi (including band identification), WAN/PPPoE, VLAN & active LAN Host parameter paths from dev.rawParameters
+      if (dev?.rawParameters && rawKeys.length > 0) {
+        for (const rk of rawKeys) {
           if (
-            /(?:WLANConfiguration\.\d+\.(?:SSID|Channel|Enable|BeaconType|TotalAssociations)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|AssociatedDeviceNumberOfEntries)|WAN(?:PPP|IP)Connection\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|VLANID|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Status|.*IPAddress)|LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:MACAddress|IPAddress|InterfaceType|HostName|Active|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:PhysAddress|IPAddress|InterfaceType|HostName|Active)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(rk) &&
-            !rk.toLowerCase().includes('password') &&
-            !rk.toLowerCase().includes('presharedkey') &&
-            !rk.toLowerCase().includes('secret') &&
+            /(?:WLANConfiguration\.\d+\.(?:SSID|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|Enable|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|OperatingFrequencyBand|PreSharedKey\.1\.KeyPassphrase|PreSharedKey\.1\.PreSharedKey|KeyPassphrase)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|LowerLayers|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.KeyPassphrase)|WAN(?:PPP|IP)Connection\.\d+\.(?:Name|Username|Password|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|VLANID|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|DefaultGateway|DNSServers)|X_CT-COM_WAN(?:Epon|Gpon)?LinkConfig\.(?:VLANIDMark|Mode)|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID|LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:MACAddress|IPAddress|InterfaceType|HostName|Active|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:PhysAddress|IPAddress|InterfaceType|HostName|Active)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(rk) &&
             !rk.endsWith('.')
           ) {
-            if (!queryParams.includes(rk)) queryParams.push(rk);
+            addUnique(rk);
           }
+        }
+      } else {
+        for (const bp of CwmpVendorProfiles.getSafeBaselineParameters(session.vendor, session.modelName)) {
+          if (!bp.endsWith('.')) addUnique(bp);
         }
       }
 
@@ -2456,69 +2600,65 @@ ${stringElements}
 
     // Build the query parameter list strictly from parameters that EXIST on the CPE
     const confirmedParams: string[] = [];
-
-    // 1. Priority 1: Discovered LAN Host details & Associated Wi-Fi Devices (Always queried fully without truncation)
-    const hostParams = names.filter((n) =>
-      /(LANDevice\.\d+\.Hosts\.Host\.\d+\.(IPAddress|MACAddress|HostName|UserHostName|ClientID|Active|InterfaceType|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(IPAddress|PhysAddress|HostName|Active|InterfaceType)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)/i.test(n) &&
-      !n.endsWith('.')
-    );
-    for (const hp of hostParams) {
-      if (!confirmedParams.includes(hp)) confirmedParams.push(hp);
-    }
-
-    const lanHosts = names.find((n) => /LANDevice\.\d+\.(Hosts\.HostNumberOfEntries|HostNumberOfEntries)$|Device\.Hosts\.HostNumberOfEntries$/i.test(n));
-    if (lanHosts && !confirmedParams.includes(lanHosts)) confirmedParams.push(lanHosts);
-
-    // Host Fallback: If no explicit host instances were in GPN, query Hosts 1..16 safely
-    if (hostParams.length === 0 && (lanHosts || names.some(n => /LANDevice\.\d+\.Hosts\./i.test(n)))) {
-      for (let h = 1; h <= 16; h++) {
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.HostName`);
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.InterfaceType`);
-        confirmedParams.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.Active`);
+    const pushConfirmed = (p: string, maxLen = 240) => {
+      if (p && !p.endsWith('.') && confirmedParams.length < maxLen && !confirmedParams.includes(p)) {
+        confirmedParams.push(p);
       }
-    }
+    };
 
-    // Wi-Fi Association counts & band parameters
-    const assocCounts = names.filter((n) =>
-      /(?:TotalAssociations|AssociatedDeviceNumberOfEntries|X_TP_Band|OperatingFrequencyBand)$/i.test(n) &&
+    // 1. Priority 1: Core Management & Uptime telemetry (keeps PeriodicInformInterval & UpTime accurate)
+    const coreMgmtParams = names.filter((n) =>
+      /(?:ManagementServer\.(?:PeriodicInformInterval|PeriodicInformEnable|ConnectionRequestURL)|DeviceInfo\.(?:UpTime|SoftwareVersion))$/i.test(n) &&
       !n.endsWith('.')
     );
-    for (const ac of assocCounts) {
-      if (!confirmedParams.includes(ac)) confirmedParams.push(ac);
-    }
+    for (const mp of coreMgmtParams) pushConfirmed(mp, 240);
 
-    // 2. Ingest essential discovered Wi-Fi parameters across all WLAN instances (SSID 1, 2, 3, 4, 5, 6...)
+    // 2. Priority 2: ALL Wi-Fi Interfaces (SSID, Band evidence, Standard, Channel, KeyPassphrase 1, Enable, TotalAssociations)
     const allWifiParams = names.filter((n) =>
-      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(SSID|Channel|Enable|BeaconType|Status|X_TP_Band|.*(?:KeyPassphrase|PreSharedKey|Key|Password))|Device\.WiFi\.(SSID|AccessPoint|Radio)\.\d+\.(SSID|Channel|Enable|Status|.*(?:KeyPassphrase|PreSharedKey|Password)))/i.test(n) &&
+      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(?:SSID|Enable|Status|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT-COM_RFBand|X_HW_RFBand|X_ZTE-COM_RFBand|X_HW_WorkMode|OperatingFrequencyBand|SupportedFrequencyBands|PreSharedKey\.1\.KeyPassphrase|PreSharedKey\.1\.PreSharedKey|KeyPassphrase|X_CT-COM_KeyPassphrase|X_HW_KeyPassphrase|X_TP_PreSharedKey|WPA\.PreSharedKey)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|Status|LowerLayers|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.KeyPassphrase|Security\.PreSharedKey))$/i.test(n) &&
       !n.endsWith('.')
     );
-    for (const p of allWifiParams) {
-      if (confirmedParams.length < 192 && !confirmedParams.includes(p)) confirmedParams.push(p);
-    }
+    for (const wp of allWifiParams) pushConfirmed(wp, 180);
 
-    // 3. Ingest active WAN parameters across ALL connection instances
+    // 3. Priority 3: ALL WAN / PPPoE / IP / VLAN Connections across EVERY slot (TR-098 & TR-181)
     const allWanParams = names.filter((n) =>
-      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|X_CT-COM_ServiceList|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|VLANID|DNSServers|DefaultGateway|SubnetMask)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:X_CT-COM_WANEponLinkConfig|X_CT-COM_WANGponLinkConfig|X_CT-COM_WANLinkConfig)\.(?:VLANIDMark|Mode|802_1pMark)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.VLANID|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)/i.test(n) &&
+      /(?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:WANPPPConnection|WANIPConnection)\.\d+\.(?:Name|Username|Password|ExternalIPAddress|ConnectionStatus|Enable|ConnectionType|AddressingType|NATEnabled|ServiceList|X_CT-COM_ServiceList|X_CT_COM_ServiceList|X_HW_SERVICELIST|X_CT-COM_VlanID|X_HW_VLAN|X_ZTE-COM_VLAN|X_TPLINK_VlanID|VLANID|DNSServers|DefaultGateway|SubnetMask|Uptime|LastConnectionError|PPPoEACName)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.(?:X_CT-COM_WANEponLinkConfig|X_CT-COM_WANGponLinkConfig|X_CT-COM_WANLinkConfig)\.(?:VLANIDMark|Mode|802_1pMark)|WANDevice\.\d+\.WANConnectionDevice\.\d+\.VLANID|Device\.(?:PPP|IP)\.Interface\.\d+\.(?:Name|Username|Enable|Status|.*IPAddress|ConnectionStatus)|Device\.Ethernet\.VLANTermination\.\d+\.VLANID)$/i.test(n) &&
       !n.endsWith('.')
     );
-    for (const p of allWanParams) {
-      if (confirmedParams.length < 240 && !confirmedParams.includes(p)) confirmedParams.push(p);
+    for (const wanp of allWanParams) pushConfirmed(wanp, 210);
+
+    // 4. Priority 4: Confirmed LAN Host entries (ONLY actual instances returned by GPN — NEVER speculate Host.1..16!)
+    const lanHosts = names.find((n) => /LANDevice\.\d+\.(Hosts\.HostNumberOfEntries|HostNumberOfEntries)$|Device\.Hosts\.HostNumberOfEntries$/i.test(n));
+    if (lanHosts) pushConfirmed(lanHosts, 230);
+
+    const hostParams = names.filter((n) =>
+      /(?:LANDevice\.\d+\.Hosts\.Host\.\d+\.(?:IPAddress|MACAddress|HostName|UserHostName|ClientID|Active|InterfaceType|LeaseTimeRemaining)|LANDevice\.\d+\.WLANConfiguration\.\d+\.AssociatedDevice\.\d+\.(?:AssociatedDeviceMACAddress|AssociatedDeviceIPAddress|AssociatedDeviceHostName|AssociatedDeviceAuthenticationState|AssociatedDeviceRSSI|MACAddress)|Device\.Hosts\.Host\.\d+\.(?:IPAddress|PhysAddress|HostName|Active|InterfaceType)|Device\.WiFi\.AccessPoint\.\d+\.AssociatedDevice\.\d+\.MACAddress)$/i.test(n) &&
+      !n.endsWith('.')
+    );
+    for (const hp of hostParams) pushConfirmed(hp, 235);
+
+    // 5. Priority 5: Confirmed Optical / PON telemetry parameters (filtering out known UNSUPPORTED cached paths)
+    let unsupportedSet = new Set<string>();
+    if (session) {
+      const cachedUnsupported = await SupportedParameterCache.find({
+        vendor: session.vendor,
+        modelName: session.modelName,
+        status: 'UNSUPPORTED',
+      }).lean().catch(() => []);
+      unsupportedSet = new Set(cachedUnsupported.map((c: any) => c.parameterPath));
     }
 
-    // 4. Identify confirmed Optical / PON telemetry parameters
     const opticalRxCandidates = names.filter((n) =>
       /rxpower|rx_power|opticalsignallevel|receivepower|rxdba|opt_rx/i.test(n) &&
-      !/ping|traceroute|wlan|wifi|beacon/i.test(n) && !n.endsWith('.')
+      !/ping|traceroute|wlan|wifi|beacon/i.test(n) && !n.endsWith('.') && !unsupportedSet.has(n)
     );
     const opticalTxCandidates = names.filter((n) =>
       /txpower|tx_power|transmitopticalpower|opt_tx/i.test(n) &&
-      !/ping|traceroute|wlan|wifi|beacon/i.test(n) && !n.endsWith('.')
+      !/ping|traceroute|wlan|wifi|beacon/i.test(n) && !n.endsWith('.') && !unsupportedSet.has(n)
     );
     const opticalCompanionCandidates = names.filter((n) =>
       /(epon|gpon|pon|optical).*(bias|volt|temp)/i.test(n) &&
-      !/ping|traceroute|wlan|wifi/i.test(n) && !n.endsWith('.')
+      !/ping|traceroute|wlan|wifi/i.test(n) && !n.endsWith('.') && !unsupportedSet.has(n)
     );
 
     console.log(
@@ -2526,21 +2666,13 @@ ${stringElements}
       { rx: opticalRxCandidates, tx: opticalTxCandidates }
     );
 
-    // Priority Optical RX paths
-    for (const optRx of opticalRxCandidates) {
-      if (!confirmedParams.includes(optRx)) confirmedParams.push(optRx);
-    }
-    // Priority Optical TX paths
-    for (const optTx of opticalTxCandidates) {
-      if (!confirmedParams.includes(optTx)) confirmedParams.push(optTx);
-    }
-    // Companions (Voltage, Temperature, Bias Current)
-    for (const comp of opticalCompanionCandidates) {
-      if (confirmedParams.length < 250 && !confirmedParams.includes(comp)) confirmedParams.push(comp);
-    }
+    for (const optRx of opticalRxCandidates) pushConfirmed(optRx, 250);
+    for (const optTx of opticalTxCandidates) pushConfirmed(optTx, 250);
+    for (const comp of opticalCompanionCandidates) pushConfirmed(comp, 255);
 
     if (session && confirmedParams.length > 0) {
       session.stage = 'OPTICAL_SENT';
+      session.lastQueriedPaths = [...confirmedParams];
 
       if (opticalRxCandidates.length > 0) {
         session.activeOpticalCandidate = opticalRxCandidates[0];
@@ -2630,35 +2762,32 @@ ${stringElements}
     }
 
     console.log(`[CWMP ACS] Inbound Response XML for ${device.serialNumber} (Stage: ${session?.stage}):\n${xml.substring(0, 1000)}`);
-    device.lastRawGetParameterValuesResponseXml = xml;
     if (!device.rawParameters) device.rawParameters = {};
 
-    // Scoped prefix pruning: prune stale keys within the scope of what was queried in the current GPV round-trip
-    if (session?.lastQueriedPaths && session.lastQueriedPaths.length > 0) {
-      for (const queriedPath of session.lastQueriedPaths) {
-        if (queriedPath.endsWith('.')) {
-          // Subtree prefix query: remove any existing key under this prefix that is absent from rawMap
-          for (const existingKey of Object.keys(device.rawParameters)) {
-            if (existingKey.startsWith(queriedPath) && !(existingKey in rawMap)) {
-              delete device.rawParameters[existingKey];
+    // Only overwrite raw XML, run scoped pruning, and assign rawMap when the response is NOT a Fault (Fault responses carry empty rawMap!)
+    if (!(fault && fault.isFault)) {
+      device.lastRawGetParameterValuesResponseXml = xml;
+      if (session?.lastQueriedPaths && session.lastQueriedPaths.length > 0) {
+        for (const queriedPath of session.lastQueriedPaths) {
+          if (queriedPath.endsWith('.')) {
+            for (const existingKey of Object.keys(device.rawParameters)) {
+              if (existingKey.startsWith(queriedPath) && !(existingKey in rawMap)) {
+                delete device.rawParameters[existingKey];
+              }
+            }
+          } else {
+            if ((queriedPath in device.rawParameters) && !(queriedPath in rawMap)) {
+              delete device.rawParameters[queriedPath];
             }
           }
-        } else {
-          // Exact-path query: remove only if completely missing from rawMap (not just empty string)
-          if ((queriedPath in device.rawParameters) && !(queriedPath in rawMap)) {
-            delete device.rawParameters[queriedPath];
-          }
         }
+        session.lastQueriedPaths = undefined;
       }
-      // Reset/clear lastQueriedPaths so it never carries over stale scope into the next session
-      session.lastQueriedPaths = undefined;
-    }
 
-    if (device.rawParameters) {
       Object.assign(device.rawParameters, rawMap);
-    }
-    if (typeof (device as any).markModified === 'function') {
-      (device as any).markModified('rawParameters');
+      if (typeof (device as any).markModified === 'function') {
+        (device as any).markModified('rawParameters');
+      }
     }
 
     // --- POLL-THEN-PROVISION: WAN Slot Activation Check ---
@@ -3671,6 +3800,31 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         console.log(
           `[CWMP ACS] Cached parameter as UNSUPPORTED: ${session.activeOpticalCandidate}. Baseline Wi-Fi/WAN data remains preserved.`
         );
+
+        // If the aborted OPTICAL_SENT GPV also carried non-optical Wi-Fi / WAN / Hosts parameters that haven't been synced yet, retry them cleanly without optical paths
+        const remainingNonOptical = (session.lastQueriedPaths || []).filter(
+          (p) => !/rxpower|rx_power|optical|txpower|tx_power|opt_rx|opt_tx|bias|volt|temp/i.test(p)
+        );
+        if (remainingNonOptical.length > 0) {
+          session.stage = 'BASELINE_SENT';
+          session.activeOpticalCandidate = undefined;
+          session.lastQueriedPaths = [...remainingNonOptical];
+          const stringElements = remainingNonOptical.map((p) => `        <string>${p}</string>`).join('\n');
+          console.log(`[CWMP ACS -> CPE] Dispatching non-optical fallback GPV (${remainingNonOptical.length} params) for ${session.serialNumber}`);
+          return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soapenv:Header>
+    <cwmp:ID soapenv:mustUnderstand="1">2</cwmp:ID>
+  </soapenv:Header>
+  <soapenv:Body>
+    <cwmp:GetParameterValues>
+      <ParameterNames soapenv:arrayType="xsd:string[${remainingNonOptical.length}]">
+${stringElements}
+      </ParameterNames>
+    </cwmp:GetParameterValues>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+        }
       }
       return null;
     }
@@ -3686,7 +3840,12 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     let chan5g = '';
     let beacon5g = '';
 
-    for (let i = 1; i <= 8; i++) {
+    const mergedRawForBand: Record<string, any> = {
+      ...(device.rawParameters || {}),
+      ...rawMap,
+    };
+
+    for (let i = 1; i <= 16; i++) {
       const sVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.SSID`) ||
                    pMap.get(`Device.WiFi.SSID.${i}.SSID`);
       if (!sVal) continue;
@@ -3694,41 +3853,39 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
                     pMap.get(`Device.WiFi.SSID.${i}.Enable`);
       const isEnabled = enVal !== '0' && enVal !== 'false';
       const cVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.Channel`) ||
-                   pMap.get(`Device.WiFi.Radio.${i}.Channel`);
-      const bVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_TP_Band`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.OperatingFrequencyBand`) ||
-                   pMap.get(`Device.WiFi.Radio.${i}.OperatingFrequencyBand`);
-      const pVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.KeyPassphrase`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.PreSharedKey`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.KeyPassphrase`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_CT-COM_KeyPassphrase`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_HW_KeyPassphrase`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_TP_PreSharedKey`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.WPA.PreSharedKey`) ||
-                   pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey`) ||
-                   pMap.get(`Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`) ||
-                   pMap.get(`Device.WiFi.AccessPoint.${i}.Security.PreSharedKey`);
+                   pMap.get(`Device.WiFi.Radio.${i}.Channel`) ||
+                   mergedRawForBand[`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.Channel`];
+      const detectedBand = CwmpVendorProfiles.determineWifiBand(mergedRawForBand, i, sVal);
+      const is5G = detectedBand === '5GHz';
+      const is24G = detectedBand === '2.4GHz';
+
+      const validSecret = this.pickNonMaskedSecret(pMap, [
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey.1.PreSharedKey`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_CT-COM_KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_HW_KeyPassphrase`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.X_TP_PreSharedKey`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.WPA.PreSharedKey`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.PreSharedKey`,
+        `Device.WiFi.AccessPoint.${i}.Security.KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${i}.Security.PreSharedKey`,
+      ]);
       const secVal = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${i}.BeaconType`) ||
                      pMap.get(`Device.WiFi.AccessPoint.${i}.Security.ModeEnabled`);
 
-      const chanNum = parseInt(cVal || '', 10);
-      const is5G = (bVal && /5g/i.test(bVal)) || (!isNaN(chanNum) && chanNum >= 36) || (i === 3 && isNaN(chanNum));
-      const is24G = (bVal && /2\.4|2g/i.test(bVal)) || (!isNaN(chanNum) && chanNum >= 1 && chanNum <= 14) || (i === 1 && isNaN(chanNum));
-
-      const isValidPassword = pVal && pVal.trim() && !/^\*+$/.test(pVal.trim());
-
       if (is5G) {
-        if (!ssid5g || (isEnabled && (i === 3 || i === 2 || !/guest|iot/i.test(sVal)))) {
+        if (!ssid5g || (isEnabled && !/guest|iot/i.test(sVal) && (i === 5 || i === 3 || i === 2 || /guest|iot/i.test(ssid5g)))) {
           ssid5g = sVal;
-          if (isValidPassword) pass5g = pVal.trim();
-          if (cVal) chan5g = cVal;
+          if (validSecret) pass5g = validSecret;
+          if (cVal !== undefined) chan5g = String(cVal);
           if (secVal) beacon5g = secVal;
         }
       } else if (is24G) {
-        if (!ssid24 || (isEnabled && (i === 1 || !/guest|iot/i.test(sVal)))) {
+        if (!ssid24 || (isEnabled && !/guest|iot/i.test(sVal) && (i === 1 || /guest|iot/i.test(ssid24)))) {
           ssid24 = sVal;
-          if (isValidPassword) pass24 = pVal.trim();
-          if (cVal) chan24 = cVal;
+          if (validSecret) pass24 = validSecret;
+          if (cVal !== undefined) chan24 = String(cVal);
           if (secVal) beacon24 = secVal;
         }
       }
@@ -3736,7 +3893,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
 
     if (!ssid24) {
       ssid24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID', 'Device.WiFi.SSID.1.SSID']) || '';
-      const rawP24 = this.getFirstParam(pMap, [
+      const rawP24 = this.pickNonMaskedSecret(pMap, [
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
@@ -3746,53 +3903,93 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey',
         'Device.WiFi.AccessPoint.1.Security.KeyPassphrase',
       ]);
-      if (rawP24 && rawP24.trim() && !/^\*+$/.test(rawP24.trim())) pass24 = rawP24.trim();
+      if (rawP24) pass24 = rawP24;
       chan24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel', 'Device.WiFi.Radio.1.Channel']) || '';
       beacon24 = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.BeaconType', 'Device.WiFi.AccessPoint.1.Security.ModeEnabled']) || '';
     }
     if (!ssid5g) {
-      ssid5g = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.SSID', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.SSID', 'Device.WiFi.SSID.2.SSID']) || '';
-      const rawP5g = this.getFirstParam(pMap, [
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.PreSharedKey.1.PreSharedKey',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.X_TP_PreSharedKey',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.2.PreSharedKey.1.PreSharedKey',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.KeyPassphrase',
-        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase',
-        'Device.WiFi.AccessPoint.2.Security.KeyPassphrase',
-      ]);
-      if (rawP5g && rawP5g.trim() && !/^\*+$/.test(rawP5g.trim())) pass5g = rawP5g.trim();
-      chan5g = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.Channel', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.Channel', 'Device.WiFi.Radio.2.Channel']) || '';
-      beacon5g = this.getFirstParam(pMap, ['InternetGatewayDevice.LANDevice.1.WLANConfiguration.3.BeaconType', 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.BeaconType', 'Device.WiFi.AccessPoint.2.Security.ModeEnabled']) || '';
+      // Only fall back to secondary radio instances if not explicitly classified as 2.4GHz and preferring enabled instances
+      for (const fallbackIdx of [5, 3, 2, 6]) {
+        const candSsid = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.SSID`);
+        if (!candSsid) continue;
+        const candBand = CwmpVendorProfiles.determineWifiBand(mergedRawForBand, fallbackIdx, candSsid);
+        const candEnabled = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.Enable`) !== '0';
+        if (candBand !== '2.4GHz' && (candEnabled || !ssid5g) && !/guest/i.test(candSsid)) {
+          ssid5g = candSsid;
+          const rawP5g = this.pickNonMaskedSecret(pMap, [
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.KeyPassphrase`,
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.KeyPassphrase`,
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.PreSharedKey.1.PreSharedKey`,
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.X_TP_PreSharedKey`,
+            `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.X_CT-COM_KeyPassphrase`,
+          ]);
+          if (rawP5g) pass5g = rawP5g;
+          chan5g = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.Channel`) || '';
+          beacon5g = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${fallbackIdx}.BeaconType`) || '';
+          if (candEnabled) break;
+        }
+      }
+      if (!ssid5g && pMap.get('Device.WiFi.SSID.2.SSID')) {
+        ssid5g = pMap.get('Device.WiFi.SSID.2.SSID') || '';
+        const rawTr181P5 = this.pickNonMaskedSecret(pMap, ['Device.WiFi.AccessPoint.2.Security.KeyPassphrase', 'Device.WiFi.AccessPoint.2.Security.PreSharedKey']);
+        if (rawTr181P5) pass5g = rawTr181P5;
+        chan5g = pMap.get('Device.WiFi.Radio.2.Channel') || '';
+        beacon5g = pMap.get('Device.WiFi.AccessPoint.2.Security.ModeEnabled') || '';
+      }
     }
 
-    // Multi-slot dynamic search for customer PPPoE credentials across all WAN connection slots and connection instances
+    // Multi-slot dynamic search for customer PPPoE credentials across all WAN slots (preferring active non-TR069 INTERNET slot)
     let pppoeUser = '';
+    let pppoePass = '';
     let pppStatus = '';
     let pppIp = '';
     let rawVlan = '';
+    let bestPppScore = -1;
 
     for (const [k, v] of pMap.entries()) {
-      if (/WANConnectionDevice\.\d+\.WANPPPConnection\.\d+\.Username$/i.test(k) && v) {
-        pppoeUser = v;
-        const prefix = k.substring(0, k.lastIndexOf('.'));
-        pppStatus = pMap.get(`${prefix}.ConnectionStatus`) || pppStatus;
-        pppIp = pMap.get(`${prefix}.ExternalIPAddress`) || pppIp;
-        rawVlan = pMap.get(`${prefix}.X_HW_VLAN`) || pMap.get(`${prefix}.X_CT-COM_VlanID`) || pMap.get(`${prefix}.VLANID`) || rawVlan;
-        break;
+      const m = k.match(/((?:WANDevice\.\d+\.WANConnectionDevice\.\d+\.WANPPPConnection\.\d+)|(?:Device\.PPP\.Interface\.\d+))\.Username$/i);
+      if (m && v && String(v).trim()) {
+        const prefix = m[1];
+        const connName = pMap.get(`${prefix}.Name`) || mergedRawForBand[`${prefix}.Name`] || '';
+        const svc = pMap.get(`${prefix}.X_CT-COM_ServiceList`) || pMap.get(`${prefix}.ServiceList`) || mergedRawForBand[`${prefix}.X_CT-COM_ServiceList`] || '';
+        const statusVal = pMap.get(`${prefix}.ConnectionStatus`) || pMap.get(`${prefix}.Status`) || '';
+        const ipVal = pMap.get(`${prefix}.ExternalIPAddress`) || pMap.get(`${prefix}.IPCPLocalIPAddress`) || '';
+        const enVal = pMap.get(`${prefix}.Enable`);
+        const isMgmt = /TR069|VOIP|VOICE/i.test(`${connName} ${svc}`) && !/INTERNET/i.test(`${connName} ${svc}`);
+        const score =
+          (isMgmt ? 0 : 100) +
+          (/connected/i.test(statusVal) ? 50 : 0) +
+          (ipVal && ipVal !== '0.0.0.0' ? 25 : 0) +
+          (enVal !== '0' && enVal !== 'false' ? 10 : 0);
+
+        if (score > bestPppScore) {
+          bestPppScore = score;
+          pppoeUser = String(v).trim();
+          pppoePass = this.pickNonMaskedSecret(pMap, [`${prefix}.Password`, `${prefix}.X_CT-COM_Password`]) || '';
+          pppStatus = statusVal || pppStatus;
+          if (ipVal && ipVal !== '0.0.0.0') pppIp = ipVal;
+          const slotMatch = prefix.match(/WANConnectionDevice\.(\d+)\./i);
+          const slotNum = slotMatch ? slotMatch[1] : '1';
+          rawVlan =
+            pMap.get(`${prefix}.X_HW_VLAN`) ||
+            pMap.get(`${prefix}.X_CT-COM_VlanID`) ||
+            pMap.get(`${prefix}.VLANID`) ||
+            pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANEponLinkConfig.VLANIDMark`) ||
+            pMap.get(`InternetGatewayDevice.WANDevice.1.WANConnectionDevice.${slotNum}.X_CT-COM_WANGponLinkConfig.VLANIDMark`) ||
+            rawVlan;
+        }
       }
     }
 
     if (!pppIp) {
       for (const [k, v] of pMap.entries()) {
-        if (/WANConnectionDevice\.\d+\.(WANPPPConnection|WANIPConnection)\.\d+\.ExternalIPAddress$/i.test(k) && v) {
-          pppIp = v;
+        if (/WANConnectionDevice\.\d+\.(WANPPPConnection|WANIPConnection)\.\d+\.ExternalIPAddress$/i.test(k) && v && v !== '0.0.0.0') {
           const prefix = k.substring(0, k.lastIndexOf('.'));
-          pppStatus = pMap.get(`${prefix}.ConnectionStatus`) || pppStatus;
-          break;
+          const connName = pMap.get(`${prefix}.Name`) || '';
+          if (!/TR069/i.test(connName) || !pppIp) {
+            pppIp = v;
+            pppStatus = pMap.get(`${prefix}.ConnectionStatus`) || pppStatus;
+          }
         }
       }
     }
@@ -3800,9 +3997,9 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     if (!pppoeUser) {
       pppoeUser = this.getFirstParam(pMap, [
         'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username',
+        'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Username',
         'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.2.Username',
         'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.3.Username',
-        'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.Username',
         'Device.PPP.Interface.1.Username',
         'Device.PPP.Interface.2.Username',
       ]) || '';
@@ -3810,16 +4007,16 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     if (!pppStatus) {
       pppStatus = this.getFirstParam(pMap, [
         'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ConnectionStatus',
-        'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.3.ConnectionStatus',
         'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.ConnectionStatus',
+        'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.3.ConnectionStatus',
         'Device.PPP.Interface.1.ConnectionStatus',
       ]) || '';
     }
     if (!pppIp) {
       pppIp = this.getFirstParam(pMap, [
         'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ExternalIPAddress',
-        'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.3.ExternalIPAddress',
         'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANPPPConnection.1.ExternalIPAddress',
+        'InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.3.ExternalIPAddress',
         'Device.IP.Interface.1.IPv4Address.1.IPAddress',
       ]) || '';
     }
@@ -3834,11 +4031,27 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       ]) || '';
     }
 
-    if (pppoeUser) device.pppoeUsername = pppoeUser;
-    if (pppIp) device.externalIpAddress = pppIp;
+    if (pppoeUser) (device as any).pppoeUsername = pppoeUser;
+    if (pppIp && pppIp !== '0.0.0.0') device.externalIpAddress = pppIp;
     if (rawVlan) {
       const v = parseInt(rawVlan, 10);
-      if (!isNaN(v)) device.wanVlan = v;
+      if (!isNaN(v) && v > 0) (device as any).wanVlan = v;
+    }
+    const rawInterval = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.ManagementServer.PeriodicInformInterval',
+      'Device.ManagementServer.PeriodicInformInterval',
+    ]);
+    if (rawInterval) {
+      const pi = parseInt(String(rawInterval), 10);
+      if (!isNaN(pi) && pi > 0) device.periodicInformInterval = pi;
+    }
+    const rawUptime = this.getFirstParam(pMap, [
+      'InternetGatewayDevice.DeviceInfo.UpTime',
+      'Device.DeviceInfo.UpTime',
+    ]);
+    if (rawUptime) {
+      const up = parseInt(String(rawUptime), 10);
+      if (!isNaN(up) && up >= 0) device.uptimeSeconds = up;
     }
 
     const rawHosts = this.getFirstParam(pMap, [
@@ -3963,6 +4176,9 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
       const resolvedService = isTr069 ? 'TR069' : (isVoip ? 'VOIP' : 'INTERNET');
 
       const fallbackName = `${slotNum}_${resolvedService}_${isPpp ? 'R' : (isBridged ? 'B' : 'IP')}${connVlan ? `_VID_${connVlan}` : ''}`;
+      const connPass = isPpp
+        ? this.pickNonMaskedSecret(pMap, [`${prefix}.Password`, `${prefix}.X_CT-COM_Password`, `${prefix}.X_HW_Password`])
+        : undefined;
 
       discoveredWanProfiles.push({
         name: connName || fallbackName,
@@ -3988,6 +4204,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         isProtected: isTr069,
         cpeObjectPath: `${prefix}.`,
         pppoeUsername: connUser,
+        ...(connPass ? { pppoePasswordEncrypted: connPass } : {}),
         ipAddress: connIp || null,
         status: connStatus === 'Connected' ? 'Connected' : 'Connecting',
         isDefault: isInternet,
@@ -4033,6 +4250,7 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
             if (incoming.status) existing.status = incoming.status;
             if (incoming.ipAddress && incoming.ipAddress !== '0.0.0.0') existing.ipAddress = incoming.ipAddress;
             if (incoming.pppoeUsername) existing.pppoeUsername = incoming.pppoeUsername;
+            if (incoming.pppoePasswordEncrypted) existing.pppoePasswordEncrypted = incoming.pppoePasswordEncrypted;
             if (incoming.vlanId) existing.vlanId = incoming.vlanId;
             if (incoming.cpeObjectPath) existing.cpeObjectPath = incoming.cpeObjectPath;
             if (incoming.serviceType) existing.serviceType = incoming.serviceType;
@@ -4052,18 +4270,20 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         if (modified) device.markModified('wanProfiles');
       }
     } else if (!device.wanProfiles || device.wanProfiles.length === 0) {
+      const parsedFallbackVlan = rawVlan ? parseInt(rawVlan, 10) : undefined;
       device.wanProfiles = [{
         name: 'WAN_PPPoE',
         connectionType: 'PPPoE',
         serviceType: 'INTERNET',
         status: pppStatus === 'Connected' ? 'Connected' : 'Connecting',
         pppoeUsername: pppoeUser || '',
+        ...(pppoePass ? { pppoePasswordEncrypted: pppoePass } : {}),
         ipAddress: pppIp || '',
-        vlanId: rawVlan ? parseInt(rawVlan, 10) || 100 : 100,
+        ...(parsedFallbackVlan && !isNaN(parsedFallbackVlan) && parsedFallbackVlan > 0 ? { vlanId: parsedFallbackVlan } : {}),
       } as any];
     }
 
-    // Discover and populate ALL SSIDs (SSID 1, 2, 3, 4, 5...)
+    // Discover and populate ALL SSIDs (SSID 1..16) with accurate band classification and non-masked secrets
     const discoveredSsids: any[] = [];
     const wlanIndices = Array.from(new Set(
       pMapKeys.map(k => {
@@ -4075,23 +4295,40 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     for (const wIdx of wlanIndices) {
       const sName = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.SSID`);
       if (sName) {
-        const sKey = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.PreSharedKey.1.KeyPassphrase`) || pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.KeyPassphrase`) || '';
+        const sKey = this.pickNonMaskedSecret(pMap, [
+          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.PreSharedKey.1.KeyPassphrase`,
+          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.KeyPassphrase`,
+          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.PreSharedKey.1.PreSharedKey`,
+          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.X_CT-COM_KeyPassphrase`,
+          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.X_HW_KeyPassphrase`,
+          `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.X_TP_PreSharedKey`,
+        ]) || '';
         const sChan = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.Channel`);
         const sBeacon = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.BeaconType`) || 'WPA2-PSK';
         const sEnable = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wIdx}.Enable`) !== '0';
+        const detectedSsidBand = CwmpVendorProfiles.determineWifiBand(mergedRawForBand, wIdx, sName);
+        const schemaBand: '2.4GHz' | '5GHz' =
+          detectedSsidBand === '5GHz'
+            ? '5GHz'
+            : (detectedSsidBand === 'UNKNOWN' && ssid5g && sName === ssid5g ? '5GHz' : '2.4GHz');
         discoveredSsids.push({
           instance: wIdx,
           ssid: sName,
           password: sKey,
-          channel: sChan ? parseInt(sChan, 10) : 6,
+          channel: sChan ? parseInt(sChan, 10) : (schemaBand === '5GHz' ? 44 : 6),
+          bandwidthMhz: schemaBand === '5GHz' ? 80 : 20,
           securityMode: sBeacon,
           enabled: sEnable,
-          band: (wIdx === 2 || wIdx === 5) ? '5GHz' : '2.4GHz',
+          band: schemaBand,
         });
       }
     }
     if (discoveredSsids.length > 0) {
-      (device as any).ssids = discoveredSsids;
+      device.additionalSsids = discoveredSsids;
+    }
+
+    if (wlanIndices.length > 0 || connPrefixes.length > 0 || Boolean(ssid24) || Boolean(pppoeUser)) {
+      (device as any).supportedParametersConfirmed = true;
     }
 
     if (rawHosts) {
@@ -4144,10 +4381,12 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
         const idx = `wlan_${wlanBand}_${devNum}`;
         const field = wlanMatch[4].toLowerCase();
         
-        // Check if this WLAN instance channel is 5 GHz
-        const chanVal = parseInt(pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanBand}.Channel`) || '', 10);
-        const bandParam = pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanBand}.X_TP_Band`) || '';
-        const is5GHz = (bandParam && /5g/i.test(bandParam)) || (wlanBand === '3' || wlanBand === '4' || wlanBand === '6') || (chanVal >= 36);
+        // Check if this WLAN instance is 5 GHz via full band detection (handles Auto channel 0 & all vendor slots)
+        const wlanSsidVal =
+          pMap.get(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlanBand}.SSID`) ||
+          pMap.get(`Device.WiFi.SSID.${wlanBand}.SSID`) ||
+          '';
+        const is5GHz = CwmpVendorProfiles.determineWifiBand(mergedRawForBand, Number(wlanBand), wlanSsidVal) === '5GHz';
 
         if (!clientMap.has(idx)) {
           clientMap.set(idx, {
@@ -4375,6 +4614,10 @@ ${fallbackParams.map((p) => `        <ParameterValueStruct>
     device.lastInform = new Date();
     device.lastParameterSyncAt = new Date();
     device.status = 'online';
+    if (session && (session.stage === 'BASELINE_SENT' || session.stage === 'OPTICAL_SENT' || session.stage === 'VERIFICATION_GPV_SENT')) {
+      session.stage = 'COMPLETED';
+      await this.updateSession(session, connectionKey).catch(() => {});
+    }
     await device.save();
 
     // Post-Change Verification Evaluation
