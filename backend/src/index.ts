@@ -90,19 +90,26 @@ const corsOptions: cors.CorsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Support XML / SOAP TR-069 CPE Informs
-app.use(express.text({ type: ['text/xml', 'application/xml', 'text/*'], limit: '10mb' }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Support XML / SOAP TR-069 CPE Informs across all standard content types
+app.use(express.text({ type: ['text/xml', 'application/xml', 'application/soap+xml', 'text/*', '*/xml'], limit: '25mb' }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(resolveTenantContext as any);
 
 // Dedicated TR-069 CWMP Application Engine (Isolated for CPE traffic on CWMP_PORT)
 const cwmpApp = express();
 cwmpApp.set('trust proxy', true);
 cwmpApp.use(cors(corsOptions));
-cwmpApp.use(express.text({ type: ['text/xml', 'application/xml', 'text/*'], limit: '10mb' }));
-cwmpApp.use(express.json({ limit: '10mb' }));
-cwmpApp.use(express.urlencoded({ extended: true }));
+// Support all vendor SOAP/XML content types, including missing content-type or raw payloads
+cwmpApp.use((req, _res, next) => {
+  if (!req.headers['content-type']) {
+    req.headers['content-type'] = 'text/xml';
+  }
+  next();
+});
+cwmpApp.use(express.text({ type: ['text/xml', 'application/xml', 'application/soap+xml', 'text/*', '*/xml', 'application/octet-stream', '*/*'], limit: '25mb' }));
+cwmpApp.use(express.json({ limit: '25mb' }));
+cwmpApp.use(express.urlencoded({ extended: true, limit: '25mb' }));
 cwmpApp.use(resolveTenantContext as any);
 cwmpApp.use(cwmpRouter);
 cwmpApp.use(firmwareRouter);

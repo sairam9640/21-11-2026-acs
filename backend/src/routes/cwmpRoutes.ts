@@ -60,9 +60,8 @@ async function handleCwmpPost(req: Request, res: Response) {
       rawBody.includes('<Body></Body>');
 
     const endCwmpSession = () => {
-      res.setHeader('Content-Type', 'text/xml; charset=utf-8');
       res.setHeader('Content-Length', '0');
-      return res.status(200).end();
+      return res.status(204).end();
     };
 
     // 1. If GetParameterNamesResponse from CPE
@@ -124,8 +123,9 @@ async function handleCwmpPost(req: Request, res: Response) {
       return endCwmpSession();
     }
 
-    // 3. If genuine Inform XML from CPE
-    if (rawBody.includes('<cwmp:Inform>') || rawBody.includes('<Inform>') || rawBody.includes('cwmp:Inform')) {
+    // 3. If genuine Inform XML from CPE (handles all prefixes like cwmp:Inform, soap:Inform, or unprefixed <Inform)
+    const isInform = /(?:<\s*|:\s*)Inform[\s>]/i.test(rawBody);
+    if (isInform) {
       const informResult = await CwmpService.handleInform(rawBody, clientIp, hostHeader, pathOrQuerySlug, connectionKey);
       res.setHeader('Set-Cookie', `cwmpSession=${informResult.sessionId}; Path=/; HttpOnly`);
       res.setHeader('Content-Type', 'text/xml; charset=utf-8');
@@ -144,9 +144,11 @@ async function handleCwmpPost(req: Request, res: Response) {
       return endCwmpSession();
     }
 
-    // Default 200 OK fallback
+    // Default 200 OK fallback (echoes incoming cwmp:ID if present)
+    const idMatch = rawBody ? rawBody.match(/<(?:cwmp:)?ID[^>]*>([^<]+)<\/(?:cwmp:)?ID>/i) : null;
+    const fallbackId = idMatch ? idMatch[1].trim() : '1';
     res.setHeader('Content-Type', 'text/xml; charset=utf-8');
-    return res.status(200).send(CwmpService.buildInformResponse());
+    return res.status(200).send(CwmpService.buildInformResponse(fallbackId));
   } catch (error: any) {
     console.error('[Native CWMP Error]:', error);
     res.setHeader('Content-Type', 'text/xml; charset=utf-8');

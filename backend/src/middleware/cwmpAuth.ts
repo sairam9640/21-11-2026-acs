@@ -140,11 +140,28 @@ export async function cwmpDigestAuthMiddleware(
   }
 
   // 3. Resolve expected secrets across device overrides, tenant slug (default ACS password = slug), and legacy fallbacks
-  const routeSlug = (req.params?.tenantSlug || (req.query?.tenant as string) || (req.query?.slug as string) || '').trim().toLowerCase();
+  let routeSlug = (req.params?.tenantSlug || (req.query?.tenant as string) || (req.query?.slug as string) || '').trim().toLowerCase();
+  if (!routeSlug) {
+    const rawPath = (req.originalUrl || req.path || req.url || '').split('?')[0].replace(/^\/+|\/+$/g, '');
+    const segments = rawPath.split('/').filter(Boolean);
+    const reservedWords = ['cwmp', 'tr069', 'tr69', 'inform', 'acs', 'service', 'openacs', 'genieacs'];
+    if (segments.length >= 2 && reservedWords.includes(segments[0].toLowerCase())) {
+      routeSlug = segments[1].toLowerCase();
+    } else if (segments.length === 1 && !reservedWords.includes(segments[0].toLowerCase())) {
+      routeSlug = segments[0].toLowerCase();
+    }
+  }
+  if (!routeSlug && process.env.DEFAULT_TENANT_SLUG) {
+    routeSlug = process.env.DEFAULT_TENANT_SLUG.trim().toLowerCase();
+  }
+
   const hostHeader = ((req.headers['x-forwarded-host'] as string) || (req.headers['host'] as string) || '').split(':')[0].toLowerCase();
   const hostPrefix = hostHeader.split('.')[0];
+  const headerSlug = (req.headers['x-tenant-slug'] as string)?.trim().toLowerCase();
+  const defaultSlug = (process.env.DEFAULT_TENANT_SLUG || '').trim().toLowerCase();
+  const rawCandidateSlugs = [routeSlug, headerSlug, digest.username.toLowerCase(), hostPrefix, defaultSlug];
   const candidateSlugs = new Set<string>(
-    [routeSlug, digest.username.toLowerCase(), hostPrefix].filter((s) => s && !['www', 'acs', 'admin', 'localhost'].includes(s))
+    rawCandidateSlugs.filter((s): s is string => Boolean(s) && !['www', 'acs', 'admin', 'localhost'].includes(s))
   );
 
   let expectedPassword = (process.env.CWMP_DEFAULT_PASSWORD || '').trim();
@@ -186,10 +203,13 @@ export async function cwmpDigestAuthMiddleware(
     console.warn('[CWMP Auth] Database credential lookup error:', err.message);
   }
 
-  // 4. Compute Expected Response Hash across configured & default fallback secrets
-  const uri = digest.uri || req.originalUrl || req.url;
-  const ha2 = md5(`${req.method}:${uri}`);
-  const computeDigestResponse = (secret: string): string => {
+  // 4. Compute Expected Response Hash across candidate URIs and secrets
+  const uriCandidates = Array.from(
+    new Set([digest.uri, req.originalUrl, req.url, (req.originalUrl || '').split('?')[0]].filter(Boolean))
+  );
+
+  const computeDigestResponse = (secret: string, testUri: string): string => {
+    const ha2 = md5(`${req.method}:${testUri}`);
     let ha1 = md5(`${digest.username}:${digest.realm}:${secret}`);
     if (digest.algorithm?.toUpperCase() === 'MD5-SESS' && digest.cnonce) {
       ha1 = md5(`${ha1}:${digest.nonce}:${digest.cnonce}`);
@@ -212,7 +232,11 @@ export async function cwmpDigestAuthMiddleware(
     ].filter(Boolean))
   );
 
-  if (candidatePasswords.some((pwd) => computeDigestResponse(pwd) === digest.response)) {
+  const isValidAuth = candidatePasswords.some((pwd) =>
+    uriCandidates.some((uri) => computeDigestResponse(pwd, uri) === digest.response)
+  );
+
+  if (isValidAuth) {
     (req as any).cwmpUser = digest.username;
     (req as any).cwmpAuthenticated = true;
     return next();

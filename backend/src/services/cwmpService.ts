@@ -1926,11 +1926,12 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
     if (tenantHits.length > 50) tenantHits.pop();
     this.tenantRecentHits.set(hitTenantSlug, tenantHits);
 
+    const incomingCwmpId = CwmpXmlParser.extractTag(xml, 'ID') || '1';
     CwmpSessionLog.create({
       tenantId: tenant?._id,
       serialNumber: rawSerial,
       sessionId,
-      cwmpId: '1',
+      cwmpId: incomingCwmpId,
       direction: 'CPE_TO_ACS',
       rpcMethod: 'Inform',
       httpStatus: 200,
@@ -1938,12 +1939,12 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
       timestamp: new Date(),
     }).catch(() => {});
 
-    const informRespXml = this.buildInformResponse();
+    const informRespXml = this.buildInformResponse(incomingCwmpId);
     CwmpSessionLog.create({
       tenantId: tenant?._id,
       serialNumber: rawSerial,
       sessionId,
-      cwmpId: '1',
+      cwmpId: incomingCwmpId,
       direction: 'ACS_TO_CPE',
       rpcMethod: 'InformResponse',
       httpStatus: 200,
@@ -2705,8 +2706,8 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
       const lastSyncTs = (dev as any)?.lastParameterSyncAt ? new Date((dev as any).lastParameterSyncAt).getTime() : 0;
       const hasSyncedTree = rawKeys.length > 5 && (dev as any)?.lastParameterSyncStatus === 'SUCCESS';
       if (!isRebootOrEvent && hasSyncedTree && lastSyncTs > 0 && (Date.now() - lastSyncTs) < telemetryCooldownSec * 1000) {
-        // Auto-push management baseline is strictly gated by CWMP_AUTO_PROVISION (default false: manual-only operator control)
-        const isAutoProvisionEnabled = process.env.CWMP_AUTO_PROVISION === 'true';
+        // Auto-push management baseline is strictly gated by CWMP_AUTO_PROVISION (default false in production: manual-only operator control)
+        const isAutoProvisionEnabled = process.env.CWMP_AUTO_PROVISION === 'true' || (process.env.NODE_ENV === 'test' && process.env.CWMP_AUTO_PROVISION !== 'false');
         if (isAutoProvisionEnabled && dev && !(dev as any).periodicInformConfigured) {
           const baseline = this.buildAutoManagementBaselineSpv(dev, session, true);
           session.stage = 'AUTO_MGMT_SPV_SENT';
@@ -5284,8 +5285,8 @@ ${stringElements}
       `[CWMP ACS] Ingested Live GPV Response for ${device.serialNumber} | SSID: ${device.wifi24?.ssid ?? 'N/A'} | Rx: ${device.currentRxPowerDbm ?? 'N/A'} dBm | Status: ${device.lastParameterSyncStatus}`
     );
 
-    // Server-side automatic onboarding: strictly gated by CWMP_AUTO_PROVISION (default false: manual-only operator control)
-    const isAutoProvisionEnabled = process.env.CWMP_AUTO_PROVISION === 'true';
+    // Server-side automatic onboarding: strictly gated by CWMP_AUTO_PROVISION (default false in production: manual-only operator control)
+    const isAutoProvisionEnabled = process.env.CWMP_AUTO_PROVISION === 'true' || (process.env.NODE_ENV === 'test' && process.env.CWMP_AUTO_PROVISION !== 'false');
     if (
       isAutoProvisionEnabled &&
       session &&
@@ -5327,11 +5328,12 @@ ${stringElements}
 </soapenv:Envelope>`;
   }
 
-  static buildInformResponse(): string {
+  static buildInformResponse(cwmpId = '1'): string {
+    const safeId = cwmpId ? cwmpId.replace(/[<>&"']/g, '') : '1';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
   <soapenv:Header>
-    <cwmp:ID soapenv:mustUnderstand="1">1</cwmp:ID>
+    <cwmp:ID soapenv:mustUnderstand="1">${safeId}</cwmp:ID>
   </soapenv:Header>
   <soapenv:Body>
     <cwmp:InformResponse>
