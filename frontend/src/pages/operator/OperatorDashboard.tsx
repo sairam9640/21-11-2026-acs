@@ -564,29 +564,18 @@ export const OperatorDashboard: React.FC = () => {
         maxWidth="lg"
       >
         <div className="space-y-4 text-xs font-sans">
-          {/* Unified TR-069 / CWMP ACS URL Options */}
+          {/* Unified Single TR-069 / CWMP ACS URL */}
           <div className="space-y-2">
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1.5 shadow-sm">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase text-emerald-800">Primary TR-069 CWMP ACS URL — Port 7547 (Unified & Recommended)</span>
-                <span className="text-[9px] bg-emerald-200 text-emerald-900 font-extrabold px-1.5 py-0.5 rounded">RECOMMENDED</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">TR-069 CWMP ACS URL (ONT / Router Config)</span>
+                <span className="text-[9px] bg-emerald-200 text-emerald-900 font-extrabold px-2 py-0.5 rounded-full">ACTIVE</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="font-mono font-bold text-emerald-950 select-all break-all">{activeCwmpUrl}</span>
+                <span className="font-mono font-bold text-sm text-emerald-950 select-all break-all">{activeCwmpUrl}</span>
                 <Button size="sm" variant="secondary" onClick={() => handleCopyText(activeCwmpUrl, 'url')} className="h-7 text-xs shrink-0 ml-2">
                   {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
                   <span>{copiedField === 'url' ? 'Copied' : 'Copy'}</span>
-                </Button>
-              </div>
-            </div>
-
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-              <span className="text-[10px] font-bold uppercase text-slate-600">Alternate ACS URL — Port 80 HTTP Fallback</span>
-              <div className="flex items-center justify-between">
-                <span className="font-mono font-bold text-slate-800 select-all break-all">{port80CwmpUrl}</span>
-                <Button size="sm" variant="secondary" onClick={() => handleCopyText(port80CwmpUrl, 'port80')} className="h-7 text-xs shrink-0 ml-2">
-                  {copiedField === 'port80' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                  <span>{copiedField === 'port80' ? 'Copied' : 'Copy'}</span>
                 </Button>
               </div>
             </div>
