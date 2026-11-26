@@ -131,7 +131,7 @@ const getCachedHardwareProfile = (vendor: string, model: string, oui: string, hw
   let chassisColor = 'slate';
 
   // Match GENEXIS
-  if (vendorUpper.includes('GENEXIS') || ouiUpper.includes('00259E')) {
+  if (vendorUpper.includes('GENEXIS') || ouiUpper.includes('00259E') || modelUpper.includes('EARTH') || modelUpper.includes('2022') || modelUpper.includes('GX4410') || modelUpper.includes('PLATINUM-4410')) {
     if (modelUpper.includes('PLATINUM') || modelUpper.includes('4410')) {
       profileType = 'GENEXIS_PLATINUM_4410';
       displayName = 'GENEXIS Platinum-4410';

@@ -1610,7 +1610,7 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
         if (typeof (device as any).markModified === 'function') {
           (device as any).markModified('rawParameters');
         }
-        device.lastParameterSyncAt = new Date();
+        // Note: Do not update lastParameterSyncAt on Inform; it is updated on successful GPV in handleGetParameterValuesResponse
         if (
           !device.lastParameterSyncStatus ||
           device.lastParameterSyncStatus === 'NEVER_SYNCED' ||
@@ -2689,11 +2689,13 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         return gpnXml;
       }
 
-      // Guard against 60s Periodic Inform congestion: skip full periodic GPV when telemetry already synced cleanly within cooldown
-      const telemetryCooldownSec = Math.max(60, parseInt(process.env.CWMP_TELEMETRY_COOLDOWN_SECONDS || '300', 10));
+      // Guard against rapid duplicate inform loops (< 15-30s): skip full periodic GPV when telemetry already synced cleanly within cooldown.
+      // Reboots, value changes, and periodic informs after interval (e.g. 60s, 300s) will always execute GPV to refresh optical & status metrics.
+      const isRebootOrEvent = session.events?.some((e) => /BOOT|BOOTSTRAP|VALUE CHANGE|REBOOT/i.test(e));
+      const telemetryCooldownSec = Math.max(15, parseInt(process.env.CWMP_TELEMETRY_COOLDOWN_SECONDS || '30', 10));
       const lastSyncTs = (dev as any)?.lastParameterSyncAt ? new Date((dev as any).lastParameterSyncAt).getTime() : 0;
       const hasSyncedTree = rawKeys.length > 5 && (dev as any)?.lastParameterSyncStatus === 'SUCCESS';
-      if (hasSyncedTree && lastSyncTs > 0 && (Date.now() - lastSyncTs) < telemetryCooldownSec * 1000) {
+      if (!isRebootOrEvent && hasSyncedTree && lastSyncTs > 0 && (Date.now() - lastSyncTs) < telemetryCooldownSec * 1000) {
         // Auto-push management baseline on ANY inform if not yet configured (removed onboarding-event gate)
         if (dev && !(dev as any).periodicInformConfigured) {
           const baseline = this.buildAutoManagementBaselineSpv(dev, session, true);
@@ -2739,6 +2741,23 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         for (const comp of CwmpVendorProfiles.getOpticalCompanionPaths(verifiedOpticalPath)) {
           if (rawKeys.length === 0 || rawKeys.includes(comp)) {
             addUnique(comp);
+          }
+        }
+      } else {
+        // Fall back to vendor optical candidates so new or unverified ONTs (e.g. Genexis Earth-2022) always get optical telemetry probed
+        const vendorCandidates = CwmpVendorProfiles.getOpticalCandidates(session.vendor);
+        const matchingCandidates = vendorCandidates.filter((cand) => rawKeys.includes(cand));
+        if (matchingCandidates.length > 0) {
+          for (const cand of matchingCandidates) {
+            addUnique(cand);
+            for (const comp of CwmpVendorProfiles.getOpticalCompanionPaths(cand)) {
+              if (rawKeys.includes(comp)) addUnique(comp);
+            }
+          }
+        } else {
+          // If rawKeys doesn't contain matching paths yet, query the top vendor candidates
+          for (const cand of vendorCandidates.slice(0, 4)) {
+            if (!cand.endsWith('.')) addUnique(cand);
           }
         }
       }

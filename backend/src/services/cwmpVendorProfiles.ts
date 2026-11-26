@@ -53,12 +53,12 @@ export class CwmpVendorProfiles {
     else if (/realtek|00e04c|xpon\+1ge/i.test(text) || oui === '00E04C') {
       detected = 'REALTEK';
     }
-    // 3. Genexis Titanium / Platinum / Earth / GX series (e.g. GX4410, Platinum GX)
-    else if (/genexis|gnxs|\bgx[-_ ]?\d+|titanium|platinum|earth/i.test(text)) {
+    // 3. Genexis Titanium / Platinum / Earth / GX series (e.g. GX4410, Platinum GX, Earth 2022, GX 2022)
+    else if (/genexis|gnxs|\bgx[-_ ]?\d+|\bearth[-_ ]?\d*|\b2022\b|titanium|platinum/i.test(text)) {
       detected = 'GENEXIS';
     }
     // 4. Huawei EchoLife / OptiXstar series
-    else if (/huawei|echolife|hg8|eg8|optix|hw_gpon|x_hw_/i.test(text) || (oui === '00259E' && !/genexis|gnxs|\bgx[-_ ]?\d+|titanium|earth/i.test(text)) || oui === '001E10') {
+    else if (/huawei|echolife|hg8|eg8|optix|hw_gpon|x_hw_/i.test(text) || (oui === '00259E' && !/genexis|gnxs|\bgx[-_ ]?\d+|\bearth[-_ ]?\d*|\b2022\b|titanium/i.test(text)) || oui === '001E10') {
       detected = 'HUAWEI';
     }
     // 5. ZTE NetSphere / ZXHN series
@@ -157,7 +157,7 @@ export class CwmpVendorProfiles {
   static isDualBandModel(vendor?: string, modelName?: string, productClass?: string): boolean {
     const text = `${vendor || ''} ${modelName || ''} ${productClass || ''}`.toLowerCase();
     // Explicit single-band ONLY if specifically tagged as single-band / bridge-only / earth-2022
-    if (/single[-_ ]?band|1t1r|bridge[-_ ]?ont|onu[-_ ]?1ge|earth[-_ ]?2022/i.test(text)) return false;
+    if (/single[-_ ]?band|1t1r|bridge[-_ ]?ont|onu[-_ ]?1ge|earth|\b2022\b/i.test(text)) return false;
     // All modern GPON / XPON HGUs (Genexis, Huawei, ZTE, Syrotech, VSOL, RicherLink, TP-Link, Netlink) support dual-band or have multi-SSID
     return true;
   }
@@ -231,12 +231,14 @@ export class CwmpVendorProfiles {
       // Wi-Fi 2.4 GHz (Guaranteed universal on all TR-098 Wi-Fi CPEs; secondary bands discovered via GPN / rawParameters)
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.0.KeyPassphrase',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Channel',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Standard',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.BeaconType',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Enable',
+      'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.Status',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.TotalAssociations',
       'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.AssociatedDevice.',
       // Wi-Fi 5 GHz (Only included when model is dual-band; exact instances are confirmed via GPN before periodic polling)
@@ -309,11 +311,22 @@ export class CwmpVendorProfiles {
       case 'GENEXIS':
         return [
           'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.RxPower',
-          'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.RXPower',
-          'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.WANEponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.RxPower',
           'InternetGatewayDevice.WANDevice.1.WANGponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_CT-COM_EponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_CT_COM_EponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_CT-COM_GponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_CT_COM_GponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_GponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.WANDevice.1.X_EponInterfaceConfig.RXPower',
+          'InternetGatewayDevice.DeviceInfo.X_CT-COM_OpticalInfo.RxPower',
+          'InternetGatewayDevice.DeviceInfo.X_CT_COM_OpticalInfo.RxPower',
+          'InternetGatewayDevice.WANDevice.1.X_GXD_OpticalInfo.RxPower',
           'InternetGatewayDevice.X_GNXS_Gpon.OpticalRxPower',
           'InternetGatewayDevice.X_Genexis_Gpon.OpticalRxPower',
+          'InternetGatewayDevice.X_GENEXIS_Gpon.OpticalRxPower',
+          'Device.Optical.Interface.1.OpticalSignalLevel',
         ];
 
       case 'NOKIA':
