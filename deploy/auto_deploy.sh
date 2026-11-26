@@ -7,6 +7,11 @@
 PROJECT_DIR="/root/21-11-2026-acs"
 cd "$PROJECT_DIR" || exit 1
 
+# Ensure reliable public DNS resolution on VPS to prevent github.com name resolution failures
+if ! grep -q "8.8.8.8" /etc/resolv.conf 2>/dev/null; then
+  printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" >> /etc/resolv.conf 2>/dev/null || true
+fi
+
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ACS Auto-Deploy Daemon started for $PROJECT_DIR"
 
 while true; do

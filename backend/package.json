@@ -1,7 +1,7 @@
 {
   "name": "ai-acs-os-backend",
-  "version": "2.0.1",
-  "description": "AI ACS OS Multi-Tenant Enterprise TR-069 ACS Backend Engine 2.0.1",
+  "version": "2.0.2",
+  "description": "AI ACS OS Multi-Tenant Enterprise TR-069 ACS Backend Engine 2.0.2",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
