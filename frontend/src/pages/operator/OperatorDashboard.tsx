@@ -221,18 +221,26 @@ export const OperatorDashboard: React.FC = () => {
             <Radio className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
           </div>
 
-          {/* Card 3: Total IPoE (Emerald Green) */}
+          {/* Card 3: Optical Health / Signal Levels (Replaces Total IPoE per request) */}
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md">
             <div className="relative z-10 space-y-1">
-              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {ipoeCount.toLocaleString()}
-              </h4>
-              <p className="text-xs uppercase tracking-wider font-bold text-emerald-200">TOTAL IPoE</p>
+              <div className="flex items-baseline space-x-2">
+                <h4 className="text-3xl font-extrabold tracking-tight font-sans text-white">
+                  {(s.goodOpticalPower ?? (totalOnline > 0 ? totalOnline - (s.opticalWarnings ?? 0) : 0)).toLocaleString()}
+                </h4>
+                <span className="text-xs font-bold text-emerald-200 uppercase">GOOD</span>
+                {((s.badOpticalPower ?? s.opticalWarnings ?? 0) > 0 || (s.warningOpticalPower ?? 0) > 0) && (
+                  <span className="ml-1 text-xs font-black bg-rose-500/90 text-white px-1.5 py-0.5 rounded-md animate-pulse">
+                    {(s.badOpticalPower ?? s.opticalWarnings ?? 0) + (s.warningOpticalPower ?? 0)} CRITICAL
+                  </span>
+                )}
+              </div>
+              <p className="text-xs uppercase tracking-wider font-bold text-emerald-200">OPTICAL POWER LEVELS</p>
               <p className="text-[11px] text-emerald-300 font-medium">
-                {totalOnline > 0 ? `${Math.round(ipoePct * 100)}% of online` : '0% of online'}
+                {(s.goodOpticalPower ?? (totalOnline > 0 ? totalOnline - (s.opticalWarnings ?? 0) : 0))} Optimal · {(s.badOpticalPower ?? s.opticalWarnings ?? 0)} Needs Action
               </p>
             </div>
-            <Server className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
+            <Zap className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
           </div>
 
           {/* Card 4: Total NAT / Sessions (Warm Golden Amber) */}
