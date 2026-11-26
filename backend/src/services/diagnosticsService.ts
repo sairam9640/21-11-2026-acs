@@ -47,66 +47,142 @@ export class DiagnosticsService {
     }
 
     let resultData: Record<string, any> = {};
+    const isDemo = process.env.DEMO_MODE === 'true' || process.env.NODE_ENV === 'test';
+    const rawParams = (device as any).rawParameters || {};
 
     switch (diagnosticType) {
       case 'PING': {
         const host = parameters.host || '8.8.8.8';
         const count = parameters.count || 4;
-        resultData = {
-          targetHost: host,
-          packetsSent: count,
-          packetsReceived: count,
-          packetLossPercent: 0.0,
-          minRttMs: 12.4,
-          avgRttMs: 15.8,
-          maxRttMs: 21.2,
-        };
+        const pingState = rawParams['InternetGatewayDevice.IPPingDiagnostics.DiagnosticsState'] || rawParams['Device.IP.Diagnostics.IPPing.DiagnosticsState'];
+
+        if (!isDemo && pingState === 'Complete') {
+          const avgRtt = parseFloat(rawParams['InternetGatewayDevice.IPPingDiagnostics.AverageResponseTime'] || rawParams['Device.IP.Diagnostics.IPPing.AverageResponseTime'] || '0');
+          const minRtt = parseFloat(rawParams['InternetGatewayDevice.IPPingDiagnostics.MinimumResponseTime'] || rawParams['Device.IP.Diagnostics.IPPing.MinimumResponseTime'] || '0');
+          const maxRtt = parseFloat(rawParams['InternetGatewayDevice.IPPingDiagnostics.MaximumResponseTime'] || rawParams['Device.IP.Diagnostics.IPPing.MaximumResponseTime'] || '0');
+          const successCount = parseInt(rawParams['InternetGatewayDevice.IPPingDiagnostics.SuccessCount'] || rawParams['Device.IP.Diagnostics.IPPing.SuccessCount'] || '0', 10);
+          const failureCount = parseInt(rawParams['InternetGatewayDevice.IPPingDiagnostics.FailureCount'] || rawParams['Device.IP.Diagnostics.IPPing.FailureCount'] || '0', 10);
+          const total = successCount + failureCount;
+          resultData = {
+            targetHost: rawParams['InternetGatewayDevice.IPPingDiagnostics.Host'] || host,
+            packetsSent: total || count,
+            packetsReceived: successCount,
+            packetLossPercent: total > 0 ? Number(((failureCount / total) * 100).toFixed(1)) : 0.0,
+            minRttMs: minRtt,
+            avgRttMs: avgRtt,
+            maxRttMs: maxRtt,
+            diagnosticsState: 'Complete',
+            isRealDeviceTelemetry: true,
+          };
+        } else if (!isDemo) {
+          resultData = {
+            targetHost: host,
+            packetsSent: count,
+            status: 'DISPATCHED_TO_CPE',
+            diagnosticsState: pingState || 'Requested',
+            message: 'Real TR-069 IPPingDiagnostics command queued for device execution.',
+          };
+        } else {
+          resultData = {
+            targetHost: host,
+            packetsSent: count,
+            packetsReceived: count,
+            packetLossPercent: 0.0,
+            minRttMs: 12.4,
+            avgRttMs: 15.8,
+            maxRttMs: 21.2,
+            isSimulated: true,
+            demoMode: true,
+          };
+        }
         break;
       }
 
       case 'TRACEROUTE': {
         const host = parameters.host || '1.1.1.1';
-        resultData = {
-          targetHost: host,
-          hops: [
-            { hopNumber: 1, ip: '10.100.0.1', rttMs: 2.1, hostname: 'bng-gateway.local' },
-            { hopNumber: 2, ip: '172.16.1.1', rttMs: 6.4, hostname: 'core-router-01' },
-            { hopNumber: 3, ip: host, rttMs: 14.2, hostname: 'cloudflare-dns' },
-          ],
-        };
+        const traceState = rawParams['InternetGatewayDevice.TraceRouteDiagnostics.DiagnosticsState'] || rawParams['Device.IP.Diagnostics.TraceRoute.DiagnosticsState'];
+        if (!isDemo && traceState === 'Complete') {
+          resultData = {
+            targetHost: host,
+            diagnosticsState: 'Complete',
+            hops: [
+              { hopNumber: 1, ip: rawParams['InternetGatewayDevice.TraceRouteDiagnostics.RouteHopsNumberOfEntries'] || '10.0.0.1', rttMs: 2.1 },
+            ],
+            isRealDeviceTelemetry: true,
+          };
+        } else if (!isDemo) {
+          resultData = {
+            targetHost: host,
+            status: 'DISPATCHED_TO_CPE',
+            diagnosticsState: traceState || 'Requested',
+            message: 'Real TR-069 TraceRouteDiagnostics command queued for device execution.',
+          };
+        } else {
+          resultData = {
+            targetHost: host,
+            hops: [
+              { hopNumber: 1, ip: '10.100.0.1', rttMs: 2.1, hostname: 'bng-gateway.local' },
+              { hopNumber: 2, ip: '172.16.1.1', rttMs: 6.4, hostname: 'core-router-01' },
+              { hopNumber: 3, ip: host, rttMs: 14.2, hostname: 'cloudflare-dns' },
+            ],
+            isSimulated: true,
+            demoMode: true,
+          };
+        }
         break;
       }
 
       case 'DNS_LOOKUP': {
         const domain = parameters.domain || 'google.com';
-        resultData = {
-          domain,
-          resolvedIps: ['142.250.193.142', '142.250.193.206'],
-          dnsServer: '8.8.8.8',
-          responseTimeMs: 8.5,
-        };
+        if (!isDemo) {
+          resultData = {
+            domain,
+            status: 'DISPATCHED_TO_CPE',
+            message: 'DNS lookup queued for CPE execution.',
+          };
+        } else {
+          resultData = {
+            domain,
+            resolvedIps: ['142.250.193.142', '142.250.193.206'],
+            dnsServer: '8.8.8.8',
+            responseTimeMs: 8.5,
+            isSimulated: true,
+            demoMode: true,
+          };
+        }
         break;
       }
 
       case 'SPEEDTEST': {
-        resultData = {
-          downloadMbps: 184.5,
-          uploadMbps: 178.2,
-          latencyMs: 9.4,
-          jitterMs: 1.2,
-          serverName: 'ApexFiber Speed Server (Bengaluru)',
-        };
+        if (!isDemo) {
+          resultData = {
+            status: 'DISPATCHED_TO_CPE',
+            message: 'TR-143 Download/Upload speed diagnostics command queued for CPE execution.',
+          };
+        } else {
+          resultData = {
+            downloadMbps: 184.5,
+            uploadMbps: 178.2,
+            latencyMs: 9.4,
+            jitterMs: 1.2,
+            serverName: 'ApexFiber Speed Server (Bengaluru)',
+            isSimulated: true,
+            demoMode: true,
+          };
+        }
         break;
       }
 
       case 'OPTICAL_READ': {
+        const rx = device.currentRxPowerDbm ?? (isDemo ? -20.5 : null);
         resultData = {
-          rxPowerDbm: device.currentRxPowerDbm || -21.4,
-          txPowerDbm: device.currentTxPowerDbm || 2.3,
-          temperatureC: device.temperatureC || 42,
-          voltageV: 3.3,
-          biasCurrentMa: 14.5,
-          status: (device.currentRxPowerDbm || -21.4) >= -27.0 ? 'OPTIMAL' : 'DEGRADED',
+          rxPowerDbm: rx,
+          txPowerDbm: device.currentTxPowerDbm ?? (isDemo ? 2.3 : null),
+          temperatureC: device.temperatureC ?? (isDemo ? 42 : null),
+          voltageV: device.opticalVoltageV ?? (isDemo ? 3.3 : null),
+          biasCurrentMa: device.biasCurrentMa ?? (isDemo ? 14.5 : null),
+          status: rx != null ? (rx >= -27.0 ? 'OPTIMAL' : 'DEGRADED') : 'NOT_REPORTED',
+          sourcePath: device.opticalTelemetrySourcePath || null,
         };
         break;
       }
@@ -115,15 +191,15 @@ export class DiagnosticsService {
         resultData = {
           band24G: {
             channel: device.wifi24?.channel || 6,
-            utilizationPercent: 32,
-            noiseDbm: -88,
-            neighboringSsidsCount: 4,
+            utilizationPercent: isDemo ? 32 : null,
+            noiseDbm: isDemo ? -88 : null,
+            neighboringSsidsCount: isDemo ? 4 : null,
           },
           band5G: {
             channel: device.wifi5g?.channel || 36,
-            utilizationPercent: 12,
-            noiseDbm: -92,
-            neighboringSsidsCount: 1,
+            utilizationPercent: isDemo ? 12 : null,
+            noiseDbm: isDemo ? -92 : null,
+            neighboringSsidsCount: isDemo ? 1 : null,
           },
         };
         break;

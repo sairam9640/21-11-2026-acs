@@ -454,14 +454,42 @@ export class DeviceManagementService {
       }
 
       if (action === 'RUN_DIAGNOSTICS') {
-        const diagResult = {
-          type: parameters.type || 'ping',
-          targetHost: parameters.targetHost || '8.8.8.8',
-          success: true,
-          rawOutput: `Ping statistics for ${parameters.targetHost || '8.8.8.8'}: Packets: Sent = 4, Received = 4, Lost = 0 (0% loss), Average = 11ms`,
-          latencyAvgMs: 11.2,
-          executedAt: new Date(),
-        };
+        const isDemo = process.env.DEMO_MODE === 'true' || process.env.NODE_ENV === 'test';
+        const rawParams = (device as any).rawParameters || {};
+        const pingState = rawParams['InternetGatewayDevice.IPPingDiagnostics.DiagnosticsState'] || rawParams['Device.IP.Diagnostics.IPPing.DiagnosticsState'];
+        const avgRtt = rawParams['InternetGatewayDevice.IPPingDiagnostics.AverageResponseTime'] || rawParams['Device.IP.Diagnostics.IPPing.AverageResponseTime'];
+
+        let diagResult: any;
+        if (!isDemo && pingState === 'Complete') {
+          diagResult = {
+            type: parameters.type || 'ping',
+            targetHost: parameters.targetHost || rawParams['InternetGatewayDevice.IPPingDiagnostics.Host'] || '8.8.8.8',
+            success: true,
+            rawOutput: `TR-069 IPPingDiagnostics Complete: Avg RTT = ${avgRtt || 0}ms`,
+            latencyAvgMs: parseFloat(avgRtt || '0'),
+            executedAt: new Date(),
+            isRealDeviceTelemetry: true,
+          };
+        } else if (isDemo) {
+          diagResult = {
+            type: parameters.type || 'ping',
+            targetHost: parameters.targetHost || '8.8.8.8',
+            success: true,
+            rawOutput: `[DEMO MODE] Ping statistics for ${parameters.targetHost || '8.8.8.8'}: Packets: Sent = 4, Received = 4, Lost = 0 (0% loss), Average = 11ms`,
+            latencyAvgMs: 11.2,
+            executedAt: new Date(),
+            isSimulated: true,
+          };
+        } else {
+          diagResult = {
+            type: parameters.type || 'ping',
+            targetHost: parameters.targetHost || '8.8.8.8',
+            success: true,
+            rawOutput: `Diagnostic command queued for TR-069 execution on CPE.`,
+            status: 'PENDING_DEVICE_EXECUTION',
+            executedAt: new Date(),
+          };
+        }
         device.diagnosticHistory.unshift(diagResult as any);
         if (device.diagnosticHistory.length > 20) device.diagnosticHistory.pop();
         await device.save();

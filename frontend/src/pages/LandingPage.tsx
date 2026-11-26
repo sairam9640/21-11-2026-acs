@@ -163,7 +163,7 @@ export const LandingPage: React.FC = () => {
           <div className="mt-12 grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-3xl mx-auto text-left">
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Production Server</span>
-              <span className="font-mono font-bold text-xs text-slate-800">109.122.56.149</span>
+              <span className="font-mono font-bold text-xs text-slate-800">{window.location.hostname || 'ACS Gateway'}</span>
             </div>
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Security Protocol</span>
@@ -458,7 +458,7 @@ export const LandingPage: React.FC = () => {
 
           <div className="flex items-center space-x-2">
             <span className="text-[11px] font-mono text-emerald-600 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-              VPS 109.122.56.149 Online
+              Carrier ACS Online
             </span>
           </div>
         </div>

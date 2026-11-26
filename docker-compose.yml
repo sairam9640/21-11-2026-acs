@@ -9,21 +9,24 @@ services:
     environment:
       PORT: 4000
       CWMP_PORT: 7547
-      CWMP_REQUIRE_AUTH: ${CWMP_REQUIRE_AUTH:-false}
+      CWMP_REQUIRE_AUTH: ${CWMP_REQUIRE_AUTH:-true}
       ACS_FIRMWARE_BASE_URL: ${ACS_FIRMWARE_BASE_URL:-http://acs.your-isp.net:7547}
       NODE_ENV: production
       NODE_OPTIONS: "--dns-result-order=ipv4first"
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/ai_isp_os_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution-api:8080}
-      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-evolution_isp_os_wa_2026_key}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?EVOLUTION_API_KEY is required}
       EVOLUTION_INSTANCE_NAME: ${EVOLUTION_INSTANCE_NAME:-ai-isp-os}
-      JWT_SECRET: ${JWT_SECRET}
-      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:?METRICS_BEARER_TOKEN is required}
+      PAYMENT_SECRET_MASTER_KEY: ${PAYMENT_SECRET_MASTER_KEY:?PAYMENT_SECRET_MASTER_KEY is required}
+      PAYMENT_SECRET_SALT: ${PAYMENT_SECRET_SALT:?PAYMENT_SECRET_SALT is required}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
-      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
-      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
+      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET:?WHATSAPP_WEBHOOK_SECRET is required}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?STRIPE_WEBHOOK_SECRET is required}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:?RAZORPAY_WEBHOOK_SECRET is required}
+      DEMO_MODE: ${DEMO_MODE:-false}
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -48,7 +51,7 @@ services:
     container_name: ai-isp-os-frontend
     restart: always
     ports:
-      - "0.0.0.0:80:80"
+      - "${FRONTEND_PORT:-80}:80"
     depends_on:
       - backend
     networks:
@@ -99,11 +102,11 @@ services:
     environment:
       - SERVER_URL=http://localhost:8080
       - AUTHENTICATION_TYPE=apikey
-      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-evolution_isp_os_wa_2026_key}
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:?EVOLUTION_API_KEY is required}
       - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://evolution:evolution_wa_secure_2026@postgres:5432/evolution?schema=public
+      - DATABASE_CONNECTION_URI=postgresql://evolution:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/evolution?schema=public
       - DATABASE_CONNECTION_CLIENT_NAME=evolution_api
       - CACHE_REDIS_ENABLED=true
       - CACHE_REDIS_URI=redis://redis:6379/2
@@ -124,7 +127,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: evolution
-      POSTGRES_PASSWORD: evolution_wa_secure_2026
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: evolution
     volumes:
       - postgres_evolution_data:/var/lib/postgresql/data

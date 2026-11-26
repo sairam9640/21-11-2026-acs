@@ -24,7 +24,7 @@
      └───────────────────┼───────────────────┴───────────────────┘
                          ▼
         [ Infrastructure & External Interfaces ]
-  (MongoDB 8.0, TR-069 ACS, TR-369 USP, Redis Event Bus, Prometheus Metrics)
+  (MongoDB 7.0, TR-069 ACS, TR-369 USP, Redis Event Bus, Prometheus Metrics)
 ```
 
 ---
@@ -44,13 +44,13 @@
 
 - **Backend / BFF Runtime:** Node.js, Express, TypeScript (Strictly typed, 0 lint/compile errors)
 - **Frontend Architecture:** React 18 + Vite 5 + Tailwind CSS SPA with dedicated role logins and authoritative RBAC guards
-- **Database & Containment:** MongoDB 8.0 bound strictly to `127.0.0.1:27017` (Zero external port exposure)
-- **Secrets Management:** Cryptographic secrets and API keys loaded exclusively via `.env` (No hardcoded credentials)
+- **Database & Containment:** MongoDB 7.0 bound strictly to `127.0.0.1:27017` (Zero external port exposure)
+- **Secrets Management:** Cryptographic secrets and API keys loaded exclusively via `.env` (Mandatory runtime validation)
 - **CORS Policy:** Strict origin restriction configurable via `CORS_ORIGIN` environment variable
 - **Observability Security:** Prometheus telemetry (`/metrics` & `/api/v1/metrics`) guarded by Bearer Token authorization
 - **Inbound Webhook Security:** Mandatory HMAC-SHA256 signature verification (`x-hub-signature-256`, `x-signature`)
 - **Real-Time Communication:** WebSockets (`socket.io`) with JWT token verification and tenant room authorization
-- **Testing Assurance:** Vitest — **28 Test Suites, 90 Automated Tests, 100% Pass Rate**
+- **Testing Assurance:** Vitest — **48 Test Suites, 100% Automated Vitest Pass Rate**
 
 ---
 

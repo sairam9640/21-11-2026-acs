@@ -33,11 +33,11 @@ export const SpeedtestWidget: React.FC<{ compact?: boolean }> = ({ compact = fal
     try {
       // 1. Fetch Server Config
       const configRes = await fetch('/api/speedtest/config').catch(() => null);
-      let serverLoc = 'ACS NOC VPS (109.122.56.149)';
+      let serverLoc = `ACS NOC (${window.location.hostname || 'Gateway'})`;
       let clientIp = '127.0.0.1';
       if (configRes && configRes.ok) {
         const configData = await configRes.json();
-        serverLoc = `${configData.server?.name || 'ACS NOC'} (${configData.server?.host || '109.122.56.149'})`;
+        serverLoc = `${configData.server?.name || 'ACS NOC'} (${configData.server?.host || window.location.hostname || 'Gateway'})`;
         clientIp = configData.client?.ip || '127.0.0.1';
       }
 
@@ -206,7 +206,7 @@ export const SpeedtestWidget: React.FC<{ compact?: boolean }> = ({ compact = fal
 
           <div className="flex items-center space-x-2 self-start sm:self-auto bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-600">
             <Server className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-            <span className="truncate max-w-[200px]">109.122.56.149 (ACS Core)</span>
+            <span className="truncate max-w-[200px]">{window.location.hostname || 'ACS Core'} (Gateway)</span>
           </div>
         </div>
       )}

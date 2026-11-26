@@ -21,10 +21,10 @@ build/
 *.cert
 *.crt
 
-# Local Python Scripts & Caches
-*.py
+# Local Python Caches
 __pycache__/
 *.py[cod]
+*$py.class
 
 # WhatsApp / Baileys Auth State & Sessions
 baileys_auth_info/
@@ -48,19 +48,10 @@ Thumbs.db
 .idea/
 .system_generated/
 
-# Scratch & Diagnostic Artifacts
+# Temporary & Backup Artifacts
 *.tar.gz
 *.rar
 *.zip
 *.bak
 *.swp
-*.txt
-/*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!tsconfig.*.json
-*.pdf
-*.conf
-!deploy/nginx/*.conf
-!frontend/nginx.conf
+*.tmp

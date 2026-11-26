@@ -62,6 +62,7 @@ export class Genexis4410Agent {
       temperature: 42.1,
       voltage: 3.31,
       biasCurrent: 14.8,
+      // Virtual CPE Simulator state for automated Vitest suites (not used in production)
       wifi24: {
         ssid: 'Genexis_GX4410_2.4G',
         key: 'Genexis@Pass2026',

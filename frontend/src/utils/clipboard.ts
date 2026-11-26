@@ -12,7 +12,7 @@ export const copyToClipboard = async (text: string): Promise<boolean> => {
     } catch (_) {}
   }
 
-  // 2. Reliable Fallback using temporary textarea + execCommand for plain HTTP (IP addresses like http://109.122.56.149)
+  // 2. Reliable Fallback using temporary textarea + execCommand for plain HTTP (non-TLS environments)
   try {
     const textarea = document.createElement('textarea');
     textarea.value = text;

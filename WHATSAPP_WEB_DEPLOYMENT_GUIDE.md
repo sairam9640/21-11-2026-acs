@@ -34,7 +34,7 @@ It completely **bypasses paid Meta Cloud API gateways** (saving ₹0.50 to ₹1.
 
 ## 🛠️ VPS Deployment Instructions
 
-Run the following commands on your Ubuntu VPS (`109.122.56.149`):
+Run the following commands on your Ubuntu VPS:
 
 ```bash
 cd /root/21-11-2026-acs

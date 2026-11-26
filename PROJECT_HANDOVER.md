@@ -1,9 +1,8 @@
 # ACS (Auto Configuration Server) Platform – Complete Developer Handover Guide
 
-> **Repository URL:** [https://github.com/nsvtv4k/ACS.git](https://github.com/nsvtv4k/ACS.git)  
-> **Default Branch:** `master`  
-> **Latest Stable Commit:** `822a694` (Multi-Tenant Operator Isolation Hardening)  
-> **Target Environment:** Node.js 20+, TypeScript, Express.js, MongoDB, Redis, Docker, Nginx  
+> **Repository URL:** [https://github.com/sairam9640/21-11-2026-acs.git](https://github.com/sairam9640/21-11-2026-acs.git)  
+> **Default Branch:** `main`  
+> **Target Environment:** Node.js 22 LTS, TypeScript, Express.js, MongoDB 7.0, Redis, Docker, Nginx  
 
 ---
 
@@ -129,7 +128,7 @@ ACS/
 │   │       ├── firmwareService.ts   # Firmware download & verification
 │   │       ├── metricsService.ts    # Prometheus metrics exporter
 │   │       └── ztpService.ts        # Zero-Touch Provisioning evaluator
-│   └── tests/                       # 31 Unit tests across 5 test suites
+│   └── tests/                       # 48 Automated Vitest test suites
 ├── deploy/
 │   └── nginx/
 │       └── acs.conf                 # Nginx reverse proxy config
@@ -148,8 +147,8 @@ ACS/
 
 ### Step 1: Clone Repository
 ```bash
-git clone https://github.com/nsvtv4k/ACS.git
-cd ACS/backend
+git clone https://github.com/sairam9640/21-11-2026-acs.git
+cd 21-11-2026-acs/backend
 ```
 
 ### Step 2: Install Dependencies

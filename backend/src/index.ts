@@ -46,7 +46,11 @@ const JWT_SECRET = process.env.JWT_SECRET || (
     ? (() => { throw new Error('FATAL: JWT_SECRET environment variable must be set in production!'); })()
     : 'ai-isp-os-dev-only-secret-key-2026'
 );
-const METRICS_BEARER_TOKEN = process.env.METRICS_BEARER_TOKEN || 'metrics_secure_token_2026';
+const METRICS_BEARER_TOKEN = process.env.METRICS_BEARER_TOKEN || (
+  process.env.NODE_ENV === 'production'
+    ? (() => { throw new Error('FATAL: METRICS_BEARER_TOKEN environment variable must be set in production!'); })()
+    : 'metrics_secure_token_dev_2026'
+);
 
 // 1. Production CORS Configuration
 const customOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -387,6 +391,22 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Database Connection & Server Initialization
 export const startServer = async () => {
   try {
+    if (process.env.NODE_ENV === 'production') {
+      const requiredProductionVars = [
+        'JWT_SECRET',
+        'METRICS_BEARER_TOKEN',
+        'PAYMENT_SECRET_MASTER_KEY',
+        'PAYMENT_SECRET_SALT',
+        'WHATSAPP_WEBHOOK_SECRET',
+        'STRIPE_WEBHOOK_SECRET',
+        'RAZORPAY_WEBHOOK_SECRET',
+      ];
+      const missing = requiredProductionVars.filter((v) => !process.env[v] || process.env[v]?.includes('default') || process.env[v]?.includes('2026_key'));
+      if (missing.length > 0) {
+        throw new Error(`FATAL: Mandatory production security environment variables are missing or insecure: ${missing.join(', ')}`);
+      }
+    }
+
     if (mongoose.connection.readyState === 0) {
       await mongoose.connect(MONGODB_URI);
       console.log('Connected to MongoDB database successfully.');

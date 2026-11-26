@@ -31,7 +31,7 @@ export const OperatorSettings: React.FC = () => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [cwmpStats, setCwmpStats] = useState<any>(null);
 
-  const activeHost = window.location.hostname || '109.122.56.149';
+  const activeHost = window.location.hostname || 'localhost';
   const tenantSlug = (tenant?.slug || 'operator').trim().toLowerCase();
   const acsUrl = cwmpStats?.port80CwmpUrl || cwmpStats?.cwmpPathUrl || `http://${activeHost}/tr069/${tenantSlug}`;
   const port80AcsUrl = cwmpStats?.port80CwmpUrl || `http://${activeHost}/tr069/${tenantSlug}`;

@@ -12,17 +12,28 @@ export interface WebhookPayload {
 
 export class WebhookService {
   private static processedEventIds: Set<string> = new Set();
-  private static providerSecrets: Record<string, string> = {
-    WHATSAPP: process.env.WHATSAPP_WEBHOOK_SECRET || 'whsec_whatsapp_master_secret_2026',
-    STRIPE: process.env.STRIPE_WEBHOOK_SECRET || 'whsec_stripe_master_secret_2026',
-    RAZORPAY: process.env.RAZORPAY_WEBHOOK_SECRET || 'whsec_razorpay_master_secret_2026',
-  };
+
+  /**
+   * Securely resolves provider webhook secret, strictly requiring it in production
+   */
+  static getProviderSecret(provider: 'WHATSAPP' | 'STRIPE' | 'RAZORPAY'): string {
+    const envKey = `${provider}_WEBHOOK_SECRET`;
+    const secret = (process.env[envKey] || '').trim();
+    if (!secret) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(`FATAL: Mandatory security secret ${envKey} must be set in production! Webhook verification blocked.`);
+      }
+      // Isolated test suite mock secret (only permitted in non-production/test environments)
+      return `whsec_${provider.toLowerCase()}_master_secret_2026`;
+    }
+    return secret;
+  }
 
   /**
    * Validates HMAC-SHA256 signature against provider secret
    */
   static validateSignature(provider: 'WHATSAPP' | 'STRIPE' | 'RAZORPAY', rawPayload: string, signature: string): boolean {
-    const secret = this.providerSecrets[provider];
+    const secret = this.getProviderSecret(provider);
     if (!secret) return false;
 
     const expectedSignature = crypto

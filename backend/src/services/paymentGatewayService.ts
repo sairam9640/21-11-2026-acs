@@ -8,12 +8,32 @@ import { CustomerPlanService } from './customerPlanService.js';
 import { PlanNotificationService } from './planNotificationService.js';
 import { recordAuditLog } from '../middleware/audit.js';
 
-const MASTER_ENCRYPTION_KEY = process.env.PAYMENT_SECRET_MASTER_KEY || 'ai-acs-os-master-aes-256-secret-key-32b!';
-
 // 1. AES-256-GCM Encryption / Decryption Utilities
 export class GatewayCrypto {
+  private static getMasterKey(): string {
+    const key = (process.env.PAYMENT_SECRET_MASTER_KEY || '').trim();
+    if (!key || key === 'ai-acs-os-master-aes-256-secret-key-32b!') {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('FATAL: PAYMENT_SECRET_MASTER_KEY environment variable must be set to a secure 32+ character key in production!');
+      }
+      return 'ai-acs-os-dev-only-aes-256-key-32b!';
+    }
+    return key;
+  }
+
+  private static getSalt(): string {
+    const salt = (process.env.PAYMENT_SECRET_SALT || '').trim();
+    if (!salt || salt === 'ai-acs-salt-2026') {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('FATAL: PAYMENT_SECRET_SALT environment variable must be set in production!');
+      }
+      return 'ai-acs-dev-salt-isolated-2026';
+    }
+    return salt;
+  }
+
   private static getKey(): Buffer {
-    return crypto.scryptSync(MASTER_ENCRYPTION_KEY, 'ai-acs-salt-2026', 32);
+    return crypto.scryptSync(this.getMasterKey(), this.getSalt(), 32);
   }
 
   static encrypt(data: Record<string, any>): { iv: string; authTag: string; ciphertext: string } {

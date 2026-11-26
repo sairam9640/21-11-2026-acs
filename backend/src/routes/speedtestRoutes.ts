@@ -15,7 +15,7 @@ speedtestRouter.get('/config', (_req: Request, res: Response) => {
     success: true,
     server: {
       name: 'ACS High-Speed Core NOC',
-      host: '109.122.56.149',
+      host: process.env.ACS_HOST || _req.hostname || 'localhost',
       location: 'Production VPS Datacenter',
       protocol: 'HTTP/1.1 & HTTP/2',
       maxDownloadMb: 50,

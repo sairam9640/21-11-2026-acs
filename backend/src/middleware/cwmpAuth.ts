@@ -94,10 +94,12 @@ export async function cwmpDigestAuthMiddleware(
     return next();
   }
 
-  // If global CWMP auth requirement is toggled via ENV or tenant config
-  const isAuthRequired = process.env.CWMP_REQUIRE_AUTH === 'true';
+  // In production, CWMP authentication is strictly required by default (fail closed)
+  const isAuthRequired =
+    process.env.CWMP_REQUIRE_AUTH === 'true' ||
+    (process.env.NODE_ENV === 'production' && process.env.CWMP_REQUIRE_AUTH !== 'false');
 
-  // If no auth required globally and CPE sent no credentials, allow through (e.g. initial ZTP discovery)
+  // If no auth required globally (dev only) and CPE sent no credentials, allow through (e.g. initial ZTP discovery)
   if (!isAuthRequired && !authHeader) {
     return next();
   }
@@ -147,7 +149,7 @@ export async function cwmpDigestAuthMiddleware(
     [routeSlug, digest.username.toLowerCase(), hostPrefix].filter((s) => s && !['www', 'acs', 'admin', 'localhost'].includes(s))
   );
 
-  let expectedPassword = process.env.CWMP_DEFAULT_PASSWORD || 'cpe_cwmp_pass_2026';
+  let expectedPassword = (process.env.CWMP_DEFAULT_PASSWORD || '').trim();
   const tenantSecrets: string[] = [];
 
   try {
@@ -200,14 +202,15 @@ export async function cwmpDigestAuthMiddleware(
     return md5(`${ha1}:${digest.nonce}:${ha2}`);
   };
 
+  // In automated test environments only, allow test fallback credentials
+  const testFallbacks = process.env.NODE_ENV === 'test' ? ['admin123'] : [];
   const candidatePasswords = Array.from(
     new Set([
       ...tenantSecrets,
       routeSlug,
       digest.username,
       expectedPassword,
-      process.env.CWMP_DEFAULT_PASSWORD || 'cpe_cwmp_pass_2026',
-      'admin123',
+      ...testFallbacks,
     ].filter(Boolean))
   );
 
@@ -217,20 +220,20 @@ export async function cwmpDigestAuthMiddleware(
     return next();
   }
 
-  // When auth is not strictly enforced, let CPE proceed instead of trapping pre-configured routers in 401 loops
-  if (!isAuthRequired) {
-    console.warn(`[CWMP Auth] Digest mismatch for user ${digest.username} from ${req.ip} (allowing because CWMP_REQUIRE_AUTH!=true)`);
-    (req as any).cwmpUser = digest.username;
-    (req as any).cwmpAuthenticated = false;
-    return next();
+  // When auth is strictly required (default in production), fail closed immediately
+  if (isAuthRequired) {
+    console.warn(`[CWMP Auth] Strict digest challenge failed for user ${digest.username} from ${req.ip}`);
+    const nonce = await generateNonce();
+    res.setHeader(
+      'WWW-Authenticate',
+      `Digest realm="ACS", nonce="${nonce}", qop="auth", algorithm="MD5"`
+    );
+    return res.status(401).send();
   }
 
-  // Auth failed - challenge again
-  console.warn(`[CWMP Auth] Digest challenge failed for user ${digest.username} from ${req.ip}`);
-  const nonce = await generateNonce();
-  res.setHeader(
-    'WWW-Authenticate',
-    `Digest realm="ACS", nonce="${nonce}", qop="auth", algorithm="MD5"`
-  );
-  return res.status(401).send();
+  // Non-production fallback when explicitly running with CWMP_REQUIRE_AUTH=false
+  console.warn(`[CWMP Auth] Digest mismatch for user ${digest.username} from ${req.ip} (allowing because CWMP_REQUIRE_AUTH=false in non-production)`);
+  (req as any).cwmpUser = digest.username;
+  (req as any).cwmpAuthenticated = false;
+  return next();
 }
