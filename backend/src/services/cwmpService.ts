@@ -1536,7 +1536,15 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
         device.externalIpAddress = clientIp;
         if (informData.pppoeUsername) (device as any).pppoeUsername = informData.pppoeUsername;
         if (informData.vlanId !== undefined) (device as any).wanVlan = informData.vlanId;
-        if (informData.periodicInformInterval) device.periodicInformInterval = informData.periodicInformInterval;
+        if (informData.periodicInformInterval) {
+          device.periodicInformInterval = informData.periodicInformInterval;
+          // Drift detection: reset periodicInformConfigured if router's interval differs from target
+          const targetInterval = parseInt(process.env.CWMP_RECOMMENDED_INFORM_INTERVAL || '300', 10);
+          if (informData.periodicInformInterval !== targetInterval && (device as any).periodicInformConfigured) {
+            (device as any).periodicInformConfigured = false;
+            console.log(`[CWMP ACS] ⚠️ PeriodicInform drift detected on ${rawSerial}: reported ${informData.periodicInformInterval}s vs target ${targetInterval}s. Resetting periodicInformConfigured for re-push.`);
+          }
+        }
         if (informData.softwareVersion) device.softwareVersion = informData.softwareVersion;
         if (informData.hardwareVersion) device.hardwareVersion = informData.hardwareVersion;
         if (informData.macAddress) device.macAddress = informData.macAddress;
@@ -2636,15 +2644,13 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
       const lastSyncTs = (dev as any)?.lastParameterSyncAt ? new Date((dev as any).lastParameterSyncAt).getTime() : 0;
       const hasSyncedTree = rawKeys.length > 5 && (dev as any)?.lastParameterSyncStatus === 'SUCCESS';
       if (hasSyncedTree && lastSyncTs > 0 && (Date.now() - lastSyncTs) < telemetryCooldownSec * 1000) {
-        const hasOnboardingEvent = (session.events || []).some((e) =>
-          /0 BOOTSTRAP|1 BOOT|6 CONNECTION REQUEST|VALUE CHANGE/i.test(e)
-        );
-        if (dev && !(dev as any).periodicInformConfigured && hasOnboardingEvent) {
+        // Auto-push management baseline on ANY inform if not yet configured (removed onboarding-event gate)
+        if (dev && !(dev as any).periodicInformConfigured) {
           const baseline = this.buildAutoManagementBaselineSpv(dev, session, true);
           session.stage = 'AUTO_MGMT_SPV_SENT';
           await this.updateSession(session, connectionKey);
           console.log(
-            `[CWMP ACS -> CPE] Auto-pushing server ManagementServer baseline (300s Inform + ConnReq user '${baseline.creds.connectionRequestUsername}') for ${session.serialNumber}`
+            `[CWMP ACS -> CPE] Auto-pushing ManagementServer baseline for ${session.serialNumber} (interval drift or first config, creds user '${baseline.creds.connectionRequestUsername}')`
           );
           return baseline.xml;
         }
@@ -3945,7 +3951,9 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         }
       }
       if (incomingCwmpId === '8' || (session?.stage === 'AUTO_MGMT_PERIODIC_ONLY_SENT' && !incomingCwmpId)) {
-        device.periodicInformConfigured = true;
+        // Both full SPV (ID 7) and periodic-only fallback (ID 8) faulted — do NOT mark as configured, allow retry on next inform
+        console.warn(`[CWMP ACS] Auto-Mgmt periodic-only SPV also faulted (${fault.faultCode}) on ${device.serialNumber}. Will retry on next inform cycle.`);
+        // device.periodicInformConfigured = true;  // REMOVED — prevents permanent stuck-offline
         await this.saveDeviceResilient(device);
         if (session) {
           session.stage = 'COMPLETED';
@@ -4385,7 +4393,15 @@ ${stringElements}
     ]);
     if (rawInterval) {
       const pi = parseInt(String(rawInterval), 10);
-      if (!isNaN(pi) && pi > 0) device.periodicInformInterval = pi;
+      if (!isNaN(pi) && pi > 0) {
+        device.periodicInformInterval = pi;
+        // GPV drift detection: if router's actual interval differs from target, flag for re-push
+        const targetInterval = parseInt(process.env.CWMP_RECOMMENDED_INFORM_INTERVAL || '300', 10);
+        if (pi !== targetInterval && (device as any).periodicInformConfigured) {
+          (device as any).periodicInformConfigured = false;
+          console.log(`[CWMP ACS] ⚠️ GPV detected PeriodicInform drift: ${pi}s vs target ${targetInterval}s on ${device.serialNumber}. Flagged for re-push.`);
+        }
+      }
     }
     const gpvCrUrl = this.getFirstParam(pMap, [
       'InternetGatewayDevice.ManagementServer.ConnectionRequestURL',

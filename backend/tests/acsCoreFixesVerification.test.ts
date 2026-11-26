@@ -484,7 +484,9 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
         }
       );
 
-      // Next routine 60s Periodic Inform without pending commands MUST return null (HTTP 204) instead of flooding CPE
+      // With interval drift fix: device has 60s but target is 300s and periodicInformConfigured is false,
+      // so cooldown correctly auto-pushes ManagementServer baseline SPV instead of returning null.
+      // For a device that IS already configured at correct interval, cooldown returns null (HTTP 204).
       const rpcDuringCooldown = await CwmpService.checkPendingRpcOrPoll(
         testIp,
         inf1.sessionId,
@@ -492,7 +494,9 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
         'acs_fix_tenant',
         `${testIp}:51234`
       );
-      expect(rpcDuringCooldown).toBeNull();
+      // periodicInformConfigured is falsy + interval 60 != target 300 → auto-push fires
+      expect(rpcDuringCooldown).toContain('SetParameterValues');
+      expect(rpcDuringCooldown).toContain('PeriodicInformInterval');
 
       // Pending SET_PERIODIC_INFORM command (e.g. switching to 3600s) MUST dispatch immediately even within cooldown
       await DeviceCommand.create({
