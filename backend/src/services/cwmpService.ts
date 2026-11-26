@@ -1150,6 +1150,14 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
     }
 
     // 4. Default / Single Active Tenant Fallback for direct IP /cwmp connections
+    if (process.env.DEFAULT_TENANT_SLUG) {
+      const defaultTenant = await Tenant.findOne({
+        slug: process.env.DEFAULT_TENANT_SLUG.trim().toLowerCase(),
+        status: 'active',
+      });
+      if (defaultTenant) return defaultTenant;
+    }
+
     const activeTenants = await Tenant.find({ status: 'active' }).limit(2);
     if (activeTenants.length === 1) {
       return activeTenants[0];
@@ -5367,20 +5375,36 @@ ${stringElements}
   /**
    * Automatically reconciles all pending/unassigned CPEs into the active Fleet Inventory
    */
-  static async syncAllPendingDevicesToFleet(): Promise<number> {
+  static async syncAllPendingDevicesToFleet(overrideTenantId?: string): Promise<number> {
     try {
       const pendingItems = await PendingDeviceMapping.find({
         $or: [{ status: 'PENDING' }, { mappedTenantId: null }],
       });
 
+      let targetTenant: any = null;
+      if (overrideTenantId) {
+        targetTenant = await Tenant.findById(overrideTenantId);
+      }
+      if (!targetTenant && process.env.DEFAULT_TENANT_SLUG) {
+        targetTenant = await Tenant.findOne({ slug: process.env.DEFAULT_TENANT_SLUG.trim().toLowerCase(), status: 'active' });
+      }
+      if (!targetTenant) {
+        const activeTenants = await Tenant.find({ status: 'active' }).limit(2);
+        if (activeTenants.length === 1) targetTenant = activeTenants[0];
+      }
+
       let syncedCount = 0;
       for (const p of pendingItems) {
         const serial = p.serialNumber;
         const serialAliases = CwmpXmlParser.getSerialNumberAliases(serial);
-        const tenant = await this.resolveTenant(p.incomingHost, p.pathOrQuerySlug, {
+        let tenant = await this.resolveTenant(p.incomingHost, p.pathOrQuerySlug, {
           serialAliases,
           macAddress: p.macAddress,
         });
+
+        if (!tenant) {
+          tenant = targetTenant;
+        }
 
         if (tenant) {
           let existingDevice = await Device.findOne({ serialNumber: { $in: serialAliases } });

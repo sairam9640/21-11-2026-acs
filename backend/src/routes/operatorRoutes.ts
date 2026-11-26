@@ -643,6 +643,7 @@ operatorRouter.get('/devices', async (req: AuthenticatedRequest, res: Response) 
       return res.status(403).json({ success: false, error: 'Forbidden: Valid tenant context required.' });
     }
     const tenantId = new Types.ObjectId(req.tenantId);
+    await CwmpService.syncAllPendingDevicesToFleet(req.tenantId);
     await reconcileFleetLiveness(tenantId);
     const { search, status, opticalStatus } = req.query;
 
@@ -3876,7 +3877,7 @@ operatorRouter.post('/devices/:id/scan-wifi', async (req: AuthenticatedRequest, 
  */
 operatorRouter.post('/devices/sync-fleet', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const synced = await CwmpService.syncAllPendingDevicesToFleet();
+    const synced = await CwmpService.syncAllPendingDevicesToFleet(req.tenantId);
     return res.json({
       success: true,
       message: `Fleet discovery reconciliation completed. ${synced} active CPEs synchronized.`,

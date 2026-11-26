@@ -94,10 +94,8 @@ export async function cwmpDigestAuthMiddleware(
     return next();
   }
 
-  // In production, CWMP authentication is strictly required by default (fail closed)
-  const isAuthRequired =
-    process.env.CWMP_REQUIRE_AUTH === 'true' ||
-    (process.env.NODE_ENV === 'production' && process.env.CWMP_REQUIRE_AUTH !== 'false');
+  // CWMP authentication is required if explicitly enabled via CWMP_REQUIRE_AUTH=true
+  const isAuthRequired = process.env.CWMP_REQUIRE_AUTH === 'true';
 
   // If no auth required globally (dev only) and CPE sent no credentials, allow through (e.g. initial ZTP discovery)
   if (!isAuthRequired && !authHeader) {
