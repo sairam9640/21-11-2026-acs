@@ -14,14 +14,15 @@ export class WebhookService {
   private static processedEventIds: Set<string> = new Set();
 
   /**
-   * Securely resolves provider webhook secret, strictly requiring it in production
+   * Securely resolves provider webhook secret, strictly failing closed if unset
    */
   static getProviderSecret(provider: 'WHATSAPP' | 'STRIPE' | 'RAZORPAY'): string {
     const envKey = `${provider}_WEBHOOK_SECRET`;
     const secret = (process.env[envKey] || '').trim();
     if (!secret) {
       if (process.env.NODE_ENV === 'production') {
-        throw new Error(`FATAL: Mandatory security secret ${envKey} must be set in production! Webhook verification blocked.`);
+        console.warn(`[WebhookService] Optional secret ${envKey} is not configured in production; incoming ${provider} webhooks are rejected.`);
+        return '';
       }
       // Isolated test suite mock secret (only permitted in non-production/test environments)
       return `whsec_${provider.toLowerCase()}_master_secret_2026`;
@@ -34,7 +35,7 @@ export class WebhookService {
    */
   static validateSignature(provider: 'WHATSAPP' | 'STRIPE' | 'RAZORPAY', rawPayload: string, signature: string): boolean {
     const secret = this.getProviderSecret(provider);
-    if (!secret) return false;
+    if (!secret || !signature) return false;
 
     const expectedSignature = crypto
       .createHmac('sha256', secret)
@@ -43,7 +44,10 @@ export class WebhookService {
 
     // Safe timing-safe comparison
     try {
-      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+      const sigBuf = Buffer.from(signature);
+      const expBuf = Buffer.from(expectedSignature);
+      if (sigBuf.length !== expBuf.length) return false;
+      return crypto.timingSafeEqual(sigBuf, expBuf);
     } catch {
       return signature === expectedSignature;
     }

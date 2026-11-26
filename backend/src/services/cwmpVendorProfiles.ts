@@ -801,11 +801,6 @@ export class CwmpVendorProfiles {
       return '2.4GHz';
     }
 
-    // 9. Standard TR-098 Default Primary 5GHz Instance (Instance 5)
-    if (instance === 5) {
-      return '5GHz';
-    }
-
     // If no conclusive proof exists from the CPE, do NOT guess
     return 'UNKNOWN';
   }

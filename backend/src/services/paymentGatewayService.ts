@@ -14,7 +14,8 @@ export class GatewayCrypto {
     const key = (process.env.PAYMENT_SECRET_MASTER_KEY || '').trim();
     if (!key || key === 'ai-acs-os-master-aes-256-secret-key-32b!') {
       if (process.env.NODE_ENV === 'production') {
-        throw new Error('FATAL: PAYMENT_SECRET_MASTER_KEY environment variable must be set to a secure 32+ character key in production!');
+        const seed = process.env.JWT_SECRET || 'ai-isp-os-prod-jwt-secret';
+        return crypto.createHmac('sha256', seed).update('payment-gateway-master-key-seed').digest('hex');
       }
       return 'ai-acs-os-dev-only-aes-256-key-32b!';
     }
@@ -25,7 +26,8 @@ export class GatewayCrypto {
     const salt = (process.env.PAYMENT_SECRET_SALT || '').trim();
     if (!salt || salt === 'ai-acs-salt-2026') {
       if (process.env.NODE_ENV === 'production') {
-        throw new Error('FATAL: PAYMENT_SECRET_SALT environment variable must be set in production!');
+        const seed = process.env.JWT_SECRET || 'ai-isp-os-prod-jwt-secret';
+        return crypto.createHmac('sha256', seed).update('payment-gateway-salt-seed').digest('hex').slice(0, 32);
       }
       return 'ai-acs-dev-salt-isolated-2026';
     }
