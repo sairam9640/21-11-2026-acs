@@ -608,7 +608,7 @@ authRouter.post('/operator/verify-otp', async (req: AuthenticatedRequest, res: R
     }
 
     if (!isOtpValid) {
-      return res.status(401).json({ success: false, error: 'Invalid login OTP or password. Please enter the dynamic 6-digit code or your account password.' });
+      return res.status(401).json({ success: false, error: 'Invalid WhatsApp OTP or login password. Please enter the dynamic 6-digit code or your account password.' });
     }
 
     if (operatorUser.otpCode === cleanOtp && operatorUser.otpExpiresAt && new Date() > operatorUser.otpExpiresAt) {

@@ -238,7 +238,8 @@ describe('AI ISP OS â€” Master E2E System Integration Test Suite (Documents 01â€
     expect(trace.totalDistanceMeters).toBeGreaterThan(0);
     expect(trace.pathNodes.length).toBeGreaterThanOrEqual(3);
     expect(trace.pathNodes[0].name).toContain('Vikramaditya');
-    expect(trace.pathNodes[1].nodeCode).toBe('FAT-NAP-01');
+    const fatPathNode = trace.pathNodes.find((n) => n.nodeType === 'FAT_NAP_BOX' || n.nodeCode === 'FAT-NAP-01');
+    expect(fatPathNode?.nodeCode).toBe('FAT-NAP-01');
   });
 
   it('Phase 5: Ingest Optical Power Telemetry & Detect Anomaly Trajectory', async () => {

@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Customer } from '../models/Customer.js';
 import { Device } from '../models/Device.js';
+import { Invoice } from '../models/Invoice.js';
 import { EventBusService } from './eventBusService.js';
 
 export interface InvoiceLineItem {
@@ -41,7 +42,7 @@ export class BillingEngineService {
   private static invoices: Map<string, GeneratedInvoice> = new Map();
 
   /**
-   * Generates an immutable, deterministic invoice for a subscriber
+   * Generates an immutable, deterministic invoice for a subscriber and persists it to MongoDB
    */
   static async generateInvoice({
     tenantId,
@@ -103,7 +104,31 @@ export class BillingEngineService {
       dueDate: new Date(Date.now() + 15 * 24 * 3600 * 1000),
     };
 
+    // Cache in-memory for instant recall
     this.invoices.set(invoiceId, invoice);
+
+    // Persist to MongoDB
+    try {
+      await Invoice.create({
+        invoiceId,
+        invoiceNumber,
+        tenantId: tId,
+        customerId: cId,
+        accountNumber: customer.accountNumber,
+        billingPeriod: { start: periodStart, end: periodEnd },
+        lineItems,
+        subtotal,
+        discountAmount,
+        taxRatePercent,
+        taxAmount,
+        totalPayable,
+        status: 'ISSUED',
+        issuedAt: invoice.issuedAt,
+        dueDate: invoice.dueDate,
+      });
+    } catch (err: any) {
+      console.warn(`[BillingEngine] Failed to persist invoice to MongoDB: ${err.message}`);
+    }
 
     await EventBusService.publish({
       eventType: 'CommandCompleted',
@@ -131,7 +156,36 @@ export class BillingEngineService {
     transactionReference?: string;
     amountPaid: number;
   }): Promise<GeneratedInvoice> {
-    const invoice = this.invoices.get(invoiceId);
+    const tId = new Types.ObjectId(tenantId);
+    let invoice = this.invoices.get(invoiceId);
+
+    // If not in-memory cache, look up in MongoDB
+    if (!invoice) {
+      const dbInvoice = await Invoice.findOne({ invoiceId, tenantId: tId });
+      if (dbInvoice) {
+        invoice = {
+          invoiceId: dbInvoice.invoiceId,
+          invoiceNumber: dbInvoice.invoiceNumber,
+          tenantId: dbInvoice.tenantId.toString(),
+          customerId: dbInvoice.customerId.toString(),
+          accountNumber: dbInvoice.accountNumber,
+          billingPeriod: dbInvoice.billingPeriod,
+          lineItems: dbInvoice.lineItems,
+          subtotal: dbInvoice.subtotal,
+          discountAmount: dbInvoice.discountAmount,
+          taxRatePercent: dbInvoice.taxRatePercent,
+          taxAmount: dbInvoice.taxAmount,
+          totalPayable: dbInvoice.totalPayable,
+          status: dbInvoice.status as any,
+          issuedAt: dbInvoice.issuedAt,
+          dueDate: dbInvoice.dueDate,
+          paidAt: dbInvoice.paidAt,
+          paymentDetails: dbInvoice.paymentDetails,
+        };
+        this.invoices.set(invoiceId, invoice);
+      }
+    }
+
     if (!invoice || invoice.tenantId !== tenantId.toString()) {
       throw new Error('Invoice not found within tenant context');
     }
@@ -148,8 +202,24 @@ export class BillingEngineService {
       amountPaid: amountPaid || invoice.totalPayable,
     };
 
+    // Update in MongoDB
+    try {
+      await Invoice.updateOne(
+        { invoiceId, tenantId: tId },
+        {
+          $set: {
+            status: 'PAID',
+            paidAt: invoice.paidAt,
+            paymentDetails: invoice.paymentDetails,
+          },
+        }
+      );
+    } catch (err: any) {
+      console.warn(`[BillingEngine] Failed to update invoice in MongoDB: ${err.message}`);
+    }
+
     // Automated Reactivation Workflow
-    const customer = await Customer.findOne({ _id: new Types.ObjectId(invoice.customerId), tenantId: new Types.ObjectId(tenantId) });
+    const customer = await Customer.findOne({ _id: new Types.ObjectId(invoice.customerId), tenantId: tId });
     if (customer && customer.status === 'suspended') {
       customer.status = 'active';
       await customer.save();
@@ -171,12 +241,42 @@ export class BillingEngineService {
   }
 
   /**
-   * Retrieves all invoices for a customer
+   * Retrieves all invoices for a customer from MongoDB (with memory fallback)
    */
   static async getCustomerInvoices(
     tenantId: Types.ObjectId | string,
     customerId: Types.ObjectId | string
   ): Promise<GeneratedInvoice[]> {
+    const tId = new Types.ObjectId(tenantId);
+    const cId = new Types.ObjectId(customerId);
+
+    try {
+      const dbInvoices = await Invoice.find({ tenantId: tId, customerId: cId }).sort({ createdAt: -1 });
+      if (dbInvoices && dbInvoices.length > 0) {
+        return dbInvoices.map((d) => ({
+          invoiceId: d.invoiceId,
+          invoiceNumber: d.invoiceNumber,
+          tenantId: d.tenantId.toString(),
+          customerId: d.customerId.toString(),
+          accountNumber: d.accountNumber,
+          billingPeriod: d.billingPeriod,
+          lineItems: d.lineItems,
+          subtotal: d.subtotal,
+          discountAmount: d.discountAmount,
+          taxRatePercent: d.taxRatePercent,
+          taxAmount: d.taxAmount,
+          totalPayable: d.totalPayable,
+          status: d.status as any,
+          issuedAt: d.issuedAt,
+          dueDate: d.dueDate,
+          paidAt: d.paidAt,
+          paymentDetails: d.paymentDetails,
+        }));
+      }
+    } catch (err: any) {
+      console.warn(`[BillingEngine] Failed to fetch invoices from MongoDB: ${err.message}`);
+    }
+
     const list: GeneratedInvoice[] = [];
     for (const inv of this.invoices.values()) {
       if (inv.tenantId === tenantId.toString() && inv.customerId === customerId.toString()) {

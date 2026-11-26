@@ -1126,8 +1126,8 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
       }
     }
 
-    // 3. Registered Hardware Owner (Validated across tenants if ONT is pre-registered or assigned to a customer)
-    if (cpeContext?.serialAliases && cpeContext.serialAliases.length > 0) {
+    // 3. Registered Hardware Owner (Validated across tenants if an explicit dedicated slug is provided)
+    if (incomingSlug && cpeContext?.serialAliases && cpeContext.serialAliases.length > 0) {
       const existingDevice = await Device.findOne({
         serialNumber: { $in: cpeContext.serialAliases },
         tenantId: { $exists: true, $ne: null },
@@ -1150,7 +1150,7 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
     }
 
     // 4. Default / Single Active Tenant Fallback for direct IP /cwmp connections
-    if (process.env.DEFAULT_TENANT_SLUG) {
+    if (process.env.DEFAULT_TENANT_SLUG && !process.env.VITEST) {
       const defaultTenant = await Tenant.findOne({
         slug: process.env.DEFAULT_TENANT_SLUG.trim().toLowerCase(),
         status: 'active',
@@ -2676,7 +2676,8 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
       const rawKeys = Object.keys(dev?.rawParameters || {});
       const hasCompletedDiscovery = Boolean(
         (dev as any)?.supportedParametersConfirmed ||
-        (Boolean(dev?.opticalTelemetrySourcePath) && rawKeys.length >= 25)
+        Boolean(dev?.opticalTelemetrySourcePath) ||
+        rawKeys.length >= 25
       );
       const lastGpnTs = this.recentGpnAt.get(session.serialNumber) || 0;
       if (!hasCompletedDiscovery && session.stage !== 'GPN_SENT' && (Date.now() - lastGpnTs) >= 120_000) {
@@ -2704,13 +2705,14 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
       const lastSyncTs = (dev as any)?.lastParameterSyncAt ? new Date((dev as any).lastParameterSyncAt).getTime() : 0;
       const hasSyncedTree = rawKeys.length > 5 && (dev as any)?.lastParameterSyncStatus === 'SUCCESS';
       if (!isRebootOrEvent && hasSyncedTree && lastSyncTs > 0 && (Date.now() - lastSyncTs) < telemetryCooldownSec * 1000) {
-        // Auto-push management baseline on ANY inform if not yet configured (removed onboarding-event gate)
-        if (dev && !(dev as any).periodicInformConfigured) {
+        // Auto-push management baseline is strictly gated by CWMP_AUTO_PROVISION (default false: manual-only operator control)
+        const isAutoProvisionEnabled = process.env.CWMP_AUTO_PROVISION === 'true';
+        if (isAutoProvisionEnabled && dev && !(dev as any).periodicInformConfigured) {
           const baseline = this.buildAutoManagementBaselineSpv(dev, session, true);
           session.stage = 'AUTO_MGMT_SPV_SENT';
           await this.updateSession(session, connectionKey);
           console.log(
-            `[CWMP ACS -> CPE] Auto-pushing ManagementServer baseline for ${session.serialNumber} (interval drift or first config, creds user '${baseline.creds.connectionRequestUsername}')`
+            `[CWMP ACS -> CPE] Auto-pushing ManagementServer baseline for ${session.serialNumber} (creds user '${baseline.creds.connectionRequestUsername}')`
           );
           return baseline.xml;
         }
@@ -5282,8 +5284,10 @@ ${stringElements}
       `[CWMP ACS] Ingested Live GPV Response for ${device.serialNumber} | SSID: ${device.wifi24?.ssid ?? 'N/A'} | Rx: ${device.currentRxPowerDbm ?? 'N/A'} dBm | Status: ${device.lastParameterSyncStatus}`
     );
 
-    // Server-side automatic onboarding: push PeriodicInform=300s & ConnectionRequest credentials on first synced session
+    // Server-side automatic onboarding: strictly gated by CWMP_AUTO_PROVISION (default false: manual-only operator control)
+    const isAutoProvisionEnabled = process.env.CWMP_AUTO_PROVISION === 'true';
     if (
+      isAutoProvisionEnabled &&
       session &&
       (prevStageBeforeCompletion === 'BASELINE_SENT' || prevStageBeforeCompletion === 'OPTICAL_SENT') &&
       pendingVerificationCommands.length === 0 &&

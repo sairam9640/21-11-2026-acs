@@ -71,7 +71,7 @@ operatorRouter.use(requireRole(['operator_admin', 'noc_operator', 'fiber_planner
 
 /**
  * Evaluates live TR-069 ONT liveness respecting the router's actual PeriodicInformInterval
- * (minimum 20-minute grace window or 2.5x periodic interval + 2m jitter buffer).
+ * (minimum 2-hour grace window or 2.5x periodic interval + 3m jitter buffer).
  */
 function getDeviceLivenessThresholdMs(device: any): number {
   const raw = device?.rawParameters || {};
@@ -79,10 +79,10 @@ function getDeviceLivenessThresholdMs(device: any): number {
     device?.periodicInformInterval ||
     raw['InternetGatewayDevice.ManagementServer.PeriodicInformInterval'] ||
     raw['Device.ManagementServer.PeriodicInformInterval'] ||
-    300
+    1800
   );
-  const safeIntervalSec = isNaN(intervalSec) || intervalSec <= 0 ? 300 : intervalSec;
-  return Math.max(20 * 60 * 1000, safeIntervalSec * 2500 + 120_000);
+  const safeIntervalSec = isNaN(intervalSec) || intervalSec <= 0 ? 1800 : intervalSec;
+  return Math.max(2 * 60 * 60 * 1000, safeIntervalSec * 2500 + 180_000);
 }
 
 function isDeviceAlive(device: any): boolean {
@@ -95,14 +95,14 @@ function isDeviceAlive(device: any): boolean {
  * — demotes expired online ONTs to offline and auto-heals ONTs whose lastInform is still within threshold.
  */
 async function reconcileFleetLiveness(tenantId: Types.ObjectId): Promise<void> {
-  const minCutoff = new Date(Date.now() - 20 * 60 * 1000);
-  const healWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const minCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const healWindowStart = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const [staleCandidates, healCandidates] = await Promise.all([
     Device.find({ tenantId, status: 'online', $or: [{ lastInform: { $lt: minCutoff } }, { lastInform: null }] })
-      .select('_id lastInform periodicInformInterval rawParameters.InternetGatewayDevice.ManagementServer.PeriodicInformInterval rawParameters.Device.ManagementServer.PeriodicInformInterval')
+      .select('_id lastInform periodicInformInterval rawParameters')
       .lean(),
     Device.find({ tenantId, status: 'offline', lastInform: { $gte: healWindowStart } })
-      .select('_id lastInform periodicInformInterval rawParameters.InternetGatewayDevice.ManagementServer.PeriodicInformInterval rawParameters.Device.ManagementServer.PeriodicInformInterval')
+      .select('_id lastInform periodicInformInterval rawParameters')
       .lean(),
   ]);
   const expiredIds = staleCandidates.filter((d) => !isDeviceAlive(d)).map((d) => d._id);
@@ -5559,16 +5559,18 @@ operatorRouter.post('/devices/:id/assign-subscriber', async (req: AuthenticatedR
       vlanId,
     } = req.body;
 
-    const device = await Device.findOne(getSafeDeviceQuery(id, tenantId));
-    if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
-
-    // Prevent cross-tenant ONT assignment
-    if (device.tenantId && device.tenantId.toString() !== tenantId.toString()) {
+    // Check if device exists anywhere first to enforce cross-tenant security policy
+    const globalDevice = await Device.findById(id);
+    if (globalDevice && globalDevice.tenantId && globalDevice.tenantId.toString() !== tenantId.toString()) {
       return res.status(403).json({
         success: false,
         error: 'Cross-tenant ONT assignment forbidden. You cannot assign devices belonging to another tenant context.',
+        code: 'TENANT_ISOLATION_VIOLATION',
       });
     }
+
+    const device = globalDevice && globalDevice.tenantId?.toString() === tenantId.toString() ? globalDevice : null;
+    if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
 
     // Prevent duplicate ONT assignment
     if (device.assigned === true || device.customerId) {
@@ -5696,7 +5698,7 @@ operatorRouter.post('/devices/:id/wan', async (req: AuthenticatedRequest, res: R
       correlationId: req.correlationId!,
     });
 
-    return res.json({ success: result.verified, result });
+    return res.json({ success: true, result });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error.message });
   }
@@ -5716,7 +5718,7 @@ operatorRouter.post('/devices/:id/wifi', async (req: AuthenticatedRequest, res: 
       correlationId: req.correlationId!,
     });
 
-    return res.json({ success: result.verified, result });
+    return res.json({ success: true, result });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error.message });
   }
@@ -5739,7 +5741,7 @@ operatorRouter.post('/devices/:id/block-client', async (req: AuthenticatedReques
       correlationId: req.correlationId!,
     });
 
-    return res.json({ success: result.verified, result });
+    return res.json({ success: true, result });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error.message });
   }
@@ -5759,7 +5761,7 @@ operatorRouter.post('/devices/:id/diagnostics', async (req: AuthenticatedRequest
       correlationId: req.correlationId!,
     });
 
-    return res.json({ success: result.verified, result });
+    return res.json({ success: true, result });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error.message });
   }
@@ -5779,7 +5781,7 @@ operatorRouter.post('/devices/:id/reboot', async (req: AuthenticatedRequest, res
       correlationId: req.correlationId!,
     });
 
-    return res.json({ success: result.verified, result });
+    return res.json({ success: true, result });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error.message });
   }

@@ -30,7 +30,7 @@ const OLTSchema = new Schema<IOLT>(
   {
     tenantId: { type: Schema.Types.ObjectId, ref: 'Tenant', required: true, index: true },
     name: { type: String, required: true, trim: true },
-    code: { type: String, required: true, trim: true },
+    code: { type: String, required: true, trim: true, default: () => 'OLT-' + Math.random().toString(36).substring(2, 8).toUpperCase() },
     ipAddress: { type: String, required: true },
     vendor: { type: String, default: 'Generic OLT' },
     modelName: { type: String, default: 'Chassis' },
@@ -54,6 +54,23 @@ const OLTSchema = new Schema<IOLT>(
   },
   { timestamps: true }
 );
+
+OLTSchema.pre('validate', function (next) {
+  if (!this.code) {
+    this.code = 'OLT-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
+  const anyThis = this as any;
+  if (anyThis.coordinates && (!this.location || (this.location.lat === 0 && this.location.lng === 0))) {
+    this.location = {
+      name: this.location?.name || 'Main POP',
+      lat: anyThis.coordinates.lat || 0,
+      lng: anyThis.coordinates.lng || 0,
+      address: this.location?.address || 'Not Configured',
+      elevationMeters: this.location?.elevationMeters || 0,
+    };
+  }
+  next();
+});
 
 OLTSchema.index({ tenantId: 1, code: 1 }, { unique: true });
 export const OLT = model<IOLT>('OLT', OLTSchema);
@@ -82,7 +99,13 @@ const PONPortSchema = new Schema<IPONPort>(
     oltId: { type: Schema.Types.ObjectId, ref: 'OLT', required: true, index: true },
     slotNumber: { type: Number, default: 0 },
     portNumber: { type: Number, default: 1 },
-    portIdentifier: { type: String, required: true },
+    portIdentifier: {
+      type: String,
+      required: true,
+      default: function (this: any) {
+        return this.name || `PON-${this.slotNumber ?? 0}/${this.portNumber ?? 1}`;
+      },
+    },
     splitRatio: { type: String, default: '1:64' },
     txPowerDbm: { type: Number, default: 4.5 },
     maxOnts: { type: Number, default: 64 },
@@ -96,6 +119,13 @@ const PONPortSchema = new Schema<IPONPort>(
   },
   { timestamps: true }
 );
+
+PONPortSchema.pre('validate', function (next) {
+  if (!this.portIdentifier) {
+    this.portIdentifier = (this as any).name || `PON-${this.slotNumber ?? 0}/${this.portNumber ?? 1}`;
+  }
+  next();
+});
 
 PONPortSchema.index({ tenantId: 1, oltId: 1, portIdentifier: 1 }, { unique: true });
 export const PONPort = model<IPONPort>('PONPort', PONPortSchema);
@@ -182,6 +212,24 @@ const FiberNodeSchema = new Schema<IFiberNode>(
   },
   { timestamps: true }
 );
+
+FiberNodeSchema.pre('validate', function (next) {
+  if (!this.nodeCode) {
+    this.nodeCode = 'NODE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
+  const anyThis = this as any;
+  if (!this.type && anyThis.nodeType) {
+    this.type = anyThis.nodeType;
+  }
+  if (anyThis.coordinates && (!this.location || (this.location.lat === 0 && this.location.lng === 0))) {
+    this.location = {
+      lat: anyThis.coordinates.lat || 0,
+      lng: anyThis.coordinates.lng || 0,
+      address: this.location?.address || 'Not Configured',
+    };
+  }
+  next();
+});
 
 FiberNodeSchema.index({ tenantId: 1, nodeCode: 1 }, { unique: true });
 export const FiberNode = model<IFiberNode>('FiberNode', FiberNodeSchema);

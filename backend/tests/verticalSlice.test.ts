@@ -97,7 +97,8 @@ describe('AI ISP OS — Section 26 First Vertical Slice End-to-End Test', () => 
       .send({ phone: '+919876500000', slug: newTenantSlug });
     expect(reqRes.status).toBe(200);
 
-    const opUser = await User.findOne({ email: 'admin@zenithfiber.com' });
+    const tenant = await Tenant.findOne({ slug: newTenantSlug });
+    const opUser = await User.findOne({ tenantId: tenant!._id });
 
     // Verify WhatsApp OTP
     const opLoginRes = await request(app)

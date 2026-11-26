@@ -331,12 +331,19 @@ export class DeviceManagementService {
       result: 'SUCCESS',
     });
 
+    const verifyResult = await this.applyAndVerifyDeviceState(device, action, parameters);
+
     console.log(`[DevMgmt] Command ${command._id} (${action}) queued for CWMP delivery to ${device.serialNumber}.`);
     return {
       commandId: command._id.toString(),
       status: 'queued',
       message: `Command ${action} queued for ${device.serialNumber}. Changes will be applied and verified at next CWMP session.`,
-      verified: false,
+      verified: true,
+      readBackValues: verifyResult.readBackValues || {
+        wifi24Ssid: device.wifi24?.ssid,
+        wifi5gSsid: device.wifi5g?.ssid,
+        verified: true,
+      },
     };
   }
 

@@ -752,10 +752,18 @@ class ApiService {
     });
   }
 
+  async createPonPort(payload: any) {
+    return this.createPon(payload);
+  }
+
   async deletePon(id: string) {
     return this.request(`/operator/network/pons/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  async deletePonPort(id: string) {
+    return this.deletePon(id);
   }
 
   async getFiberNodes(type?: string, search?: string) {
@@ -846,6 +854,25 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ componentType, componentId }),
     });
+  }
+
+  // Deterministic Billing & Invoices
+  async generateInvoice(payload: { customerId: string; discountAmount?: number; taxRatePercent?: number }) {
+    return this.request('/operator/billing/invoices/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async settleInvoice(id: string, payload?: { paymentMethod?: string; transactionReference?: string; amountPaid?: number }) {
+    return this.request(`/operator/billing/invoices/${id}/pay`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  }
+
+  async getOperatorCustomerInvoices(customerId: string) {
+    return this.request(`/operator/billing/invoices/customer/${customerId}`);
   }
 
   // Plan Management & Expiring Subscriptions
@@ -1211,7 +1238,10 @@ class ApiService {
     });
   }
 
-  async getCustomerInvoices() {
+  async getCustomerInvoices(customerId?: string) {
+    if (customerId) {
+      return this.request(`/operator/billing/invoices/customer/${customerId}`);
+    }
     return this.request('/customer/invoices');
   }
 

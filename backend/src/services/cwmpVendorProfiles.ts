@@ -326,6 +326,11 @@ export class CwmpVendorProfiles {
           'InternetGatewayDevice.X_GNXS_Gpon.OpticalRxPower',
           'InternetGatewayDevice.X_Genexis_Gpon.OpticalRxPower',
           'InternetGatewayDevice.X_GENEXIS_Gpon.OpticalRxPower',
+          'InternetGatewayDevice.X_SyroTech.GPON.OpticalRxPower',
+          'InternetGatewayDevice.X_DBC.GPON.OpticalRxPower',
+          'InternetGatewayDevice.X_Netlink.GPON.OpticalRxPower',
+          'InternetGatewayDevice.WANDevice.1.X_BROADCOM_COM_OpticalInfo.RxPower',
+          'InternetGatewayDevice.WANDevice.1.X_ECONET_GponInterfaceConfig.RXPower',
           'Device.Optical.Interface.1.OpticalSignalLevel',
         ];
 
@@ -589,9 +594,21 @@ export class CwmpVendorProfiles {
         scale = 1;
         normalized = Math.abs(num);
       }
-    } else if (explicitDbm || (!Number.isInteger(num) && num >= 5 && num <= 40)) {
+    } else if (explicitDbm) {
       scale = num >= 100 ? 100 : 1;
       normalized = scale === 100 ? num / 100 : num;
+    } else if (num >= 1000 && num <= 5000) {
+      // Scaled integer in 0.01 dBm (e.g. 2100 => -21.00 dBm, 2450 => -24.50 dBm)
+      scale = 100;
+      normalized = num / 100;
+    } else if (num > 5000 && num <= 60000) {
+      // Scaled integer in 0.001 dBm (e.g. 21500 => -21.50 dBm)
+      scale = 1000;
+      normalized = num / 1000;
+    } else if (num >= 8 && num <= 45) {
+      // Direct positive magnitude representation of Rx dBm (e.g. 21 => -21.00 dBm, 22.4 => -22.40 dBm)
+      scale = 1;
+      normalized = num;
     } else {
       // Syrotech / Realtek / Broadcom / CTC report positive raw optical power in 0.1 µW (e.g. 63 => -22.01 dBm, 100 => -20.0 dBm, 316 => -15.0 dBm)
       const uW = num / 10;
