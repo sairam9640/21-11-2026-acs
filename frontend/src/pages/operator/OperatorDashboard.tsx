@@ -90,7 +90,7 @@ export const OperatorDashboard: React.FC = () => {
   const s = summary || {};
   const activeHost = window.location.hostname || 'localhost';
   const tenantSlug = (tenant?.slug || '').trim().toLowerCase();
-  const activeCwmpUrl = cwmpStats?.cwmpPathUrl || `http://${activeHost}:7547/tr069/${tenantSlug}`;
+  const activeCwmpUrl = cwmpStats?.port80CwmpUrl || cwmpStats?.cwmpPathUrl || `http://${activeHost}/tr069/${tenantSlug}`;
   const port80CwmpUrl = cwmpStats?.port80CwmpUrl || `http://${activeHost}/tr069/${tenantSlug}`;
 
   // Real Database and Telemetry values (Zero dummy fallback numbers)

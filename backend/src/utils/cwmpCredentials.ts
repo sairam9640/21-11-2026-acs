@@ -68,10 +68,11 @@ export function buildPrimaryCwmpUrls(rawHost?: string, tenantSlug?: string): Cwm
     ? `http://${cleanSlug}.${host}:7547`
     : cwmpPathUrl;
 
+  // Standard HTTP Port 80 is universally unblocked across all ISPs, CGNAT, and firewalls
   return {
-    primaryUrl: cwmpPathUrl,
-    cwmpPathUrl,
+    primaryUrl: port80Url,
+    cwmpPathUrl: port80Url,
     port80Url,
-    subdomainUrl,
+    subdomainUrl: isIpOrLocalhost ? port80Url : subdomainUrl,
   };
 }

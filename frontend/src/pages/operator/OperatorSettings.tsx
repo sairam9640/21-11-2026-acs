@@ -33,7 +33,7 @@ export const OperatorSettings: React.FC = () => {
 
   const activeHost = window.location.hostname || '109.122.56.149';
   const tenantSlug = (tenant?.slug || 'operator').trim().toLowerCase();
-  const acsUrl = cwmpStats?.cwmpPathUrl || `http://${activeHost}:7547/tr069/${tenantSlug}`;
+  const acsUrl = cwmpStats?.port80CwmpUrl || cwmpStats?.cwmpPathUrl || `http://${activeHost}/tr069/${tenantSlug}`;
   const port80AcsUrl = cwmpStats?.port80CwmpUrl || `http://${activeHost}/tr069/${tenantSlug}`;
   const acsUsername = cwmpStats?.authCredentials?.acsUsername || tenantSlug || 'acs';
   const acsPassword = cwmpStats?.authCredentials?.acsPassword || tenantSlug || 'acs';

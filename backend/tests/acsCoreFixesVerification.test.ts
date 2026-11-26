@@ -781,10 +781,10 @@ describe('ACS Core Fixes Verification — 5GHz Auto-Channel, Multi-Slot PPPoE, G
 
   it('9. Unified TR-069 CWMP URLs and tenant-slug ACS password work across stats & Digest auth', async () => {
     const stats: any = CwmpService.getStats('acs_fix_tenant', '109.122.56.149:4000');
-    expect(stats.cwmpUrl).toBe('http://109.122.56.149:7547/tr069/acs_fix_tenant');
-    expect(stats.cwmpPathUrl).toBe('http://109.122.56.149:7547/tr069/acs_fix_tenant');
+    expect(stats.cwmpUrl).toBe('http://109.122.56.149/tr069/acs_fix_tenant');
+    expect(stats.cwmpPathUrl).toBe('http://109.122.56.149/tr069/acs_fix_tenant');
     expect(stats.port80CwmpUrl).toBe('http://109.122.56.149/tr069/acs_fix_tenant');
-    expect(stats.cwmpSubdomainUrl).toBe('http://109.122.56.149:7547/tr069/acs_fix_tenant');
+    expect(stats.cwmpSubdomainUrl).toBe('http://109.122.56.149/tr069/acs_fix_tenant');
     expect(stats.authCredentials.acsUsername).toBe('acs_fix_tenant');
     expect(stats.authCredentials.acsPassword).toBe('acs_fix_tenant');
     expect(stats.authCredentials.connectionRequestUsername).toBe('cpe_acs_fix_tenant');
