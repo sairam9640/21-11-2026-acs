@@ -53,12 +53,12 @@ export class CwmpVendorProfiles {
     else if (/realtek|00e04c|xpon\+1ge/i.test(text) || oui === '00E04C') {
       detected = 'REALTEK';
     }
-    // 3. Genexis Titanium / Platinum / Earth series
-    else if (/genexis|gnxs|titanium|platinum|earth/i.test(text)) {
+    // 3. Genexis Titanium / Platinum / Earth / GX series (e.g. GX4410, Platinum GX)
+    else if (/genexis|gnxs|\bgx[-_ ]?\d+|titanium|platinum|earth/i.test(text)) {
       detected = 'GENEXIS';
     }
     // 4. Huawei EchoLife / OptiXstar series
-    else if (/huawei|echolife|hg8|eg8|optix|hw_gpon|x_hw_/i.test(text) || (oui === '00259E' && !/genexis|gnxs|titanium|earth/i.test(text)) || oui === '001E10') {
+    else if (/huawei|echolife|hg8|eg8|optix|hw_gpon|x_hw_/i.test(text) || (oui === '00259E' && !/genexis|gnxs|\bgx[-_ ]?\d+|titanium|earth/i.test(text)) || oui === '001E10') {
       detected = 'HUAWEI';
     }
     // 5. ZTE NetSphere / ZXHN series
@@ -786,6 +786,11 @@ export class CwmpVendorProfiles {
     // 8. Standard TR-098 Default Primary Instance 1
     if (instance === 1) {
       return '2.4GHz';
+    }
+
+    // 9. Standard TR-098 Default Primary 5GHz Instance (Instance 5)
+    if (instance === 5) {
+      return '5GHz';
     }
 
     // If no conclusive proof exists from the CPE, do NOT guess

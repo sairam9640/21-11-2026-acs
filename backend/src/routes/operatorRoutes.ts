@@ -141,23 +141,34 @@ function pickNonMaskedRawSecret(rawParams: Record<string, any>, rawKeys: string[
   const apSet = apIdx !== instance ? [apIdx, instance] : [instance];
   const orderedPatterns: RegExp[] = [
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.PreSharedKey$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.0\\.KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.0\\.PreSharedKey$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_GENEXIS_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_GENEXIS_PreSharedKey$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_BROADCOM_COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_ALU_COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_ALU-COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_ASB_COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.X_NOKIA_KeyPassphrase$`, 'i'),
-    new RegExp(`WLANConfiguration\\.${instance}\\.KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_ALU_COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_ALU-COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_ASB_COM_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_NOKIA_KeyPassphrase$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_ALU_COM_PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_ASB_COM_PreSharedKey$`, 'i'),
-    new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey\\.1\\.PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_CT-COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_CT-COM_PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_HW_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_ZTE-COM_KeyPassphrase$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.X_ZTE-COM_PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.X_TP_PreSharedKey$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.WPA\\.PreSharedKey$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.WPAKey$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.WPAPsk$`, 'i'),
     new RegExp(`WLANConfiguration\\.${instance}\\.PreSharedKey$`, 'i'),
+    new RegExp(`WLANConfiguration\\.${instance}\\.SharedKey$`, 'i'),
   ];
   for (const ap of apSet) {
     orderedPatterns.push(
@@ -165,6 +176,8 @@ function pickNonMaskedRawSecret(rawParams: Record<string, any>, rawKeys: string[
       new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_ALU-COM_KeyPassphrase$`, 'i'),
       new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_ASB_COM_KeyPassphrase$`, 'i'),
       new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_NOKIA_KeyPassphrase$`, 'i'),
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_GENEXIS_KeyPassphrase$`, 'i'),
+      new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.X_BROADCOM_COM_KeyPassphrase$`, 'i'),
       new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.KeyPassphrase$`, 'i'),
       new RegExp(`Device\\.WiFi\\.AccessPoint\\.${ap}\\.Security\\.PreSharedKey$`, 'i')
     );
@@ -173,6 +186,16 @@ function pickNonMaskedRawSecret(rawParams: Record<string, any>, rawKeys: string[
     const matchedKey = rawKeys.find((k) => pat.test(k));
     if (matchedKey && rawParams[matchedKey] !== undefined && rawParams[matchedKey] !== null) {
       const val = String(rawParams[matchedKey]).trim();
+      if (val && !/^\*+$/.test(val) && val !== '••••••••' && val !== 'null' && val !== 'undefined') {
+        return val;
+      }
+    }
+  }
+  // Dynamic fallback: any key for this WLAN instance containing key/pass/secret
+  const instanceWlanRe = new RegExp(`(?:WLANConfiguration\\.${instance}\\..*(?:KeyPassphrase|PreSharedKey|WPAKey|WPAPsk|SharedKey)|Device\\.WiFi\\.AccessPoint\\.(?:${apIdx}|${instance})\\.Security\\..*(?:KeyPassphrase|PreSharedKey))`, 'i');
+  for (const k of rawKeys) {
+    if (instanceWlanRe.test(k) && rawParams[k] !== undefined && rawParams[k] !== null) {
+      const val = String(rawParams[k]).trim();
       if (val && !/^\*+$/.test(val) && val !== '••••••••' && val !== 'null' && val !== 'undefined') {
         return val;
       }
@@ -4675,7 +4698,7 @@ operatorRouter.get('/devices/:id/workspace', async (req: AuthenticatedRequest, r
       discoveredInterfaces.find((i) => i.band === '5GHz' && i.status === 'Active' && !/guest|iot/i.test(String(i.ssid || ''))) ||
       discoveredInterfaces.find((i) => i.band === '5GHz') ||
       discoveredInterfaces.find((i) => d.wifi5g?.ssid && i.ssid === d.wifi5g.ssid) ||
-      discoveredInterfaces.find((i) => i.instance === 5 || i.instance === 3);
+      discoveredInterfaces.find((i) => i.instance === 5 || i.instance === 2 || i.instance === 3);
     const isDualBandCapable = CwmpVendorProfiles.isDualBandModel(device.manufacturer, device.modelName, device.hardwareVersion) || Boolean(primary5g?.ssid || d.wifi5g?.ssid);
 
     // Extract Primary INTERNET WAN parameters (skip TR069/VOIP management slots when scoring CPE WAN paths)

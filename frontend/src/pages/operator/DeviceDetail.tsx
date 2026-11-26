@@ -2284,12 +2284,13 @@ export const DeviceDetail: React.FC = () => {
                         <span className="font-mono text-xs font-bold text-[#0F172A] tracking-wider">
                           {show24Password
                             ? (workspace.wifi?.band24?.password ||
+                               workspace.device?.wifi24?.password ||
                               (workspace.wifi?.band24?.passwordHiddenByCpe || workspace.wifi?.band24?.passwordConfigured
                                 ? 'Protected by Router (TR-069 Write-Only)'
                                 : 'Not Configured'))
                             : '••••••••••'}
                         </span>
-                        {show24Password && !workspace.wifi?.band24?.password && (workspace.wifi?.band24?.passwordHiddenByCpe || workspace.wifi?.band24?.passwordConfigured) && (
+                        {show24Password && !(workspace.wifi?.band24?.password || workspace.device?.wifi24?.password) && (workspace.wifi?.band24?.passwordHiddenByCpe || workspace.wifi?.band24?.passwordConfigured) && (
                           <span className="block text-[10px] text-[#64748B] mt-0.5">
                             Router masks read-back — click Edit SSID to set/sync password
                           </span>
@@ -2307,8 +2308,9 @@ export const DeviceDetail: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            if (workspace.wifi?.band24?.password) {
-                              navigator.clipboard.writeText(workspace.wifi.band24.password);
+                            const p = workspace.wifi?.band24?.password || workspace.device?.wifi24?.password;
+                            if (p) {
+                              navigator.clipboard.writeText(p);
                               setWifiCopied('24');
                               setTimeout(() => setWifiCopied(null), 2000);
                             }
@@ -2401,12 +2403,13 @@ export const DeviceDetail: React.FC = () => {
                         <span className="font-mono text-xs font-bold text-[#0F172A] tracking-wider">
                           {show5gPassword
                             ? (workspace.wifi?.band5g?.password ||
+                               workspace.device?.wifi5g?.password ||
                               (workspace.wifi?.band5g?.passwordHiddenByCpe || workspace.wifi?.band5g?.passwordConfigured
                                 ? 'Protected by Router (TR-069 Write-Only)'
                                 : 'Not Configured'))
                             : '••••••••••'}
                         </span>
-                        {show5gPassword && !workspace.wifi?.band5g?.password && (workspace.wifi?.band5g?.passwordHiddenByCpe || workspace.wifi?.band5g?.passwordConfigured) && (
+                        {show5gPassword && !(workspace.wifi?.band5g?.password || workspace.device?.wifi5g?.password) && (workspace.wifi?.band5g?.passwordHiddenByCpe || workspace.wifi?.band5g?.passwordConfigured) && (
                           <span className="block text-[10px] text-[#64748B] mt-0.5">
                             Router masks read-back — click Edit SSID to set/sync password
                           </span>
@@ -2424,8 +2427,9 @@ export const DeviceDetail: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            if (workspace.wifi?.band5g?.password) {
-                              navigator.clipboard.writeText(workspace.wifi.band5g.password);
+                            const p = workspace.wifi?.band5g?.password || workspace.device?.wifi5g?.password;
+                            if (p) {
+                              navigator.clipboard.writeText(p);
                               setWifiCopied('5g');
                               setTimeout(() => setWifiCopied(null), 2000);
                             }

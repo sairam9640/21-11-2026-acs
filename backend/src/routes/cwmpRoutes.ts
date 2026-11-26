@@ -59,6 +59,12 @@ async function handleCwmpPost(req: Request, res: Response) {
       rawBody.includes('<Body/>') ||
       rawBody.includes('<Body></Body>');
 
+    const endCwmpSession = () => {
+      res.setHeader('Content-Type', 'text/xml; charset=utf-8');
+      res.setHeader('Content-Length', '0');
+      return res.status(200).end();
+    };
+
     // 1. If GetParameterNamesResponse from CPE
     if (rawBody.includes('GetParameterNamesResponse')) {
       const gpnNextRpc = await CwmpService.handleParameterNamesResponse(rawBody, clientIp, incomingSessionId, hostHeader, pathOrQuerySlug, connectionKey);
@@ -67,7 +73,7 @@ async function handleCwmpPost(req: Request, res: Response) {
         res.setHeader('Content-Type', 'text/xml; charset=utf-8');
         return res.status(200).send(gpnNextRpc);
       }
-      return res.status(204).end();
+      return endCwmpSession();
     }
 
     // 1b. If TransferComplete from CPE (firmware transfer and flash reporting)
@@ -81,7 +87,7 @@ async function handleCwmpPost(req: Request, res: Response) {
     // 1c. If DownloadResponse from CPE (firmware download started notification)
     if (rawBody.includes('DownloadResponse')) {
       await CwmpService.handleDownloadResponse(rawBody, clientIp, incomingSessionId, connectionKey);
-      return res.status(204).end();
+      return endCwmpSession();
     }
 
     // 1d. If RebootResponse / FactoryResetResponse from CPE
@@ -91,7 +97,7 @@ async function handleCwmpPost(req: Request, res: Response) {
         res.setHeader('Set-Cookie', `cwmpSession=${incomingSessionId}; Path=/; HttpOnly`);
       }
       await CwmpService.handleParameterValuesResponse(rawBody, clientIp, incomingSessionId, hostHeader, pathOrQuerySlug, connectionKey);
-      return res.status(204).end();
+      return endCwmpSession();
     }
 
     // 2. If GetParameterValuesResponse / SetParameterValuesResponse / AddObjectResponse / SetParameterAttributesResponse / Fault from CPE
@@ -115,7 +121,7 @@ async function handleCwmpPost(req: Request, res: Response) {
         res.setHeader('Content-Type', 'text/xml; charset=utf-8');
         return res.status(200).send(nextRpc);
       }
-      return res.status(204).end();
+      return endCwmpSession();
     }
 
     // 3. If genuine Inform XML from CPE
@@ -135,7 +141,7 @@ async function handleCwmpPost(req: Request, res: Response) {
         res.setHeader('Content-Type', 'text/xml; charset=utf-8');
         return res.status(200).send(pendingRpcXml);
       }
-      return res.status(204).end();
+      return endCwmpSession();
     }
 
     // Default 200 OK fallback

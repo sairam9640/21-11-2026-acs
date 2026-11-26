@@ -608,8 +608,8 @@ export async function buildDynamicTr098WanParams(
       rawCandidateParams.push([`${basePath}.VLANID`, vlanIdNum, 'xsd:int']);
     } else {
       // Inferred fallback based on discovered ONT technology
-      const anyEpon = rawKeys.some((k) => /WANEponLinkConfig/i.test(k));
-      const anyGpon = rawKeys.some((k) => /WANGponLinkConfig/i.test(k));
+      const anyEpon = rawKeys.some((k) => /Epon/i.test(k));
+      const anyGpon = rawKeys.some((k) => /Gpon/i.test(k));
       const anyCtLink = rawKeys.some((k) => /WANLinkConfig/i.test(k));
 
       if (anyEpon || (!anyGpon && !anyCtLink && rawKeys.length === 0)) {

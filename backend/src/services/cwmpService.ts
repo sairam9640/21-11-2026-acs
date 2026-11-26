@@ -131,10 +131,16 @@ export class CwmpService {
     if (connectionKey) {
       this.sessionsByConnection.set(connectionKey, context);
     }
+    if (context.clientIp) {
+      this.sessionsByConnection.set(context.clientIp, context);
+    }
     try {
       await RedisService.set(`cwmp:session:${sessionId}`, context, 120);
       if (connectionKey) {
         await RedisService.set(`cwmp:conn:${connectionKey}`, context, 120);
+      }
+      if (context.clientIp) {
+        await RedisService.set(`cwmp:conn:${context.clientIp}`, context, 120);
       }
     } catch (err: any) {
       console.warn('[CWMP ACS] Failed to persist session to Redis:', err.message);
@@ -144,11 +150,14 @@ export class CwmpService {
   /**
    * Retrieve active session context from memory or distributed Redis cluster
    */
-  static async getSession(incomingSessionId?: string, connectionKey?: string): Promise<ActiveSessionContext | undefined> {
+  static async getSession(incomingSessionId?: string, connectionKey?: string, clientIp?: string): Promise<ActiveSessionContext | undefined> {
     // 1. Fast in-memory lookup
     let session = incomingSessionId ? this.sessionsById.get(incomingSessionId) : undefined;
     if (!session && connectionKey) {
       session = this.sessionsByConnection.get(connectionKey);
+    }
+    if (!session && clientIp) {
+      session = this.sessionsByConnection.get(clientIp);
     }
     if (session) return session;
 
@@ -166,6 +175,13 @@ export class CwmpService {
         if (redisConnSession) {
           this.sessionsByConnection.set(connectionKey, redisConnSession);
           return redisConnSession;
+        }
+      }
+      if (clientIp) {
+        const redisIpSession = await RedisService.get<ActiveSessionContext>(`cwmp:conn:${clientIp}`);
+        if (redisIpSession) {
+          this.sessionsByConnection.set(clientIp, redisIpSession);
+          return redisIpSession;
         }
       }
     } catch (err: any) {
@@ -272,13 +288,22 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
   /**
    * Release per-socket connection mapping once a CWMP session completes so keepalive/CGNAT port reuse never collides
    */
-  static async clearConnectionSession(connectionKey?: string): Promise<void> {
-    if (!connectionKey) return;
-    this.sessionsByConnection.delete(connectionKey);
-    try {
-      await RedisService.del(`cwmp:conn:${connectionKey}`);
-    } catch {
-      // ignore Redis cleanup errors
+  static async clearConnectionSession(connectionKey?: string, clientIp?: string): Promise<void> {
+    if (connectionKey) {
+      this.sessionsByConnection.delete(connectionKey);
+      try {
+        await RedisService.del(`cwmp:conn:${connectionKey}`);
+      } catch {
+        // ignore Redis cleanup errors
+      }
+    }
+    if (clientIp) {
+      this.sessionsByConnection.delete(clientIp);
+      try {
+        await RedisService.del(`cwmp:conn:${clientIp}`);
+      } catch {
+        // ignore Redis cleanup errors
+      }
     }
   }
 
@@ -404,7 +429,7 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
 
     // 3. Priority 3: ALL Wi-Fi Interfaces (SSID, Band evidence, Standard, Channel, Passphrase)
     const allWifiParams = names.filter((n) =>
-      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(?:SSID|Enable|Status|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT[-_]COM_RFBand|X_HW_RFBand|X_ZTE[-_]COM_RFBand|X_ALU_COM_RFBand|X_SYROTECH_Band|X_REALTEK_Band|X_HW_WorkMode|OperatingFrequencyBand|SupportedFrequencyBands|PreSharedKey\.1\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|WPA\.PreSharedKey)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|Status|LowerLayers|SSIDReference|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)))$/i.test(n) &&
+      /(?:LANDevice\.\d+\.WLANConfiguration\.\d+\.(?:SSID|Enable|Status|Channel|Standard|OperatingChannelBandwidth|PossibleChannels|BeaconType|TotalAssociations|X_TP_Band|X_RFBand|RFBand|Band|X_CT[-_]COM_RFBand|X_HW_RFBand|X_ZTE[-_]COM_RFBand|X_ALU_COM_RFBand|X_SYROTECH_Band|X_REALTEK_Band|X_HW_WorkMode|OperatingFrequencyBand|SupportedFrequencyBands|PreSharedKey\.\d+\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)|WPA\.PreSharedKey|WPAKey|WPAPsk|SharedKey)|Device\.WiFi\.(?:SSID|Radio|AccessPoint)\.\d+\.(?:SSID|Channel|Enable|Status|LowerLayers|SSIDReference|OperatingFrequencyBand|OperatingStandards|OperatingChannelBandwidth|AssociatedDeviceNumberOfEntries|Security\.ModeEnabled|Security\.(?:X_[A-Z0-9_-]+_)?(?:KeyPassphrase|PreSharedKey)))$/i.test(n) &&
       !n.endsWith('.')
     );
     for (const wp of allWifiParams) pushConfirmed(wp, maxBatchSize);
@@ -457,6 +482,18 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
         }
       }
     }
+    // Case-insensitive & vendor extension candidate lookup
+    for (const p of candidatePaths) {
+      const lowerCandidate = p.toLowerCase();
+      for (const [k, v] of paramMap.entries()) {
+        if (k.toLowerCase() === lowerCandidate) {
+          const trimmed = String(v).trim();
+          if (trimmed && !/^\*+$/.test(trimmed) && trimmed !== '••••••••' && trimmed !== 'null' && trimmed !== 'undefined') {
+            return trimmed;
+          }
+        }
+      }
+    }
     return undefined;
   }
 
@@ -469,7 +506,7 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
   }
 
   /**
-   * Builds ordered Wi-Fi passphrase lookup paths across TR-098, Nokia/ALU/ASB, Huawei, ZTE, TP-Link, and TR-181 (with SSIDReference resolution).
+   * Builds ordered Wi-Fi passphrase lookup paths across TR-098, Genexis/GX, Nokia/ALU/ASB, Huawei, ZTE, TP-Link, and TR-181 (with SSIDReference resolution).
    */
   private static getWifiSecretCandidatePaths(instance: number, rawObj: Record<string, any> = {}): string[] {
     const apIdx = CwmpVendorProfiles.resolveTr181AccessPointIndex(rawObj, instance);
@@ -481,18 +518,25 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
         `Device.WiFi.AccessPoint.${ap}.Security.X_ALU-COM_KeyPassphrase`,
         `Device.WiFi.AccessPoint.${ap}.Security.X_ASB_COM_KeyPassphrase`,
         `Device.WiFi.AccessPoint.${ap}.Security.X_NOKIA_KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${ap}.Security.X_GENEXIS_KeyPassphrase`,
+        `Device.WiFi.AccessPoint.${ap}.Security.X_BROADCOM_COM_KeyPassphrase`,
         `Device.WiFi.AccessPoint.${ap}.Security.KeyPassphrase`,
         `Device.WiFi.AccessPoint.${ap}.Security.PreSharedKey`
       );
     }
     return [
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.0.KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.0.PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_GENEXIS_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_GENEXIS_PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_BROADCOM_COM_KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_ALU_COM_KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_ALU-COM_KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_ASB_COM_KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.X_NOKIA_KeyPassphrase`,
-      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey.1.PreSharedKey`,
-      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ALU_COM_KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ALU-COM_KeyPassphrase`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ASB_COM_KeyPassphrase`,
@@ -500,10 +544,16 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ALU_COM_PreSharedKey`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ASB_COM_PreSharedKey`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_CT-COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_CT-COM_PreSharedKey`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_HW_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ZTE-COM_KeyPassphrase`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_ZTE-COM_PreSharedKey`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.X_TP_PreSharedKey`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.WPA.PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.WPAKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.WPAPsk`,
       `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.PreSharedKey`,
+      `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${instance}.SharedKey`,
       ...tr181Paths,
     ];
   }
@@ -1914,7 +1964,7 @@ ${params.map(([name, value, type]) => `        <ParameterValueStruct>
     connectionKey?: string
   ): Promise<string | null> {
     try {
-      const session = await this.getSession(incomingSessionId, connectionKey);
+      const session = await this.getSession(incomingSessionId, connectionKey, clientIp);
 
       if (!session) {
         console.warn(`[CWMP ACS] [EMPTY_POST] No active session found for Conn: ${connectionKey || clientIp}, SessionId: ${incomingSessionId || 'none'}. Returning 204.`);
@@ -2740,7 +2790,7 @@ ${stringElements}
     incomingSessionId?: string,
     connectionKey?: string
   ): Promise<string | null> {
-    const session = await this.getSession(incomingSessionId, connectionKey);
+    const session = await this.getSession(incomingSessionId, connectionKey, clientIp);
     const parsed = CwmpXmlParser.extractDownloadResponse(xml);
 
     console.log(
@@ -2777,7 +2827,7 @@ ${stringElements}
     incomingSessionId?: string,
     connectionKey?: string
   ): Promise<string> {
-    const session = await this.getSession(incomingSessionId, connectionKey);
+    const session = await this.getSession(incomingSessionId, connectionKey, clientIp);
     const details = CwmpXmlParser.extractTransferComplete(xml);
 
     console.log(
@@ -2861,7 +2911,7 @@ ${stringElements}
     pathOrQuerySlug?: string,
     connectionKey?: string
   ): Promise<string | null> {
-    const session = await this.getSession(incomingSessionId, connectionKey);
+    const session = await this.getSession(incomingSessionId, connectionKey, clientIp);
 
     CwmpSessionLog.create({
       serialNumber: session?.serialNumber || 'UNKNOWN',
@@ -3022,7 +3072,7 @@ ${stringElements}
   ): Promise<string | null> {
     const { parameters: pMap, rawMap, fault } = CwmpXmlParser.extractParameterMap(xml);
 
-    const session = await this.getSession(incomingSessionId, connectionKey);
+    const session = await this.getSession(incomingSessionId, connectionKey, clientIp);
 
     if (!session) {
       console.warn(`[CWMP ACS] [GPV_REJECTED] No matching active session for Conn: ${connectionKey || clientIp}, SessionId: ${incomingSessionId || 'none'}. Rejecting write to prevent cross-device contamination.`);
