@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Users,
   Radio,
@@ -229,7 +229,10 @@ export const OperatorDashboard: React.FC = () => {
           </div>
 
           {/* Card 3: Optical Health / Signal Levels (Replaces Total IPoE per request) */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md">
+          <Link
+            to="/operator/devices?opticalStatus=critical"
+            className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md hover:ring-2 hover:ring-rose-400 transition cursor-pointer block group"
+          >
             <div className="relative z-10 space-y-1">
               <div className="flex items-baseline space-x-2">
                 <h4 className="text-3xl font-extrabold tracking-tight font-sans text-white">
@@ -242,13 +245,16 @@ export const OperatorDashboard: React.FC = () => {
                   </span>
                 )}
               </div>
-              <p className="text-xs uppercase tracking-wider font-bold text-emerald-200">OPTICAL POWER LEVELS</p>
+              <p className="text-xs uppercase tracking-wider font-bold text-emerald-200 flex items-center justify-between">
+                <span>OPTICAL POWER LEVELS</span>
+                <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded text-white group-hover:bg-white/30 transition">Click to view &rarr;</span>
+              </p>
               <p className="text-[11px] text-emerald-300 font-medium">
                 {(s.goodOpticalPower ?? (totalOnline > 0 ? totalOnline - (s.opticalWarnings ?? 0) : 0))} Optimal · {(s.badOpticalPower ?? s.opticalWarnings ?? 0)} Needs Action
               </p>
             </div>
-            <Zap className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
-          </div>
+            <Zap className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none group-hover:scale-105 transition-transform" />
+          </Link>
 
           {/* Card 4: Total NAT / Sessions (Warm Golden Amber) */}
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#D97706] via-[#B45309] to-[#92400E] text-white p-5 shadow-md">
@@ -262,6 +268,30 @@ export const OperatorDashboard: React.FC = () => {
             <Activity className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
           </div>
         </div>
+
+        {/* OPTICAL POWER HIGH-ALERT BANNER */}
+        {((s.badOpticalPower ?? s.opticalWarnings ?? 0) > 0 || (s.warningOpticalPower ?? 0) > 0) && (
+          <Link
+            to="/operator/devices?opticalStatus=critical"
+            className="flex items-center justify-between p-4 bg-rose-50 border border-rose-300 rounded-2xl text-rose-900 hover:bg-rose-100 transition shadow-sm animate-pulse cursor-pointer"
+          >
+            <div className="flex items-center space-x-3">
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-600"></span>
+              </span>
+              <div>
+                <span className="font-extrabold text-sm tracking-wide text-rose-950">🚨 CRITICAL OPTICAL POWER ALERT:</span>
+                <span className="text-xs ml-2 text-rose-800">
+                  {(s.badOpticalPower ?? s.opticalWarnings ?? 0) + (s.warningOpticalPower ?? 0)} ONT(s) experiencing high attenuation (&lt; -27 dBm). High packet loss &amp; disconnection risk!
+                </span>
+              </div>
+            </div>
+            <span className="text-xs font-bold text-rose-700 underline flex items-center gap-1 shrink-0">
+              View Affected Routers &rarr;
+            </span>
+          </Link>
+        )}
 
         {/* SUB-ROW: 4 GAUGE & RESOURCE CARDS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -61,6 +61,7 @@ async function handleCwmpPost(req: Request, res: Response) {
 
     const endCwmpSession = () => {
       res.setHeader('Content-Length', '0');
+      res.setHeader('Connection', 'close'); // Clean TCP socket closure prevents embedded ONT CWMP daemons from hanging
       return res.status(204).end();
     };
 

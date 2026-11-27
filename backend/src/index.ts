@@ -40,6 +40,7 @@ app.set('trust proxy', true);
 
 const PORT = process.env.PORT || 3000;
 const CWMP_PORT = process.env.CWMP_PORT ? parseInt(process.env.CWMP_PORT, 10) : 7547;
+const CWMP_ALT_PORT = process.env.CWMP_ALT_PORT ? parseInt(process.env.CWMP_ALT_PORT, 10) : 9090;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ai_isp_os_db';
 const JWT_SECRET = process.env.JWT_SECRET || (
   process.env.NODE_ENV === 'production'
@@ -443,6 +444,24 @@ export const startServer = async () => {
             console.warn(`[CWMP Server] Port ${CWMP_PORT} is in use; TR-069 routes remain active on main port ${PORT}`);
           } else {
             console.warn(`[CWMP Server] Dedicated port ${CWMP_PORT} warning:`, err.message);
+          }
+        });
+      }
+
+      // Alternate TR-069 CWMP Server (Port 9090 - Unblocked ISP Port)
+      if (CWMP_ALT_PORT !== CWMP_PORT && CWMP_ALT_PORT !== Number(PORT)) {
+        const altCwmpServer = http.createServer(cwmpApp);
+        altCwmpServer.keepAliveTimeout = 70_000;
+        altCwmpServer.headersTimeout = 75_000;
+        altCwmpServer.requestTimeout = 120_000;
+        altCwmpServer.listen(CWMP_ALT_PORT, '0.0.0.0', () => {
+          console.log(`[CWMP Alt Server] Alternate TR-069 CWMP Engine running on port ${CWMP_ALT_PORT} (Unblocked ISP Port)`);
+        });
+        altCwmpServer.on('error', (err: any) => {
+          if (err.code === 'EADDRINUSE') {
+            console.warn(`[CWMP Alt Server] Port ${CWMP_ALT_PORT} is already in use.`);
+          } else {
+            console.warn(`[CWMP Alt Server] Port ${CWMP_ALT_PORT} notice:`, err.message);
           }
         });
       }

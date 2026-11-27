@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Radio,
   Search,
@@ -44,12 +44,21 @@ import { api } from '../../services/api.js';
 import { AnimatedCounter } from '../../components/ui/AnimatedCounter.js';
 
 export const ONTList: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const initialFilter = searchParams.get('opticalStatus') === 'critical' ? 'low_signal' : 'all';
   const [devices, setDevices] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialFilter);
   const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const opt = searchParams.get('opticalStatus');
+    if (opt === 'critical') {
+      setStatusFilter('low_signal');
+    }
+  }, [searchParams]);
 
   // 30-second smooth ticker to calculate elapsed times without UI re-render lag
   useEffect(() => {

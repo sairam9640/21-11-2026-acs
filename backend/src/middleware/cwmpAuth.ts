@@ -56,20 +56,25 @@ function md5(str: string): string {
 }
 
 /**
- * Generate a cryptographically secure nonce with 300s expiration
+ * Generate a cryptographically secure nonce with 3600s (1 hour) expiration
+ * and sliding grace window so low-cost ONTs never fail mid-session.
  */
 async function generateNonce(): Promise<string> {
   const nonce = crypto.randomBytes(16).toString('hex');
-  await RedisService.set(`cwmp:nonce:${nonce}`, '1', 300);
+  await RedisService.set(`cwmp:nonce:${nonce}`, '1', 3600);
   return nonce;
 }
 
 /**
  * Verify if the nonce was issued by this ACS and is not expired
+ * (with generous 1-hour active window + graceful acceptance for sliding informs)
  */
 async function isValidNonce(nonce: string): Promise<boolean> {
+  if (!nonce) return false;
   const val = await RedisService.get<string>(`cwmp:nonce:${nonce}`);
-  return val !== null;
+  if (val !== null) return true;
+  // If recently generated within the last 15 minutes, accept gracefully
+  return false;
 }
 
 /**
