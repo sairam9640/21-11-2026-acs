@@ -4,6 +4,7 @@ import { AlertTriangle, ShieldAlert, RefreshCw, Clock, Inbox, Loader2 } from 'lu
 export interface StateWrapperProps {
   isLoading?: boolean;
   isEmpty?: boolean;
+  hasData?: boolean;
   emptyTitle?: string;
   emptyMessage?: string;
   emptyActionLabel?: string;
@@ -26,6 +27,7 @@ export interface StateWrapperProps {
 export const StateWrapper: React.FC<StateWrapperProps> = ({
   isLoading,
   isEmpty,
+  hasData,
   emptyTitle = 'No data available',
   emptyMessage = 'There are currently no records matching this view.',
   emptyActionLabel,
@@ -40,12 +42,16 @@ export const StateWrapper: React.FC<StateWrapperProps> = ({
   onRefresh,
   children,
 }) => {
-  // 1. Loading State
-  if (isLoading) {
+  // If data already exists, treat loading as non-blocking background refresh
+  const hasExistingData = hasData !== undefined ? hasData : (isEmpty === false);
+  const isBackgroundUpdating = Boolean(isLoading && hasExistingData);
+
+  // 1. Initial Loading State — Only block the screen if there is no data at all yet
+  if (isLoading && !hasExistingData) {
     return (
-      <div className="w-full p-8 flex flex-col items-center justify-center min-h-[300px] space-y-4 bg-white border border-[#E2E8F0] rounded-[10px] shadow-xs">
+      <div className="w-full p-8 flex flex-col items-center justify-center min-h-[300px] space-y-4 bg-white border border-[#E2E8F0] rounded-[10px] shadow-xs animate-fadeIn">
         <Loader2 className="w-8 h-8 text-[#1677FF] animate-spin" />
-        <p className="text-[#64748B] text-sm font-medium animate-pulse">Loading real-time network data...</p>
+        <p className="text-[#64748B] text-sm font-medium animate-pulse">Connecting to live network telemetry...</p>
         <div className="w-full max-w-md space-y-3 pt-4">
           <div className="h-4 bg-[#F1F5F9] rounded animate-pulse w-3/4"></div>
           <div className="h-4 bg-[#F1F5F9] rounded animate-pulse w-full"></div>
@@ -71,8 +77,8 @@ export const StateWrapper: React.FC<StateWrapperProps> = ({
     );
   }
 
-  // 3. Error State with Retry & Correlation ID
-  if (error) {
+  // 3. Error State with Retry & Correlation ID (only block screen if no data to display)
+  if (error && !hasExistingData) {
     return (
       <div className="w-full p-8 flex flex-col items-center justify-center min-h-[320px] bg-white border border-[#FECACA] rounded-[10px] text-center space-y-3 shadow-xs">
         <div className="w-12 h-12 rounded-full bg-[#FEF2F2] flex items-center justify-center text-[#EF4444]">
@@ -97,7 +103,7 @@ export const StateWrapper: React.FC<StateWrapperProps> = ({
   }
 
   // 4. Empty State
-  if (isEmpty) {
+  if (isEmpty && !isLoading) {
     return (
       <div className="w-full p-12 flex flex-col items-center justify-center min-h-[320px] bg-white border border-[#E2E8F0] rounded-[10px] text-center space-y-3 shadow-xs">
         <div className="w-12 h-12 rounded-full bg-[#F8FAFC] flex items-center justify-center text-[#94A3B8]">
@@ -118,7 +124,14 @@ export const StateWrapper: React.FC<StateWrapperProps> = ({
   }
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full transition-opacity duration-200">
+      {/* Sleek top indeterminate progress indicator during background updates */}
+      {isBackgroundUpdating && (
+        <div className="absolute top-0 left-0 right-0 z-30 h-0.5 overflow-hidden rounded-t-lg bg-blue-100">
+          <div className="h-full w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 animate-pulse" />
+        </div>
+      )}
+
       {/* 5. Pending Command Banner / Progress */}
       {pendingCommand && (
         <div className="mb-4 p-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg flex items-center justify-between">

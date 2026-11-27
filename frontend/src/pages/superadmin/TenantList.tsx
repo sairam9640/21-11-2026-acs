@@ -98,25 +98,29 @@ export const TenantList: React.FC = () => {
   const navigate = useNavigate();
   const { impersonateTenant } = useAuth();
 
-  const fetchTenants = async () => {
-    setIsLoading(true);
+  const fetchTenants = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const res = await api.getTenants({ search, status: statusFilter });
       if (res.success) {
         setTenants(res.tenants || []);
       } else {
-        setError(res.error || 'Failed to fetch ISP Tenants');
+        if (!silent) setError(res.error || 'Failed to fetch ISP Tenants');
       }
     } catch (err: any) {
-      setError(err.message || 'Network error fetching tenants');
+      if (!silent) setError(err.message || 'Network error fetching tenants');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTenants();
+    fetchTenants(tenants.length > 0);
+    const interval = setInterval(() => {
+      fetchTenants(true);
+    }, 12000);
+    return () => clearInterval(interval);
   }, [statusFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -166,7 +170,7 @@ export const TenantList: React.FC = () => {
     if (res.success) {
       setIsCreateModalOpen(false);
       resetForm();
-      fetchTenants();
+      fetchTenants(true);
     } else {
       alert(res.error || 'Failed to provision ISP Tenant');
     }
@@ -236,7 +240,7 @@ export const TenantList: React.FC = () => {
       setIsEditModalOpen(false);
       setEditingTenantId(null);
       resetForm();
-      fetchTenants();
+      fetchTenants(true);
     } else {
       alert(res.error || 'Failed to update ISP Tenant');
     }
@@ -257,7 +261,7 @@ export const TenantList: React.FC = () => {
     if (res.success) {
       setIsDeleteModalOpen(false);
       setDeletingTenant(null);
-      fetchTenants();
+      fetchTenants(true);
     } else {
       alert(res.error || 'Failed to delete ISP Tenant');
     }
@@ -532,7 +536,8 @@ export const TenantList: React.FC = () => {
 
         {/* Tenant Table */}
         <StateWrapper
-          isLoading={isLoading}
+          isLoading={isLoading && tenants.length === 0}
+          hasData={tenants.length > 0}
           isEmpty={tenants.length === 0}
           emptyTitle="No ISP Tenants Found"
           emptyMessage="No tenants matched your search criteria. Provision your first operator tenant to get started."
@@ -542,12 +547,13 @@ export const TenantList: React.FC = () => {
             setIsCreateModalOpen(true);
           }}
           error={error}
-          onRetry={fetchTenants}
+          onRetry={() => fetchTenants(false)}
         >
           <DataTable
             columns={columns}
             data={tenants}
             keyExtractor={(t) => t._id}
+            isLoading={isLoading}
             onRowClick={(t) => navigate(`/superadmin/tenants/${t._id}`)}
           />
         </StateWrapper>

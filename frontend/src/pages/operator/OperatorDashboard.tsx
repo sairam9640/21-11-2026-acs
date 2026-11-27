@@ -38,6 +38,7 @@ import { Modal } from '../../components/ui/Modal.js';
 import { api } from '../../services/api.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { copyToClipboard } from '../../utils/clipboard.js';
+import { AnimatedCounter } from '../../components/ui/AnimatedCounter.js';
 
 export const OperatorDashboard: React.FC = () => {
   const [summary, setSummary] = useState<any>(null);
@@ -56,7 +57,7 @@ export const OperatorDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { tenant } = useAuth();
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = async (silent = false) => {
     try {
       const [dashRes, cwmpRes] = await Promise.all([
         api.getOperatorDashboard(),
@@ -73,17 +74,17 @@ export const OperatorDashboard: React.FC = () => {
     } catch (err: any) {
       console.warn('Dashboard fetch notice:', err.message);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDashboard();
+    fetchDashboard(false);
     if (isPaused) return;
 
     const interval = setInterval(() => {
-      fetchDashboard();
-    }, 10000);
+      fetchDashboard(true);
+    }, 5000);
     return () => clearInterval(interval);
   }, [isPaused]);
 
@@ -150,8 +151,14 @@ export const OperatorDashboard: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-200">
           <div className="flex items-center space-x-3">
             <div className="flex items-center space-x-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
               <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Live</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                AUTO-SYNC (5s)
+              </span>
             </div>
             <span className="text-xs text-slate-500 font-mono">
               updated {lastUpdated.toLocaleTimeString('en-GB')}
@@ -197,7 +204,7 @@ export const OperatorDashboard: React.FC = () => {
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1E56A0] via-[#16407B] to-[#11315E] text-white p-5 shadow-md">
             <div className="relative z-10 space-y-1">
               <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {totalOnline.toLocaleString()}
+                <AnimatedCounter value={totalOnline} />
               </h4>
               <p className="text-xs uppercase tracking-wider font-bold text-blue-200">TOTAL ONLINE</p>
               <p className="text-[11px] text-blue-300 font-medium">
@@ -211,7 +218,7 @@ export const OperatorDashboard: React.FC = () => {
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0284C7] via-[#0369A1] to-[#075985] text-white p-5 shadow-md">
             <div className="relative z-10 space-y-1">
               <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {pppoeCount.toLocaleString()}
+                <AnimatedCounter value={pppoeCount} />
               </h4>
               <p className="text-xs uppercase tracking-wider font-bold text-sky-200">TOTAL PPPoE</p>
               <p className="text-[11px] text-sky-300 font-medium">
@@ -226,7 +233,7 @@ export const OperatorDashboard: React.FC = () => {
             <div className="relative z-10 space-y-1">
               <div className="flex items-baseline space-x-2">
                 <h4 className="text-3xl font-extrabold tracking-tight font-sans text-white">
-                  {(s.goodOpticalPower ?? (totalOnline > 0 ? totalOnline - (s.opticalWarnings ?? 0) : 0)).toLocaleString()}
+                  <AnimatedCounter value={s.goodOpticalPower ?? (totalOnline > 0 ? totalOnline - (s.opticalWarnings ?? 0) : 0)} />
                 </h4>
                 <span className="text-xs font-bold text-emerald-200 uppercase">GOOD</span>
                 {((s.badOpticalPower ?? s.opticalWarnings ?? 0) > 0 || (s.warningOpticalPower ?? 0) > 0) && (
@@ -247,7 +254,7 @@ export const OperatorDashboard: React.FC = () => {
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#D97706] via-[#B45309] to-[#92400E] text-white p-5 shadow-md">
             <div className="relative z-10 space-y-1">
               <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {natCount.toLocaleString()}
+                <AnimatedCounter value={natCount} />
               </h4>
               <p className="text-xs uppercase tracking-wider font-bold text-amber-200">TOTAL SESSIONS & HITS</p>
               <p className="text-[11px] text-amber-300 font-medium">CWMP informs & conntrack</p>

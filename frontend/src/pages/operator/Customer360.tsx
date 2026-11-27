@@ -120,29 +120,35 @@ export const Customer360: React.FC = () => {
     }
   };
 
-  const fetch360Data = async () => {
+  const fetch360Data = async (silent = false) => {
     if (!id) return;
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const res: any = await api.getCustomer360(id);
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
       if (res.success && res.data) {
         setData(res.data);
         if (res.data.customer?.servicePlan?.price) {
           setRenewForm((prev) => ({ ...prev, paymentAmount: res.data.customer.servicePlan.price }));
         }
       } else {
-        setError(res.error || 'Failed to load customer details');
+        if (!silent) setError(res.error || 'Failed to load customer details');
       }
     } catch (err: any) {
-      setIsLoading(false);
-      setError(err.message || 'Error fetching customer data');
+      if (!silent) {
+        setIsLoading(false);
+        setError(err.message || 'Error fetching customer data');
+      }
     }
   };
 
   useEffect(() => {
-    fetch360Data();
+    fetch360Data(Boolean(data));
+    const poll = setInterval(() => {
+      fetch360Data(true);
+    }, 15000);
+    return () => clearInterval(poll);
   }, [id]);
 
   // Actions
@@ -291,7 +297,7 @@ export const Customer360: React.FC = () => {
       title="Customer Operations Workspace"
       breadcrumbs={[{ label: 'Customers', href: '/operator/customers' }, { label: customer?.fullName || 'Customer Profile' }]}
     >
-      <StateWrapper isLoading={isLoading} error={error} onRetry={fetch360Data}>
+      <StateWrapper isLoading={isLoading && !data} hasData={Boolean(data)} error={error} onRetry={() => fetch360Data(false)}>
         <div className="space-y-5 max-w-7xl mx-auto pb-16 font-sans">
           {/* TOP QUICK ACTION TOOLBAR */}
           <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-xs flex flex-wrap items-center justify-between gap-2.5">

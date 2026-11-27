@@ -15,20 +15,24 @@ export const CustomerHome: React.FC = () => {
 
   const navigate = useNavigate();
 
-  const fetchHome = async () => {
-    setIsLoading(true);
+  const fetchHome = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     const res = await api.getCustomerHome();
-    setIsLoading(false);
+    if (!silent) setIsLoading(false);
     if (res.success) {
       setData(res);
     } else {
-      setError(res.error || 'Failed to load subscriber portal');
+      if (!silent) setError(res.error || 'Failed to load subscriber portal');
     }
   };
 
   useEffect(() => {
-    fetchHome();
+    fetchHome(Boolean(data));
+    const interval = setInterval(() => {
+      fetchHome(true);
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const conn = data?.connection || {};
@@ -36,7 +40,7 @@ export const CustomerHome: React.FC = () => {
 
   return (
     <MobileShell portalType="customer" title="Apex Fiber Home">
-      <StateWrapper isLoading={isLoading} error={error} onRetry={fetchHome}>
+      <StateWrapper isLoading={isLoading && !data} hasData={Boolean(data)} error={error} onRetry={() => fetchHome(false)}>
         <div className="space-y-4">
           {/* Main Status Hero Card */}
           <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-sky-950/40 border border-[#E2E8F0] rounded-3xl p-5 shadow-2xl space-y-4">

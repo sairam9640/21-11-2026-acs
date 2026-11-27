@@ -32,6 +32,7 @@ import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { api } from '../../services/api.js';
 import { copyToClipboard } from '../../utils/clipboard.js';
+import { AnimatedCounter } from '../../components/ui/AnimatedCounter.js';
 
 export const SuperAdminDashboard: React.FC = () => {
   const [data, setData] = useState<any>(null);
@@ -46,8 +47,8 @@ export const SuperAdminDashboard: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
 
-  const fetchDashboard = async (slugToQuery = selectedTenantSlug) => {
-    setIsLoading(true);
+  const fetchDashboard = async (slugToQuery = selectedTenantSlug, silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const res = await api.getSuperAdminDashboard(slugToQuery ? { slug: slugToQuery } : undefined);
@@ -55,24 +56,24 @@ export const SuperAdminDashboard: React.FC = () => {
         setData(res);
         setLastUpdated(new Date());
       } else {
-        setError(res.error || 'Failed to fetch dashboard telemetry');
+        if (!silent) setError(res.error || 'Failed to fetch dashboard telemetry');
       }
     } catch (err: any) {
-      setError(err.message || 'Error communicating with telemetry server');
+      if (!silent) setError(err.message || 'Error communicating with telemetry server');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDashboard(selectedTenantSlug);
+    fetchDashboard(selectedTenantSlug, Boolean(data));
   }, [selectedTenantSlug]);
 
   useEffect(() => {
     if (isPaused) return;
     const interval = setInterval(() => {
-      fetchDashboard(selectedTenantSlug);
-    }, 10000);
+      fetchDashboard(selectedTenantSlug, true);
+    }, 5000);
     return () => clearInterval(interval);
   }, [isPaused, selectedTenantSlug]);
 
@@ -153,19 +154,26 @@ export const SuperAdminDashboard: React.FC = () => {
       }
     >
       <StateWrapper
-        isLoading={isLoading}
+        isLoading={isLoading && !data}
+        hasData={Boolean(data)}
         error={error}
-        onRetry={() => fetchDashboard(selectedTenantSlug)}
+        onRetry={() => fetchDashboard(selectedTenantSlug, false)}
         lastUpdated={lastUpdated}
-        onRefresh={() => fetchDashboard(selectedTenantSlug)}
+        onRefresh={() => fetchDashboard(selectedTenantSlug, false)}
       >
         <div className="space-y-6 font-sans text-slate-800 -mt-2">
           {/* Operations Sub-Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
             <div className="flex items-center space-x-3">
               <div className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
                 <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Live Platform</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  AUTO-SYNC (5s)
+                </span>
               </div>
               <span className="text-xs text-slate-500 font-mono">
                 updated {lastUpdated.toLocaleTimeString('en-GB')}
@@ -205,7 +213,7 @@ export const SuperAdminDashboard: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               title="Total ISP Tenants"
-              value={kpis.totalTenants || 0}
+              value={<AnimatedCounter value={kpis.totalTenants || 0} />}
               subtitle={`${kpis.activeTenants || 0} active subscriptions`}
               icon={Building2}
               variant="sky"
@@ -214,7 +222,7 @@ export const SuperAdminDashboard: React.FC = () => {
             />
             <StatCard
               title="Total Active Subscribers"
-              value={(kpis.totalCustomers || 0).toLocaleString()}
+              value={<AnimatedCounter value={kpis.totalCustomers || 0} />}
               subtitle="Aggregated across operator fleets"
               icon={Users}
               variant="purple"
@@ -222,14 +230,14 @@ export const SuperAdminDashboard: React.FC = () => {
             />
             <StatCard
               title="Managed ONTs / CPEs"
-              value={(kpis.totalDevices || 0).toLocaleString()}
+              value={<AnimatedCounter value={kpis.totalDevices || 0} />}
               subtitle={`${kpis.onlineRatio != null ? kpis.onlineRatio : 100}% fleet operational ratio`}
               icon={Radio}
               variant="emerald"
             />
             <StatCard
               title="Monthly Recurring Revenue"
-              value={`₹${(kpis.mrr || 0).toLocaleString()}`}
+              value={<AnimatedCounter value={kpis.mrr || 0} formatter={(v) => '₹' + v.toLocaleString()} />}
               subtitle={`ARR: ₹${(kpis.arr || 0).toLocaleString()}`}
               icon={DollarSign}
               variant="amber"

@@ -1535,7 +1535,7 @@ export const DeviceDetail: React.FC = () => {
         { label: workspace?.header?.serialNumber || 'Device Workspace' },
       ]}
     >
-      <StateWrapper isLoading={isLoading} error={error} onRetry={fetchWorkspace}>
+      <StateWrapper isLoading={isLoading && !workspace} hasData={Boolean(workspace)} error={error} onRetry={() => fetchWorkspace(id, false)}>
         {workspace && (
           <div className="space-y-5">
             {/* Top Back Navigation & Action Bar */}

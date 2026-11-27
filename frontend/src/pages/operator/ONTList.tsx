@@ -41,6 +41,7 @@ import { Badge } from '../../components/ui/Badge.js';
 import { Button, Input } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { api } from '../../services/api.js';
+import { AnimatedCounter } from '../../components/ui/AnimatedCounter.js';
 
 export const ONTList: React.FC = () => {
   const [devices, setDevices] = useState<any[]>([]);
@@ -126,7 +127,7 @@ export const ONTList: React.FC = () => {
       await Promise.all(selectedDeviceIds.map((id) => api.deleteDevice(id)));
       setSelectedDeviceIds([]);
       setIsBulkDeleteOpen(false);
-      fetchDevices();
+      fetchDevices(true);
     } catch (_) {}
     setIsBulkDeleting(false);
   };
@@ -143,7 +144,7 @@ export const ONTList: React.FC = () => {
       if (res.success) {
         setSummonSuccessToast(`Fleet Summon Dispatched! Polling ${res.dispatchedCount || devices.length} ONTs across network in ${elapsedSec}s`);
         setTimeout(() => {
-          fetchDevices();
+          fetchDevices(true);
         }, 1500);
         setTimeout(() => setSummonSuccessToast(null), 6000);
       }
@@ -163,7 +164,7 @@ export const ONTList: React.FC = () => {
       const res = await api.syncFleetDiscovery();
       if (res.success) {
         setSummonSuccessToast(res.message || 'Fleet Discovery Reconciliation Completed!');
-        fetchDevices();
+        fetchDevices(true);
         setTimeout(() => setSummonSuccessToast(null), 5000);
       }
     } catch (err: any) {
@@ -182,7 +183,7 @@ export const ONTList: React.FC = () => {
       const elapsedSec = (elapsedMs / 1000).toFixed(2);
       if (res.success) {
         setSummonSuccessToast(`✅ Summoned & Polled ${d.serialNumber} in ${elapsedSec}s (${elapsedMs} ms)`);
-        fetchDevices();
+        fetchDevices(true);
         setTimeout(() => setSummonSuccessToast(null), 4000);
       } else {
         setSummonSuccessToast(`❌ Summon failed: ${res.error || res.message || 'Device unresponsive'}`);
@@ -205,7 +206,7 @@ export const ONTList: React.FC = () => {
       await api.deleteDevice(deviceToDelete._id);
       setSelectedDeviceIds((prev) => prev.filter((id) => id !== deviceToDelete._id));
       setDeviceToDelete(null);
-      fetchDevices();
+      fetchDevices(true);
     } catch (_) {}
     setDeleteSubmitting(false);
   };
@@ -310,7 +311,7 @@ export const ONTList: React.FC = () => {
           setIsConfigOpen(false);
           const inspectRes = await api.get(`/operator/devices/${inspectDevice._id}/inspect`);
           if (inspectRes.success) setInspectData(inspectRes.inspect);
-          fetchDevices();
+          fetchDevices(true);
         }, 1200);
       } else {
         setConfigError(res.error || 'Failed to apply configuration change.');
@@ -343,23 +344,23 @@ export const ONTList: React.FC = () => {
     vlanId: 100,
   });
 
-  const fetchDevices = async () => {
-    setIsLoading(true);
+  const fetchDevices = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     const res = await api.getDevices({ search, status: statusFilter });
-    setIsLoading(false);
+    if (!silent) setIsLoading(false);
     if (res.success) {
       setDevices(res.devices || []);
     } else {
-      setError(res.error || 'Failed to fetch ONT fleet');
+      if (!silent) setError(res.error || 'Failed to fetch ONT fleet');
     }
   };
 
   useEffect(() => {
-    fetchDevices();
+    fetchDevices(devices.length > 0);
     const fleetInterval = setInterval(() => {
-      fetchDevices();
-    }, 5 * 60 * 1000);
+      fetchDevices(true);
+    }, 8000);
     return () => clearInterval(fleetInterval);
   }, [statusFilter]);
 
@@ -427,7 +428,7 @@ export const ONTList: React.FC = () => {
         setFormSuccess('Subscriber onboarded and assigned to ONT successfully!');
         setTimeout(() => {
           setAssigningDevice(null);
-          fetchDevices();
+          fetchDevices(true);
         }, 1500);
       } else {
         setFormError(res.error || 'Failed to assign subscriber.');
@@ -699,7 +700,7 @@ export const ONTList: React.FC = () => {
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1E56A0] via-[#16407B] to-[#11315E] text-white p-5 shadow-md">
             <div className="relative z-10 space-y-1">
               <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {devices.length.toLocaleString()}
+                <AnimatedCounter value={devices.length} />
               </h4>
               <p className="text-xs uppercase tracking-wider font-bold text-blue-200">TOTAL ONTs IN FLEET</p>
               <p className="text-[11px] text-blue-300 font-medium">Provisioned CPE inventory</p>
@@ -711,7 +712,7 @@ export const ONTList: React.FC = () => {
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md">
             <div className="relative z-10 space-y-1">
               <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {devices.filter((d) => d.status === 'online').length.toLocaleString()}
+                <AnimatedCounter value={devices.filter((d) => d.status === 'online').length} />
               </h4>
               <p className="text-xs uppercase tracking-wider font-bold text-emerald-200">ONLINE ONT FLEET</p>
               <p className="text-[11px] text-emerald-300 font-medium">
@@ -727,7 +728,7 @@ export const ONTList: React.FC = () => {
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#DC2626] via-[#B91C1C] to-[#991B1B] text-white p-5 shadow-md">
             <div className="relative z-10 space-y-1">
               <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {devices.filter((d) => d.status !== 'online').length.toLocaleString()}
+                <AnimatedCounter value={devices.filter((d) => d.status !== 'online').length} />
               </h4>
               <p className="text-xs uppercase tracking-wider font-bold text-rose-200">OFFLINE / UNREACHABLE</p>
               <p className="text-[11px] text-rose-300 font-medium">Attention required</p>
@@ -739,7 +740,7 @@ export const ONTList: React.FC = () => {
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0284C7] via-[#0369A1] to-[#075985] text-white p-5 shadow-md flex flex-col justify-between">
             <div className="relative z-10 space-y-1">
               <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                {devices.filter((d) => !d.customerId).length.toLocaleString()}
+                <AnimatedCounter value={devices.filter((d) => !d.customerId).length} />
               </h4>
               <p className="text-xs uppercase tracking-wider font-bold text-sky-200">UNASSIGNED POOL</p>
               <p className="text-[11px] text-sky-300 font-medium">
@@ -809,15 +810,15 @@ export const ONTList: React.FC = () => {
               <Zap className="w-3.5 h-3.5 mr-1" />
               <span>Summon All ONTs</span>
             </Button>
-            <Button size="sm" variant="outline" onClick={fetchDevices}>
+            <Button size="sm" variant="outline" onClick={() => fetchDevices(false)}>
               <RefreshCw className="w-3.5 h-3.5 mr-1" />
               <span>Refresh</span>
             </Button>
           </div>
         </div>
 
-        <StateWrapper isLoading={isLoading} error={error} onRetry={fetchDevices}>
-          <DataTable columns={columns} data={devices} keyExtractor={(d) => d._id} />
+        <StateWrapper isLoading={isLoading && devices.length === 0} hasData={devices.length > 0} error={error} onRetry={() => fetchDevices(false)}>
+          <DataTable columns={columns} data={devices} keyExtractor={(d) => d._id} isLoading={isLoading} />
         </StateWrapper>
       </div>
 

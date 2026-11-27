@@ -30,8 +30,8 @@ export const CustomerBilling: React.FC = () => {
   const [selectedGateway, setSelectedGateway] = useState('RAZORPAY');
   const [isProcessingPay, setIsProcessingPay] = useState(false);
 
-  const fetchBillingData = async () => {
-    setIsLoading(true);
+  const fetchBillingData = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const [homeRes, invRes, gwRes]: any = await Promise.all([
@@ -40,7 +40,7 @@ export const CustomerBilling: React.FC = () => {
         api.getCustomerPaymentGateways(),
       ]);
 
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
       if (homeRes.success) setData(homeRes);
       if (invRes.success) setInvoices(invRes.invoices || []);
       if (gwRes.success) {
@@ -50,8 +50,10 @@ export const CustomerBilling: React.FC = () => {
         }
       }
     } catch (err: any) {
-      setIsLoading(false);
-      setError(err.message || 'Failed to fetch billing info');
+      if (!silent) {
+        setIsLoading(false);
+        setError(err.message || 'Failed to fetch billing info');
+      }
     }
   };
 
@@ -87,7 +89,7 @@ export const CustomerBilling: React.FC = () => {
       title="My Broadband Billing & Receipts"
       breadcrumbs={[{ label: 'Home', href: '/customer' }, { label: 'Billing & Invoices' }]}
     >
-      <StateWrapper isLoading={isLoading} error={error} onRetry={fetchBillingData}>
+      <StateWrapper isLoading={isLoading && !data} hasData={Boolean(data)} error={error} onRetry={() => fetchBillingData(false)}>
         <div className="space-y-6 max-w-5xl mx-auto pb-12">
           {/* Active Plan Card */}
           <Card className="p-6 bg-gradient-to-br from-slate-900 to-sky-950 text-white rounded-2xl shadow-md space-y-4">

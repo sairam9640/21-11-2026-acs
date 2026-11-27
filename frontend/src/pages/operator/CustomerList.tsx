@@ -17,20 +17,24 @@ export const CustomerList: React.FC = () => {
 
   const navigate = useNavigate();
 
-  const fetchCustomers = async () => {
-    setIsLoading(true);
+  const fetchCustomers = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     const res = await api.getCustomers({ search, status: statusFilter });
-    setIsLoading(false);
+    if (!silent) setIsLoading(false);
     if (res.success) {
       setCustomers(res.customers || []);
     } else {
-      setError(res.error || 'Failed to fetch customers');
+      if (!silent) setError(res.error || 'Failed to fetch customers');
     }
   };
 
   useEffect(() => {
-    fetchCustomers();
+    fetchCustomers(customers.length > 0);
+    const interval = setInterval(() => {
+      fetchCustomers(true);
+    }, 10000);
+    return () => clearInterval(interval);
   }, [statusFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -217,19 +221,21 @@ export const CustomerList: React.FC = () => {
 
         {/* Table View */}
         <StateWrapper
-          isLoading={isLoading}
+          isLoading={isLoading && customers.length === 0}
+          hasData={customers.length > 0}
           isEmpty={customers.length === 0}
           emptyTitle="No Subscribers Found"
           emptyMessage="No customers match the current filter. Click Provision to onboard a new subscriber."
           emptyActionLabel="Provision Customer"
           onEmptyAction={() => navigate('/operator/customers/new')}
           error={error}
-          onRetry={fetchCustomers}
+          onRetry={() => fetchCustomers(false)}
         >
           <DataTable
             columns={columns}
             data={customers}
             keyExtractor={(c) => c._id}
+            isLoading={isLoading}
             onRowClick={(c) => navigate(`/operator/customers/${c._id}`)}
           />
         </StateWrapper>
