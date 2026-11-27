@@ -11,6 +11,7 @@ export interface CwmpUrlSet {
   primaryUrl: string;
   cwmpPathUrl: string;
   port80Url: string;
+  port9090Url: string;
   subdomainUrl: string;
 }
 
@@ -59,6 +60,7 @@ export function buildPrimaryCwmpUrls(rawHost?: string, tenantSlug?: string): Cwm
 
   const cwmpPathUrl = `http://${host}:7547${pathSuffix}`;
   const port80Url = `http://${host}${pathSuffix}`;
+  const port9090Url = `http://${host}:9090${pathSuffix}`;
   const isIpOrLocalhost =
     /^(\d{1,3}\.){3}\d{1,3}$/.test(host) ||
     host === 'localhost' ||
@@ -68,11 +70,12 @@ export function buildPrimaryCwmpUrls(rawHost?: string, tenantSlug?: string): Cwm
     ? `http://${cleanSlug}.${host}:7547`
     : cwmpPathUrl;
 
-  // Standard HTTP Port 80 is universally unblocked across all ISPs, CGNAT, and firewalls
+  // Port 9090 is configured per operator request to bypass ISP port blocks (7547/80)
   return {
     primaryUrl: port80Url,
     cwmpPathUrl: port80Url,
     port80Url,
+    port9090Url,
     subdomainUrl: isIpOrLocalhost ? port80Url : subdomainUrl,
   };
 }

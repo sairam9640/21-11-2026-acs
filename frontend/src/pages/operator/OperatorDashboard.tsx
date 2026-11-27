@@ -53,6 +53,7 @@ export const OperatorDashboard: React.FC = () => {
   const [timeFilter, setTimeFilter] = useState('24h');
   const [showPassword, setShowPassword] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(5);
 
   const navigate = useNavigate();
   const { tenant } = useAuth();
@@ -80,19 +81,30 @@ export const OperatorDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchDashboard(false);
+  }, []);
+
+  useEffect(() => {
     if (isPaused) return;
 
-    const interval = setInterval(() => {
-      fetchDashboard(true);
-    }, 5000);
-    return () => clearInterval(interval);
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          fetchDashboard(true);
+          return 5;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, [isPaused]);
 
   const s = summary || {};
   const activeHost = window.location.hostname || 'localhost';
   const tenantSlug = (tenant?.slug || '').trim().toLowerCase();
-  const activeCwmpUrl = cwmpStats?.port80CwmpUrl || cwmpStats?.cwmpPathUrl || `http://${activeHost}/tr069/${tenantSlug}`;
+  const port9090CwmpUrl = cwmpStats?.port9090CwmpUrl || `http://${activeHost}:9090/tr069/${tenantSlug}`;
   const port80CwmpUrl = cwmpStats?.port80CwmpUrl || `http://${activeHost}/tr069/${tenantSlug}`;
+  const activeCwmpUrl = cwmpStats?.port9090CwmpUrl || port9090CwmpUrl;
 
   // Real Database and Telemetry values (Zero dummy fallback numbers)
   const totalOnline = s.onlineDevices ?? 0;
@@ -156,8 +168,9 @@ export const OperatorDashboard: React.FC = () => {
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
               </span>
               <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Live</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                AUTO-SYNC (5s)
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1">
+                <Clock className="w-3 h-3 text-emerald-600 animate-spin" style={{ animationDuration: '4s' }} />
+                <span>NEXT SYNC IN: {countdown}s</span>
               </span>
             </div>
             <span className="text-xs text-slate-500 font-mono">
@@ -256,17 +269,33 @@ export const OperatorDashboard: React.FC = () => {
             <Zap className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none group-hover:scale-105 transition-transform" />
           </Link>
 
-          {/* Card 4: Total NAT / Sessions (Warm Golden Amber) */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#D97706] via-[#B45309] to-[#92400E] text-white p-5 shadow-md">
+          {/* Card 4: Low-Power / High-Attenuation ONTs Box (< -27 dBm) */}
+          <Link
+            to="/operator/devices?opticalStatus=critical"
+            className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#BE123C] via-[#9F1239] to-[#881337] text-white p-5 shadow-md hover:ring-2 hover:ring-rose-400 transition cursor-pointer block group"
+          >
             <div className="relative z-10 space-y-1">
-              <h4 className="text-3xl font-extrabold tracking-tight font-sans">
-                <AnimatedCounter value={natCount} />
-              </h4>
-              <p className="text-xs uppercase tracking-wider font-bold text-amber-200">TOTAL SESSIONS & HITS</p>
-              <p className="text-[11px] text-amber-300 font-medium">CWMP informs & conntrack</p>
+              <div className="flex items-baseline space-x-2">
+                <h4 className="text-3xl font-extrabold tracking-tight font-sans text-white">
+                  <AnimatedCounter value={(s.badOpticalPower ?? s.opticalWarnings ?? 0) + (s.warningOpticalPower ?? 0)} />
+                </h4>
+                <span className="text-xs font-bold text-rose-200 uppercase">ROUTERS</span>
+                {((s.badOpticalPower ?? s.opticalWarnings ?? 0) + (s.warningOpticalPower ?? 0)) > 0 && (
+                  <span className="ml-1 text-[10px] font-black bg-white text-rose-900 px-1.5 py-0.5 rounded-md animate-pulse">
+                    CRITICAL
+                  </span>
+                )}
+              </div>
+              <p className="text-xs uppercase tracking-wider font-bold text-rose-200 flex items-center justify-between">
+                <span>LOW-POWER ONTS (&lt; -27 dBm)</span>
+                <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded text-white group-hover:bg-white/30 transition">View List &rarr;</span>
+              </p>
+              <p className="text-[11px] text-rose-300 font-medium">
+                Click to inspect affected devices &amp; fiber loss
+              </p>
             </div>
-            <Activity className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none" />
-          </div>
+            <AlertTriangle className="absolute right-3 top-3 w-20 h-20 text-white/10 -mr-2 -mt-2 pointer-events-none group-hover:scale-105 transition-transform" />
+          </Link>
         </div>
 
         {/* OPTICAL POWER HIGH-ALERT BANNER */}
@@ -609,18 +638,32 @@ export const OperatorDashboard: React.FC = () => {
         maxWidth="lg"
       >
         <div className="space-y-4 text-xs font-sans">
-          {/* Unified Single TR-069 / CWMP ACS URL */}
-          <div className="space-y-2">
-            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1.5 shadow-sm">
+          {/* Unified TR-069 / CWMP ACS URLs */}
+          <div className="space-y-3">
+            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-1.5 shadow-sm">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">TR-069 CWMP ACS URL (ONT / Router Config)</span>
-                <span className="text-[9px] bg-emerald-200 text-emerald-900 font-extrabold px-2 py-0.5 rounded-full">ACTIVE</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-900">Recommended Port 9090 CWMP URL (Bypasses ISP Blocks)</span>
+                <span className="text-[9px] bg-blue-600 text-white font-extrabold px-2 py-0.5 rounded-full">PORT 9090 ACTIVE</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="font-mono font-bold text-sm text-emerald-950 select-all break-all">{activeCwmpUrl}</span>
-                <Button size="sm" variant="secondary" onClick={() => handleCopyText(activeCwmpUrl, 'url')} className="h-7 text-xs shrink-0 ml-2">
-                  {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                  <span>{copiedField === 'url' ? 'Copied' : 'Copy'}</span>
+                <span className="font-mono font-bold text-sm text-blue-950 select-all break-all">{port9090CwmpUrl}</span>
+                <Button size="sm" variant="primary" onClick={() => handleCopyText(port9090CwmpUrl, 'url9090')} className="h-7 text-xs shrink-0 ml-2 bg-blue-600 hover:bg-blue-700 text-white">
+                  {copiedField === 'url9090' ? <Check className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                  <span>{copiedField === 'url9090' ? 'Copied' : 'Copy 9090'}</span>
+                </Button>
+              </div>
+            </div>
+
+            <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Alternative Port 80 CWMP URL (Standard HTTP)</span>
+                <span className="text-[9px] bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 rounded-full">PORT 80</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono font-medium text-xs text-emerald-950 select-all break-all">{port80CwmpUrl}</span>
+                <Button size="sm" variant="secondary" onClick={() => handleCopyText(port80CwmpUrl, 'url80')} className="h-6 text-[11px] shrink-0 ml-2">
+                  {copiedField === 'url80' ? <Check className="w-3 h-3 text-emerald-600 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
+                  <span>{copiedField === 'url80' ? 'Copied' : 'Copy 80'}</span>
                 </Button>
               </div>
             </div>
@@ -697,8 +740,8 @@ export const OperatorDashboard: React.FC = () => {
               <span className="text-base font-extrabold text-slate-900 font-mono">{cwmpStats?.totalHits || 0}</span>
             </div>
             <div className="p-3 border border-slate-200 rounded-xl bg-slate-50">
-              <span className="text-[10px] text-slate-500 font-bold block">Active Endpoint</span>
-              <span className="text-base font-extrabold text-emerald-600 font-mono">Port 80 (HTTP) / 7547</span>
+              <span className="text-[10px] text-slate-500 font-bold block">Active Listeners</span>
+              <span className="text-base font-extrabold text-blue-600 font-mono">Port 9090 / 80 / 7547</span>
             </div>
           </div>
 

@@ -553,6 +553,19 @@ class ApiService {
     });
   }
 
+  async bindCustomerDevice(customerId: string, payload: { deviceId?: string; macAddress?: string; serialNumber?: string }) {
+    return this.request(`/operator/customers/${customerId}/bind-device`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async unbindCustomerDevice(customerId: string) {
+    return this.request(`/operator/customers/${customerId}/unbind-device`, {
+      method: 'POST',
+    });
+  }
+
   async updateDeviceWifi(deviceId: string, payload: any) {
     return this.request(`/operator/devices/${deviceId}/wifi`, {
       method: 'POST',

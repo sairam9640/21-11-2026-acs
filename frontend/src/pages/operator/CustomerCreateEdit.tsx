@@ -48,8 +48,32 @@ export const CustomerCreateEdit: React.FC = () => {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   const [devices, setDevices] = useState<any[]>([]);
+  const [selectedDevDetails, setSelectedDevDetails] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+
+  const handleDeviceSelect = (deviceId: string) => {
+    const dev = devices.find((d) => d._id === deviceId);
+    if (dev) {
+      const internetWan = (dev.wanProfiles || []).find((p: any) =>
+        p.bearerService === 'INTERNET' || p.serviceType === 'INTERNET' || p.connectionType === 'PPPoE' || /INTERNET|PPP/i.test(p.name || '')
+      ) || dev.wanProfiles?.[0];
+
+      const pppoeUser = dev.pppoeUsername || internetWan?.pppoeUsername || (dev.macAddress ? `${dev.macAddress.replace(/[:.-]/g, '').slice(-8).toLowerCase()}@isp` : '');
+      const vlan = dev.wanVlan || internetWan?.vlanId || 100;
+
+      setFormData((prev) => ({
+        ...prev,
+        assignedDeviceId: deviceId,
+        pppoeUsername: pppoeUser || prev.pppoeUsername,
+        vlanId: vlan || prev.vlanId,
+      }));
+      setSelectedDevDetails(dev);
+    } else {
+      setFormData((prev) => ({ ...prev, assignedDeviceId: '' }));
+      setSelectedDevDetails(null);
+    }
+  };
 
   useEffect(() => {
     const fetchUnassignedDevices = async () => {
@@ -425,16 +449,16 @@ export const CustomerCreateEdit: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-[#334155]">Select Available ONT Device</label>
+                <label className="block text-xs font-semibold text-[#334155]">Select ONT / Router by MAC or Serial</label>
                 <select
-                  className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-3.5 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-3.5 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
                   value={formData.assignedDeviceId}
-                  onChange={(e) => setFormData({ ...formData, assignedDeviceId: e.target.value })}
+                  onChange={(e) => handleDeviceSelect(e.target.value)}
                 >
                   <option value="">-- Assign ONT Later --</option>
                   {devices.map((d) => (
                     <option key={d._id} value={d._id}>
-                      {d.serialNumber} ({d.manufacturer} {d.modelName} - {d.status})
+                      {d.macAddress ? `[MAC: ${d.macAddress}] ` : ''}{d.serialNumber} ({d.manufacturer || ''} {d.modelName || ''} - {d.status})
                     </option>
                   ))}
                 </select>
@@ -447,6 +471,40 @@ export const CustomerCreateEdit: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, pppoeUsername: e.target.value })}
               />
             </div>
+
+            {/* ONT AUTO-SYNCED DATA PREVIEW CARD */}
+            {selectedDevDetails && (
+              <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-bold text-emerald-900 uppercase">ONT Data Auto-Synced from Router</span>
+                  </div>
+                  <Badge variant="success" className="text-[10px]">MAC Bound</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                  <div className="p-2 bg-white rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">MAC Address</span>
+                    <span className="font-bold text-slate-800">{selectedDevDetails.macAddress || 'N/A'}</span>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">Hardware Serial</span>
+                    <span className="font-bold text-slate-800">{selectedDevDetails.serialNumber}</span>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">Wi-Fi 2.4G SSID</span>
+                    <span className="font-bold text-slate-800">{selectedDevDetails.wifi24?.ssid || 'Default SSID'}</span>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">Optical RX Power</span>
+                    <span className={`font-bold ${selectedDevDetails.currentRxPowerDbm != null && selectedDevDetails.currentRxPowerDbm < -27 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {selectedDevDetails.currentRxPowerDbm != null ? `${selectedDevDetails.currentRxPowerDbm.toFixed(2)} dBm` : 'Normal PON'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Form Actions */}

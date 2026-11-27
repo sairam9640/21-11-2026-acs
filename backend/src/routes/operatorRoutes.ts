@@ -616,6 +616,103 @@ operatorRouter.post('/customers/:id/assets/assign', async (req: AuthenticatedReq
 });
 
 /**
+ * 7.6.1 Bind / Reassign ONT Device to Customer by MAC address, Serial or ID
+ */
+operatorRouter.post('/customers/:id/bind-device', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = new Types.ObjectId(req.tenantId);
+    const { id } = req.params;
+    const { deviceId, macAddress, serialNumber } = req.body;
+
+    const customer = await Customer.findOne({ _id: id, tenantId });
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+    let query: any = { tenantId };
+    if (deviceId) {
+      query._id = deviceId;
+    } else if (macAddress) {
+      const cleanMac = macAddress.replace(/[:.-]/g, '').toLowerCase();
+      query.$or = [
+        { macAddress: new RegExp(macAddress, 'i') },
+        { macAddress: new RegExp(cleanMac, 'i') }
+      ];
+    } else if (serialNumber) {
+      query.serialNumber = new RegExp(serialNumber.trim(), 'i');
+    } else {
+      return res.status(400).json({ success: false, error: 'Provide deviceId, macAddress, or serialNumber' });
+    }
+
+    const device = await Device.findOne(query);
+    if (!device) return res.status(404).json({ success: false, error: 'ONT Device not found for given MAC/Serial' });
+
+    // Unbind previous device bound to customer
+    if (customer.assignedDeviceId && customer.assignedDeviceId.toString() !== device._id.toString()) {
+      await Device.findByIdAndUpdate(customer.assignedDeviceId, {
+        $unset: { customerId: 1 },
+        $set: { assigned: false },
+      });
+    }
+
+    // Unbind device from any prior customer
+    if (device.customerId && device.customerId.toString() !== customer._id.toString()) {
+      await Customer.findByIdAndUpdate(device.customerId, {
+        $unset: { assignedDeviceId: 1, ontDeviceId: 1, ontSerialNumber: 1 },
+      });
+    }
+
+    // Bind device to customer
+    device.customerId = customer._id;
+    device.assigned = true;
+    await device.save();
+
+    customer.assignedDeviceId = device._id as any;
+    if (device.pppoeUsername && !customer.wanConfig?.pppoeUsername) {
+      if (!customer.wanConfig) customer.wanConfig = {} as any;
+      customer.wanConfig.pppoeUsername = device.pppoeUsername;
+    }
+    await customer.save();
+
+    return res.json({
+      success: true,
+      message: `ONT ${device.serialNumber} (MAC: ${device.macAddress || 'N/A'}) successfully bound to subscriber.`,
+      device,
+      customer,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 7.6.2 Unbind ONT Device from Customer
+ */
+operatorRouter.post('/customers/:id/unbind-device', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = new Types.ObjectId(req.tenantId);
+    const { id } = req.params;
+
+    const customer = await Customer.findOne({ _id: id, tenantId });
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+    if (customer.assignedDeviceId) {
+      await Device.findByIdAndUpdate(customer.assignedDeviceId, {
+        $unset: { customerId: 1 },
+        $set: { assigned: false },
+      });
+      customer.assignedDeviceId = undefined as any;
+      await customer.save();
+    }
+
+    return res.json({
+      success: true,
+      message: 'ONT device unbound from customer successfully.',
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 7.7 Log PII / Password Unmask Audit Event
  */
 operatorRouter.post('/customers/:id/unmask-audit', async (req: AuthenticatedRequest, res: Response) => {

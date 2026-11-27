@@ -103,6 +103,9 @@ export const Customer360: React.FC = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
   const [isRefreshingOnt, setIsRefreshingOnt] = useState(false);
+  const [isBindModalOpen, setIsBindModalOpen] = useState(false);
+  const [bindMacOrSerial, setBindMacOrSerial] = useState('');
+  const [bindLoading, setBindLoading] = useState(false);
 
   const handleRefreshOntLive = async () => {
     if (!data?.device?._id) return;
@@ -266,6 +269,47 @@ export const Customer360: React.FC = () => {
     }
   };
 
+  const handleBindDevice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !bindMacOrSerial.trim()) return;
+    setBindLoading(true);
+    try {
+      const input = bindMacOrSerial.trim();
+      const isMac = input.includes(':') || input.includes('-') || input.length === 12;
+      const res: any = await api.bindCustomerDevice(id, isMac ? { macAddress: input } : { serialNumber: input });
+      if (res.success) {
+        setFeedback({ type: 'success', message: res.message || 'ONT router successfully bound to subscriber!' });
+        setIsBindModalOpen(false);
+        setBindMacOrSerial('');
+        await fetch360Data();
+      } else {
+        setFeedback({ type: 'error', message: res.error || 'Failed to bind device' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Error binding device' });
+    } finally {
+      setBindLoading(false);
+    }
+  };
+
+  const handleUnbindDevice = async () => {
+    if (!id || !confirm('Are you sure you want to unbind the current ONT router from this customer?')) return;
+    setActionLoading(true);
+    try {
+      const res: any = await api.unbindCustomerDevice(id);
+      if (res.success) {
+        setFeedback({ type: 'success', message: 'Current ONT unlinked successfully. You may now assign a new router.' });
+        await fetch360Data();
+      } else {
+        setFeedback({ type: 'error', message: res.error || 'Failed to unbind device' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Error unbinding device' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const customer = data?.customer;
   const device = data?.device;
   const plan = customer?.servicePlan;
@@ -321,6 +365,16 @@ export const Customer360: React.FC = () => {
               >
                 <RefreshCw className="w-3 h-3 mr-1" />
                 Poll ONT
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsBindModalOpen(true)}
+                className="h-7 text-xs font-bold text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100"
+              >
+                <Radio className="w-3 h-3 mr-1" />
+                {device ? 'Swap / Rebind ONT' : 'Bind ONT (MAC/Serial)'}
               </Button>
 
               <Button
@@ -559,9 +613,21 @@ export const Customer360: React.FC = () => {
                     <span className="text-slate-500 font-sans">Serial Number:</span>
                     <span className="font-bold text-slate-900">{device?.serialNumber || 'N/A'}</span>
                   </div>
-                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                  <div className="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
                     <span className="text-slate-500 font-sans">MAC Address:</span>
-                    <span className="font-bold text-slate-900">{device?.macAddress || 'N/A'}</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-900">{device?.macAddress || 'N/A'}</span>
+                      {device && (
+                        <button
+                          type="button"
+                          onClick={handleUnbindDevice}
+                          className="text-[10px] text-rose-600 hover:text-rose-800 font-bold px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 transition"
+                          title="Unbind this ONT router from subscriber"
+                        >
+                          Unbind MAC
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
                     <span className="text-slate-500 font-sans">Firmware Version:</span>
@@ -657,6 +723,42 @@ export const Customer360: React.FC = () => {
                       {device?.connectedClients?.filter((c: any) => c.connected !== false).length || device?.lanHostCount || 0} Devices Active
                     </span>
                   </div>
+
+                  {/* Connected Wi-Fi Devices List with Device Names */}
+                  {(device?.connectedClients || []).length > 0 && (
+                    <div className="p-2.5 bg-slate-50 rounded-lg space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                        <span className="flex items-center space-x-1">
+                          <Wifi className="w-3 h-3 text-sky-600" />
+                          <span>Active Device Names</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('optical')}
+                          className="text-[10px] text-sky-600 hover:underline"
+                        >
+                          View Full Details &rarr;
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {(device?.connectedClients || [])
+                          .filter((c: any) => c.connected !== false)
+                          .map((c: any, i: number) => {
+                            const name = c.hostname || `Device (${c.mac?.slice(-5) || i + 1})`;
+                            return (
+                              <span
+                                key={i}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-white border border-slate-200 text-slate-800 shadow-2xs"
+                                title={`MAC: ${c.mac || 'N/A'} | IP: ${c.ip || 'N/A'}`}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                                {name}
+                              </span>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Card>
 
@@ -1646,6 +1748,42 @@ export const Customer360: React.FC = () => {
             </Button>
             <Button type="submit" className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
               Dispatch WhatsApp Alert
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* MODAL: BIND / REASSIGN ONT ROUTER BY MAC OR SERIAL */}
+      <Modal
+        isOpen={isBindModalOpen}
+        onClose={() => setIsBindModalOpen(false)}
+        title={device ? 'Swap / Rebind ONT Router' : 'Bind ONT Router to Customer'}
+        subtitle="Manually assign an ONT by its hardware MAC Address or Serial Number. Automatically syncs PPPoE and Wi-Fi."
+      >
+        <form onSubmit={handleBindDevice} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              ONT MAC Address or Serial Number
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. 70:2E:22:AA:BB:CC or GNXS2026991"
+              value={bindMacOrSerial}
+              onChange={(e) => setBindMacOrSerial(e.target.value)}
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono font-bold"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Enter the replacement router's MAC address printed on the ONT sticker. Any existing lock will be cleanly unlinked and subscriber credentials preserved.
+            </p>
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100">
+            <Button type="button" variant="outline" onClick={() => setIsBindModalOpen(false)} className="text-xs">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={bindLoading} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+              {bindLoading ? 'Binding...' : 'Bind & Sync Router'}
             </Button>
           </div>
         </form>

@@ -5360,10 +5360,11 @@ ${stringElements}
       cwmpUrl: urls.primaryUrl,
       cwmpPathUrl: urls.cwmpPathUrl,
       port80CwmpUrl: urls.port80Url,
+      port9090CwmpUrl: urls.port9090Url,
       cwmpSubdomainUrl: urls.subdomainUrl,
       tenantSlug: creds.tenantSlug,
       totalHits: scopedTotalHits,
-      activeListeningPort: 7547,
+      activeListeningPort: 9090,
       authCredentials: {
         acsUsername: creds.acsUsername,
         acsPassword: creds.acsPassword,
