@@ -674,7 +674,7 @@ export const Customer360: React.FC = () => {
                     </div>
                   </div>
 
-                  {(device?.wifi5g || device?.wifi5g?.ssid) && (
+                  {Boolean(device?.isDualBand !== false && device?.wifi5g && (device.wifi5g.ssid || (device.wifi5g.channel && device.wifi5g.channel >= 36))) && (
                     <div className="p-2.5 bg-slate-50 rounded-lg space-y-1">
                       <div className="flex justify-between items-center">
                         <span className="text-slate-500 font-sans">Wi-Fi 5 GHz:</span>
@@ -1373,7 +1373,7 @@ export const Customer360: React.FC = () => {
                           </td>
                           <td className="py-3 px-4 text-right">
                             <a
-                              href={b.receiptUrl || `/api/v1/customer/invoices/${b.referenceNumber}/download`}
+                              href={`/api/v1/operator/billing/invoices/${b.referenceNumber}/download?token=${localStorage.getItem('token') || ''}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center text-xs font-bold text-sky-700 hover:underline"

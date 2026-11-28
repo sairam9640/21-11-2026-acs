@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Search, Plus, Eye, Radio, Signal, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Users, Search, Plus, Eye, Radio, Signal, CheckCircle2, AlertTriangle, Edit, Trash2 } from 'lucide-react';
 import { Shell } from '../../components/layout/Shell.js';
 import { StateWrapper } from '../../components/ui/StateWrapper.js';
 import { DataTable, Column } from '../../components/ui/DataTable.js';
 import { Badge } from '../../components/ui/Badge.js';
 import { Button, Input } from '../../components/ui/Button.js';
+import { Modal } from '../../components/ui/Modal.js';
 import { api } from '../../services/api.js';
 
 export const CustomerList: React.FC = () => {
@@ -14,6 +15,21 @@ export const CustomerList: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+
+  // Edit / Delete State
+  const [editingCustomer, setEditingCustomer] = useState<any | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    fullName: '',
+    phone: '',
+    email: '',
+    street: '',
+    city: '',
+    area: '',
+    status: 'active',
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deletingCustomer, setDeletingCustomer] = useState<any | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const navigate = useNavigate();
 
@@ -40,6 +56,67 @@ export const CustomerList: React.FC = () => {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     fetchCustomers();
+  };
+
+  const handleOpenEdit = (c: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingCustomer(c);
+    setEditFormData({
+      fullName: c.fullName || '',
+      phone: c.phone || '',
+      email: c.email || '',
+      street: c.address?.street || '',
+      city: c.address?.city || '',
+      area: c.address?.area || '',
+      status: c.status || 'active',
+    });
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer) return;
+    setIsSavingEdit(true);
+    try {
+      const res = await api.updateCustomer(editingCustomer._id, {
+        fullName: editFormData.fullName,
+        phone: editFormData.phone,
+        email: editFormData.email,
+        address: {
+          street: editFormData.street,
+          city: editFormData.city,
+          area: editFormData.area,
+        },
+        status: editFormData.status,
+      });
+      if (res.success) {
+        setEditingCustomer(null);
+        await fetchCustomers(true);
+      } else {
+        alert(res.error || 'Failed to update customer');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error saving changes');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingCustomer) return;
+    setIsDeleting(true);
+    try {
+      const res = await api.deleteCustomer(deletingCustomer._id);
+      if (res.success) {
+        setDeletingCustomer(null);
+        await fetchCustomers(true);
+      } else {
+        alert(res.error || 'Failed to delete customer');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error deleting customer');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const columns: Column<any>[] = [
@@ -111,17 +188,43 @@ export const CustomerList: React.FC = () => {
     {
       header: 'Actions',
       accessor: (c) => (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/operator/customers/${c._id}`);
-          }}
-        >
-          <Eye className="w-3.5 h-3.5 mr-1" />
-          <span>Customer 360</span>
-        </Button>
+        <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/operator/customers/${c._id}`);
+            }}
+            title="Open Customer 360 Cockpit"
+          >
+            <Eye className="w-3.5 h-3.5 mr-1 text-sky-600" />
+            <span>360</span>
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => handleOpenEdit(c, e)}
+            className="text-slate-600 hover:text-blue-600 hover:border-blue-300"
+            title="Edit Subscriber Profile"
+          >
+            <Edit className="w-3.5 h-3.5" />
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeletingCustomer(c);
+            }}
+            className="text-rose-600 hover:bg-rose-50 hover:border-rose-300"
+            title="Delete Subscriber"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -239,6 +342,130 @@ export const CustomerList: React.FC = () => {
             onRowClick={(c) => navigate(`/operator/customers/${c._id}`)}
           />
         </StateWrapper>
+
+        {/* MODAL: EDIT CUSTOMER */}
+        <Modal
+          isOpen={Boolean(editingCustomer)}
+          onClose={() => setEditingCustomer(null)}
+          title={`Edit Subscriber: ${editingCustomer?.accountNumber || ''}`}
+          subtitle="Modify subscriber contact details, address, or service status."
+          maxWidth="lg"
+        >
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                <Input
+                  value={editFormData.fullName}
+                  onChange={(e) => setEditFormData({ ...editFormData, fullName: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Mobile Phone</label>
+                <Input
+                  value={editFormData.phone}
+                  onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
+                <Input
+                  type="email"
+                  value={editFormData.email}
+                  onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Account Status</label>
+                <select
+                  value={editFormData.status}
+                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-medium focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
+                >
+                  <option value="active">Active</option>
+                  <option value="pending_install">Pending Install</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Street Address</label>
+                <Input
+                  value={editFormData.street}
+                  onChange={(e) => setEditFormData({ ...editFormData, street: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Area / Neighborhood</label>
+                <Input
+                  value={editFormData.area}
+                  onChange={(e) => setEditFormData({ ...editFormData, area: e.target.value })}
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1">City / Region</label>
+                <Input
+                  value={editFormData.city}
+                  onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex items-center justify-end space-x-2">
+              <Button type="button" variant="outline" onClick={() => setEditingCustomer(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={isSavingEdit} className="bg-blue-600 hover:bg-blue-700 text-white font-bold">
+                {isSavingEdit ? 'Saving Changes...' : 'Save Profile Changes'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+
+        {/* MODAL: DELETE CONFIRMATION */}
+        <Modal
+          isOpen={Boolean(deletingCustomer)}
+          onClose={() => setDeletingCustomer(null)}
+          title="Delete Subscriber Account"
+          subtitle="Carefully confirm deletion of subscriber record."
+          maxWidth="md"
+        >
+          <div className="space-y-4">
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-start space-x-2">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Permanent Deletion Warning</p>
+                <p className="mt-0.5">
+                  Are you sure you want to delete subscriber <strong>{deletingCustomer?.fullName}</strong> ({deletingCustomer?.accountNumber})?
+                  Any ONT currently bound to this subscriber will be automatically unlinked and returned to available inventory.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+              <Button type="button" variant="outline" onClick={() => setDeletingCustomer(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+              >
+                {isDeleting ? 'Deleting Subscriber...' : 'Yes, Delete Subscriber'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       </div>
     </Shell>
   );

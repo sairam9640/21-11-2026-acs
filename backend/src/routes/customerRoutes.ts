@@ -529,57 +529,90 @@ customerRouter.get('/invoices/:id/download', async (req: AuthenticatedRequest, r
   try {
     const { id } = req.params;
     const { PaymentTransaction } = await import('../models/PaymentTransaction.js');
-    const txn = await PaymentTransaction.findOne({
+    const { Invoice } = await import('../models/Invoice.js');
+
+    let txn = await PaymentTransaction.findOne({
       tenantId: new Types.ObjectId(req.tenantId),
       $or: [{ transactionId: id }, { _id: Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : undefined }],
     });
 
-    if (!txn) return res.status(404).send('Invoice not found');
+    let invDoc = null;
+    if (!txn) {
+      invDoc = await Invoice.findOne({
+        tenantId: new Types.ObjectId(req.tenantId),
+        $or: [{ invoiceId: id }, { invoiceNumber: id }, { _id: Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : undefined }],
+      });
+    }
 
-    const customer = await Customer.findById(txn.customerId);
+    if (!txn && !invDoc) return res.status(404).send('Invoice not found');
+
+    const customerId = txn ? txn.customerId : invDoc?.customerId;
+    const customer = customerId ? await Customer.findById(customerId) : null;
+
+    const invoiceId = txn ? txn.transactionId : (invDoc?.invoiceNumber || invDoc?.invoiceId || id);
+    const invoiceDate = txn ? new Date(txn.createdAt).toLocaleDateString() : (invDoc?.issuedAt ? new Date(invDoc.issuedAt).toLocaleDateString() : new Date().toLocaleDateString());
+    const amount = txn ? txn.amount : (invDoc?.totalPayable ?? 0);
+    const status = txn ? txn.status : (invDoc?.status || 'PAID');
+    const paymentMode = txn ? txn.paymentMode : 'ONLINE / UPI';
+    const gateway = txn ? txn.gateway : 'ACS Billing Engine';
+    const planName = txn?.metadata?.planName || invDoc?.lineItems?.[0]?.description || customer?.servicePlan?.name || 'Fiber Broadband Service';
+
     const invoiceHtml = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Invoice - ${txn.transactionId}</title>
+        <meta charset="utf-8">
+        <title>Invoice - ${invoiceId}</title>
         <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: auto; }
+          @page { size: A4 portrait; margin: 15mm; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: auto; background: #fff; }
           .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0284c7; padding-bottom: 20px; }
-          .badge { background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 9999px; font-weight: bold; font-size: 12px; }
+          .badge { background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 9999px; font-weight: bold; font-size: 12px; text-transform: uppercase; }
           .section { margin-top: 30px; }
           table { width: 100%; border-collapse: collapse; margin-top: 15px; }
           th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
           th { background: #f8fafc; font-size: 12px; text-transform: uppercase; color: #64748b; }
           .total-row { font-weight: bold; font-size: 16px; color: #0f172a; }
-          .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #94a3b8; }
+          .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 15px; }
+          .no-print { position: fixed; top: 16px; right: 16px; display: flex; gap: 8px; z-index: 1000; }
+          .print-btn { background: #0284c7; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+          .print-btn:hover { background: #0369a1; }
+          @media print {
+            .no-print { display: none !important; }
+            body { padding: 0 !important; }
+          }
         </style>
       </head>
       <body>
+        <div class="no-print">
+          <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+        </div>
+
         <div class="header">
           <div>
             <h1 style="margin:0; color:#0284c7; font-size:24px;">AI ACS OS — ISP BROADBAND INVOICE</h1>
             <p style="margin:4px 0 0; color:#64748b; font-size:12px;">Tax Invoice & Official Payment Receipt</p>
           </div>
           <div style="text-align:right;">
-            <span class="badge">${txn.status}</span>
-            <p style="margin:8px 0 0; font-family:monospace; font-size:13px; font-weight:bold;">${txn.transactionId}</p>
-            <p style="margin:2px 0 0; font-size:11px; color:#64748b;">Date: ${new Date(txn.createdAt).toLocaleDateString()}</p>
+            <span class="badge">${status}</span>
+            <p style="margin:8px 0 0; font-family:monospace; font-size:13px; font-weight:bold;">${invoiceId}</p>
+            <p style="margin:2px 0 0; font-size:11px; color:#64748b;">Date: ${invoiceDate}</p>
           </div>
         </div>
 
         <div class="section" style="display:flex; justify-content:space-between;">
           <div>
             <span style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold;">Billed To</span>
-            <h3 style="margin:4px 0 0; font-size:16px;">${customer?.fullName || txn.customerName}</h3>
-            <p style="margin:2px 0; font-size:12px; color:#475569;">Account #: <strong>${txn.accountNumber}</strong></p>
-            <p style="margin:2px 0; font-size:12px; color:#475569;">Mobile: ${txn.customerPhone}</p>
+            <h3 style="margin:4px 0 0; font-size:16px;">${customer?.fullName || txn?.customerName || 'Subscriber'}</h3>
+            <p style="margin:2px 0; font-size:12px; color:#475569;">Account #: <strong>${customer?.accountNumber || txn?.accountNumber || 'N/A'}</strong></p>
+            <p style="margin:2px 0; font-size:12px; color:#475569;">Mobile: ${customer?.phone || txn?.customerPhone || 'N/A'}</p>
             <p style="margin:2px 0; font-size:12px; color:#475569;">${customer?.address?.street || ''}, ${customer?.address?.city || ''}</p>
           </div>
           <div style="text-align:right;">
             <span style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold;">Payment Details</span>
-            <p style="margin:4px 0 0; font-size:12px;">Gateway: <strong>${txn.gateway}</strong></p>
-            <p style="margin:2px 0; font-size:12px;">Mode: <strong>${txn.paymentMode}</strong></p>
-            <p style="margin:2px 0; font-size:12px;">Order ID: <code style="font-size:11px;">${txn.orderId || 'N/A'}</code></p>
+            <p style="margin:4px 0 0; font-size:12px;">Gateway: <strong>${gateway}</strong></p>
+            <p style="margin:2px 0; font-size:12px;">Mode: <strong>${paymentMode}</strong></p>
+            <p style="margin:2px 0; font-size:12px;">Status: <strong>${status}</strong></p>
           </div>
         </div>
 
@@ -595,14 +628,14 @@ customerRouter.get('/invoices/:id/download', async (req: AuthenticatedRequest, r
             </thead>
             <tbody>
               <tr>
-                <td><strong>${txn.metadata?.planName || 'Fiber Broadband Renewal'}</strong><br><span style="font-size:11px; color:#64748b;">High-speed unlimited FTTH connection</span></td>
-                <td>${txn.metadata?.validityDays || 30} Days</td>
-                <td>₹${txn.amount}</td>
-                <td>₹${txn.amount}</td>
+                <td><strong>${planName}</strong><br><span style="font-size:11px; color:#64748b;">High-speed optical fiber broadband</span></td>
+                <td>30 Days</td>
+                <td>₹${amount}</td>
+                <td>₹${amount}</td>
               </tr>
               <tr class="total-row">
                 <td colspan="3" style="text-align:right;">Grand Total:</td>
-                <td style="color:#166534;">₹${txn.amount}</td>
+                <td style="color:#166534;">₹${amount}</td>
               </tr>
             </tbody>
           </table>
@@ -612,6 +645,13 @@ customerRouter.get('/invoices/:id/download', async (req: AuthenticatedRequest, r
           <p>This is a computer-generated tax receipt and requires no physical signature.</p>
           <p>Powered by AI ACS OS — Telecom-grade Fiber Operations Platform</p>
         </div>
+
+        <script>
+          window.addEventListener('DOMContentLoaded', () => {
+            // Automatically prompt print dialog so user can save as PDF directly
+            setTimeout(() => { window.print(); }, 400);
+          });
+        </script>
       </body>
       </html>
     `;

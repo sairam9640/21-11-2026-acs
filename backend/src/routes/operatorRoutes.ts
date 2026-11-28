@@ -581,6 +581,114 @@ operatorRouter.post('/customers', async (req: AuthenticatedRequest, res: Respons
 });
 
 /**
+ * 7.2.1 Modify / Update Subscriber Profile
+ */
+operatorRouter.put('/customers/:id', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = new Types.ObjectId(req.tenantId);
+    const { id } = req.params;
+    const { fullName, phone, altPhone, email, address, servicePlan, wanConfig, kycDocType, kycDocNumber, status } = req.body;
+
+    const customer = await Customer.findOne({ _id: id, tenantId });
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+    if (fullName) customer.fullName = fullName.trim();
+    if (phone) customer.phone = phone.trim();
+    if (altPhone !== undefined) (customer as any).altPhone = altPhone;
+    if (email) customer.email = email.trim();
+    if (address) {
+      customer.address = {
+        door: address.door || customer.address?.door || '',
+        building: address.building || customer.address?.building || '',
+        street: address.street || customer.address?.street || 'Main Road',
+        landmark: address.landmark || (customer.address as any)?.landmark || '',
+        area: address.area || customer.address?.area || 'Central Area',
+        city: address.city || customer.address?.city || 'Hyderabad',
+        state: address.state || customer.address?.state || 'Telangana',
+        pincode: address.pincode || customer.address?.pincode || '500081',
+      } as any;
+    }
+    if (servicePlan) {
+      customer.servicePlan = {
+        ...customer.servicePlan,
+        ...servicePlan,
+      };
+    }
+    if (wanConfig) {
+      customer.wanConfig = {
+        ...customer.wanConfig,
+        ...wanConfig,
+      };
+    }
+    if (kycDocNumber) {
+      const kycObj = (customer as any).kyc || {};
+      if (kycDocType) kycObj.documentType = kycDocType;
+      kycObj.documentNumber = kycDocNumber;
+      (customer as any).kyc = kycObj;
+    }
+    if (status) customer.status = status;
+
+    await customer.save();
+
+    await recordAuditLog({
+      tenantId,
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      actorRole: req.user!.role,
+      action: 'CUSTOMER_UPDATED',
+      targetResource: 'Customer',
+      targetId: customer._id.toString(),
+      targetIdentifier: customer.accountNumber,
+      correlationId: `cust_upd_${customer._id}_${Date.now()}`,
+      afterState: customer.toObject(),
+    });
+
+    return res.json({ success: true, customer });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 7.2.2 Delete Customer and Unbind Attached Device
+ */
+operatorRouter.delete('/customers/:id', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = new Types.ObjectId(req.tenantId);
+    const { id } = req.params;
+
+    const customer = await Customer.findOne({ _id: id, tenantId });
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+    // Unbind any attached ONT device
+    if (customer.assignedDeviceId) {
+      await Device.findByIdAndUpdate(customer.assignedDeviceId, {
+        $unset: { customerId: 1 },
+        $set: { assigned: false },
+      });
+    }
+
+    await Customer.deleteOne({ _id: id, tenantId });
+
+    await recordAuditLog({
+      tenantId,
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      actorRole: req.user!.role,
+      action: 'CUSTOMER_DELETED',
+      targetResource: 'Customer',
+      targetId: id,
+      targetIdentifier: customer.accountNumber,
+      correlationId: `cust_del_${id}_${Date.now()}`,
+    });
+
+    return res.json({ success: true, message: `Subscriber ${customer.fullName} (${customer.accountNumber}) deleted successfully.` });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 7.3 Customer 360 Operations Workspace Unified View
  */
 operatorRouter.get('/customers/:id/360', async (req: AuthenticatedRequest, res: Response) => {
@@ -7764,6 +7872,144 @@ operatorRouter.get('/billing/invoices/customer/:id', async (req: AuthenticatedRe
     return res.json({ success: true, invoices });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+operatorRouter.get('/billing/invoices/:id/download', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { PaymentTransaction } = await import('../models/PaymentTransaction.js');
+    const { Invoice } = await import('../models/Invoice.js');
+    const tenantId = new Types.ObjectId(req.tenantId);
+
+    let txn = await PaymentTransaction.findOne({
+      tenantId,
+      $or: [{ transactionId: id }, { _id: Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : undefined }],
+    });
+
+    let invDoc = null;
+    if (!txn) {
+      invDoc = await Invoice.findOne({
+        tenantId,
+        $or: [{ invoiceId: id }, { invoiceNumber: id }, { _id: Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : undefined }],
+      });
+    }
+
+    if (!txn && !invDoc) return res.status(404).send('Invoice not found');
+
+    const customerId = txn ? txn.customerId : invDoc?.customerId;
+    const customer = customerId ? await Customer.findById(customerId) : null;
+
+    const invoiceId = txn ? txn.transactionId : (invDoc?.invoiceNumber || invDoc?.invoiceId || id);
+    const invoiceDate = txn ? new Date(txn.createdAt).toLocaleDateString() : (invDoc?.issuedAt ? new Date(invDoc.issuedAt).toLocaleDateString() : new Date().toLocaleDateString());
+    const amount = txn ? txn.amount : (invDoc?.totalPayable ?? 0);
+    const status = txn ? txn.status : (invDoc?.status || 'PAID');
+    const paymentMode = txn ? txn.paymentMode : 'OPERATOR_DESK';
+    const gateway = txn ? txn.gateway : 'ACS Billing Engine';
+    const planName = txn?.metadata?.planName || invDoc?.lineItems?.[0]?.description || customer?.servicePlan?.name || 'Fiber Broadband Service';
+
+    const invoiceHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Invoice - ${invoiceId}</title>
+        <style>
+          @page { size: A4 portrait; margin: 15mm; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: auto; background: #fff; }
+          .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0284c7; padding-bottom: 20px; }
+          .badge { background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 9999px; font-weight: bold; font-size: 12px; text-transform: uppercase; }
+          .section { margin-top: 30px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+          th { background: #f8fafc; font-size: 12px; text-transform: uppercase; color: #64748b; }
+          .total-row { font-weight: bold; font-size: 16px; color: #0f172a; }
+          .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 15px; }
+          .no-print { position: fixed; top: 16px; right: 16px; display: flex; gap: 8px; z-index: 1000; }
+          .print-btn { background: #0284c7; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+          .print-btn:hover { background: #0369a1; }
+          @media print {
+            .no-print { display: none !important; }
+            body { padding: 0 !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print">
+          <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+        </div>
+
+        <div class="header">
+          <div>
+            <h1 style="margin:0; color:#0284c7; font-size:24px;">AI ACS OS — ISP BROADBAND INVOICE</h1>
+            <p style="margin:4px 0 0; color:#64748b; font-size:12px;">Tax Invoice & Official Payment Receipt</p>
+          </div>
+          <div style="text-align:right;">
+            <span class="badge">${status}</span>
+            <p style="margin:8px 0 0; font-family:monospace; font-size:13px; font-weight:bold;">${invoiceId}</p>
+            <p style="margin:2px 0 0; font-size:11px; color:#64748b;">Date: ${invoiceDate}</p>
+          </div>
+        </div>
+
+        <div class="section" style="display:flex; justify-content:space-between;">
+          <div>
+            <span style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold;">Billed To</span>
+            <h3 style="margin:4px 0 0; font-size:16px;">${customer?.fullName || txn?.customerName || 'Subscriber'}</h3>
+            <p style="margin:2px 0; font-size:12px; color:#475569;">Account #: <strong>${customer?.accountNumber || txn?.accountNumber || 'N/A'}</strong></p>
+            <p style="margin:2px 0; font-size:12px; color:#475569;">Mobile: ${customer?.phone || txn?.customerPhone || 'N/A'}</p>
+            <p style="margin:2px 0; font-size:12px; color:#475569;">${customer?.address?.street || ''}, ${customer?.address?.city || ''}</p>
+          </div>
+          <div style="text-align:right;">
+            <span style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold;">Payment Details</span>
+            <p style="margin:4px 0 0; font-size:12px;">Gateway: <strong>${gateway}</strong></p>
+            <p style="margin:2px 0; font-size:12px;">Mode: <strong>${paymentMode}</strong></p>
+            <p style="margin:2px 0; font-size:12px;">Status: <strong>${status}</strong></p>
+          </div>
+        </div>
+
+        <div class="section">
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Validity</th>
+                <th>Rate</th>
+                <th>Amount (INR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>${planName}</strong><br><span style="font-size:11px; color:#64748b;">High-speed optical fiber broadband</span></td>
+                <td>30 Days</td>
+                <td>₹${amount}</td>
+                <td>₹${amount}</td>
+              </tr>
+              <tr class="total-row">
+                <td colspan="3" style="text-align:right;">Grand Total:</td>
+                <td style="color:#166534;">₹${amount}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="footer">
+          <p>This is a computer-generated tax receipt and requires no physical signature.</p>
+          <p>Powered by AI ACS OS — Telecom-grade Fiber Operations Platform</p>
+        </div>
+
+        <script>
+          window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => { window.print(); }, 400);
+          });
+        </script>
+      </body>
+      </html>
+    `;
+
+    res.setHeader('Content-Type', 'text/html');
+    return res.send(invoiceHtml);
+  } catch (error: any) {
+    return res.status(500).send('Error generating invoice');
   }
 });
 

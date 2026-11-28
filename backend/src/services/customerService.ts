@@ -132,19 +132,34 @@ export class CustomerService {
         device.wifi24.passwordConfigured = true;
       }
 
-      // Resolve 5G Wi-Fi password if missing or masked
-      if (!device.wifi5g?.password || !device.wifi5g.password.trim() || /^\*+$/.test(device.wifi5g.password.trim())) {
-        const key5g = rawKeys.find((k) => /WLANConfiguration\.(2|3|4|5|6)\..*(KeyPassphrase|PreSharedKey)|AccessPoint\.2\.Security\..*(KeyPassphrase|PreSharedKey)/i.test(k));
-        const rawPass5g = key5g && rawParams[key5g] && !/^\*+$/.test(String(rawParams[key5g]).trim()) ? String(rawParams[key5g]).trim() : null;
-        const pass5g = rawPass5g || device.pendingConfig?.wifi5g?.password || null;
-        if (pass5g) {
-          if (!device.wifi5g) device.wifi5g = { ssid: 'Home-WiFi-5G', enabled: true, channel: 44, bandwidthMhz: 80, securityMode: 'WPA2-PSK', txPowerPercent: 100 };
-          device.wifi5g.password = pass5g;
+      // Determine if device actually has a 5GHz Wi-Fi radio / hardware
+      const has5gRadio = Boolean(
+        (device.wifi5g?.ssid && device.wifi5g.ssid.trim()) ||
+        (device.wifi5g?.channel && device.wifi5g.channel >= 36) ||
+        (Array.isArray(device.additionalSsids) && device.additionalSsids.some((a: any) => a.band === '5GHz' && a.ssid)) ||
+        (rawKeys.some((k) => /WLANConfiguration\.(2|5)\.SSID|Device\.WiFi\.Radio\.2\./i.test(k)))
+      );
+
+      device.isDualBand = has5gRadio;
+
+      if (has5gRadio) {
+        // Resolve 5G Wi-Fi password if missing or masked
+        if (!device.wifi5g?.password || !device.wifi5g.password.trim() || /^\*+$/.test(device.wifi5g.password.trim())) {
+          const key5g = rawKeys.find((k) => /WLANConfiguration\.(2|3|4|5|6)\..*(KeyPassphrase|PreSharedKey)|AccessPoint\.2\.Security\..*(KeyPassphrase|PreSharedKey)/i.test(k));
+          const rawPass5g = key5g && rawParams[key5g] && !/^\*+$/.test(String(rawParams[key5g]).trim()) ? String(rawParams[key5g]).trim() : null;
+          const pass5g = rawPass5g || device.pendingConfig?.wifi5g?.password || null;
+          if (pass5g) {
+            if (!device.wifi5g) device.wifi5g = { ssid: 'Home-WiFi-5G', enabled: true, channel: 44, bandwidthMhz: 80, securityMode: 'WPA2-PSK', txPowerPercent: 100 };
+            device.wifi5g.password = pass5g;
+            device.wifi5g.passwordConfigured = true;
+          }
+        } else {
+          if (!device.wifi5g) device.wifi5g = {} as any;
           device.wifi5g.passwordConfigured = true;
         }
       } else {
-        if (!device.wifi5g) device.wifi5g = {} as any;
-        device.wifi5g.passwordConfigured = true;
+        // Single-band 2.4GHz router: remove wifi5g so UI strictly hides 5GHz box
+        delete device.wifi5g;
       }
     }
 

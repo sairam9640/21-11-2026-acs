@@ -499,6 +499,19 @@ class ApiService {
     });
   }
 
+  async updateCustomer(customerId: string, payload: any) {
+    return this.request(`/operator/customers/${customerId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async deleteCustomer(customerId: string) {
+    return this.request(`/operator/customers/${customerId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async getCustomer360(customerId: string) {
     return this.request(`/operator/customers/${customerId}/360`);
   }

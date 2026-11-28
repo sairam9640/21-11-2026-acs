@@ -157,7 +157,7 @@ export const CustomerBilling: React.FC = () => {
                         </td>
                         <td className="py-3 px-4 text-right">
                           <a
-                            href={inv.receiptUrl}
+                            href={`${inv.receiptUrl}?token=${localStorage.getItem('token') || ''}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center text-xs font-bold text-sky-700 hover:underline"
