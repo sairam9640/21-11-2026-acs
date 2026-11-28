@@ -5723,29 +5723,31 @@ operatorRouter.post('/devices/:id/connected-clients/refresh', async (req: Authen
     const device = await Device.findOne(getSafeDeviceQuery(id, tenantId));
     if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
 
-    const hostQueryPaths: string[] = [
-      'InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries',
-      'InternetGatewayDevice.LANDevice.1.Hosts.Host.',
-      'Device.Hosts.HostNumberOfEntries',
-      'Device.Hosts.Host.',
-    ];
-    for (let h = 1; h <= 16; h++) {
-      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.MACAddress`);
-      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.IPAddress`);
-      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.InterfaceType`);
-      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.HostName`);
-      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${h}.Active`);
+    const rawKeys = Object.keys((device as any).rawParameters || {});
+    const isTr181 = device.protocol === 'TR-369' || rawKeys.some((k) => k.startsWith('Device.'));
+    const hostQueryPaths: string[] = [];
+
+    if (isTr181) {
+      hostQueryPaths.push(
+        'Device.Hosts.HostNumberOfEntries',
+        'Device.Hosts.Host.',
+        'Device.WiFi.AccessPoint.1.AssociatedDeviceNumberOfEntries',
+        'Device.WiFi.AccessPoint.1.AssociatedDevice.',
+        'Device.WiFi.AccessPoint.2.AssociatedDeviceNumberOfEntries',
+        'Device.WiFi.AccessPoint.2.AssociatedDevice.'
+      );
+    } else {
+      const isTplink = /tplink|archer/i.test(`${device.manufacturer} ${device.modelName}`);
+      const wlan5gIdx = isTplink ? 3 : (/vsol|richerlink/i.test(device.manufacturer) ? 2 : 5);
+      hostQueryPaths.push(
+        'InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries',
+        'InternetGatewayDevice.LANDevice.1.Hosts.Host.',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.TotalAssociations',
+        'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.AssociatedDevice.',
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gIdx}.TotalAssociations`,
+        `InternetGatewayDevice.LANDevice.1.WLANConfiguration.${wlan5gIdx}.AssociatedDevice.`
+      );
     }
-    for (let w = 1; w <= 6; w++) {
-      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${w}.TotalAssociations`);
-      hostQueryPaths.push(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${w}.AssociatedDevice.`);
-    }
-    hostQueryPaths.push(
-      'Device.WiFi.AccessPoint.1.AssociatedDeviceNumberOfEntries',
-      'Device.WiFi.AccessPoint.1.AssociatedDevice.',
-      'Device.WiFi.AccessPoint.2.AssociatedDeviceNumberOfEntries',
-      'Device.WiFi.AccessPoint.2.AssociatedDevice.'
-    );
 
     // Queue query for host and client parameter paths in Native CWMP Engine
     await DeviceCommand.create({
@@ -7286,7 +7288,20 @@ operatorRouter.get('/devices/:id/optical-history', async (req: AuthenticatedRequ
     const device = await Device.findOne(getSafeDeviceQuery(id, tenantId));
     if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
 
-    const history = (device.rxPowerHistory || []).slice(-20);
+    const history = (device.rxPowerHistory || []).slice(-20).map((h: any) => {
+      const d = new Date(h.timestamp);
+      return {
+        valueDbm: h.valueDbm,
+        txPowerDbm: h.txPowerDbm,
+        biasCurrentMa: h.biasCurrentMa,
+        voltageV: h.voltageV,
+        temperatureC: h.temperatureC,
+        timestamp: h.timestamp,
+        date: d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        time12h: d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }),
+        formattedDateTime: `${d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}`,
+      };
+    });
 
     return res.json({
       success: true,

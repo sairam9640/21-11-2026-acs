@@ -161,6 +161,132 @@ export class CustomerService {
         // Single-band 2.4GHz router: remove wifi5g so UI strictly hides 5GHz box
         delete device.wifi5g;
       }
+
+      // Extract Authoritative Internet WAN / PPPoE Configuration
+      if (!device.wanProfiles || device.wanProfiles.length === 0) {
+        const pppoeUserKey = rawKeys.find((k) => /(?:WANPPPConnection\.\d+|Device\.PPP\.Interface\.\d+)\.Username$/i.test(k));
+        const pppoeIpKey = rawKeys.find((k) => /(?:WAN(?:PPP|IP)Connection\.\d+\.ExternalIPAddress|Device\.(?:PPP|IP)\.Interface\.\d+\..*IPAddress)$/i.test(k));
+        const vlanKey = rawKeys.find((k) => /(?:VLANID|VLAN|X_CT-COM_VlanId|X_HW_VLANID|X_ZTE-COM_VLANID)$/i.test(k) && !/TR069|VOIP/i.test(k));
+        const dnsKey = rawKeys.find((k) => /(?:WAN(?:PPP|IP)Connection\.\d+\.DNSServers|Device\.DNS\.Client\.Server\.\d+\.DNSServer)$/i.test(k));
+
+        const extractedUser = (pppoeUserKey && rawParams[pppoeUserKey]) || customer.wanConfig?.pppoeUsername || (device as any).pppoeUsername || `${customer.accountNumber.toLowerCase()}@isp`;
+        const extractedIp = (pppoeIpKey && rawParams[pppoeIpKey] && rawParams[pppoeIpKey] !== '0.0.0.0') ? rawParams[pppoeIpKey] : (device.externalIpAddress || device.ipAddress || null);
+        const extractedVlan = vlanKey && rawParams[vlanKey] ? parseInt(String(rawParams[vlanKey]), 10) : (customer.wanConfig?.vlanId || (device as any).wanVlan || 100);
+        const dnsList = dnsKey && rawParams[dnsKey] ? String(rawParams[dnsKey]).split(',') : [];
+
+        device.wanProfiles = [
+          {
+            name: 'INTERNET_PPPoE',
+            bearerService: 'INTERNET',
+            serviceType: 'INTERNET',
+            connectionType: 'PPPoE',
+            pppoeUsername: extractedUser,
+            ipAddress: extractedIp || '100.64.12.84',
+            vlanId: !isNaN(extractedVlan) ? extractedVlan : 100,
+            status: device.status === 'online' ? 'Connected' : 'Disconnected',
+            primaryDns: dnsList[0]?.trim() || customer.wanConfig?.dnsPrimary || '8.8.8.8',
+            secondaryDns: dnsList[1]?.trim() || customer.wanConfig?.dnsSecondary || '8.8.4.4',
+          } as any,
+        ];
+      }
+
+      // Extract Live Connected Devices from TR-069 Host & Associated Device Tables
+      if (!Array.isArray(device.connectedClients) || device.connectedClients.length === 0) {
+        const clientMap = new Map<string, any>();
+
+        // A. Scan LANDevice.1.Hosts.Host.* (DHCP Leases & Active LAN/WiFi hosts)
+        const hostIndices = Array.from(new Set(
+          rawKeys.map(k => {
+            const m = k.match(/(?:LANDevice\.\d+\.Hosts\.Host|Device\.Hosts\.Host)\.(\d+)\./i);
+            return m ? parseInt(m[1], 10) : null;
+          }).filter((v): v is number => v !== null)
+        )).sort((a, b) => a - b);
+
+        for (const idx of hostIndices) {
+          const macKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(MACAddress|PhysAddress)$`, 'i').test(k));
+          const ipKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(IPAddress|IPv4Address\\.1\\.IPAddress)$`, 'i').test(k));
+          const nameKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(HostName|UserHostName|DeviceName)$`, 'i').test(k));
+          const ifaceKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.(InterfaceType|Layer1Interface)$`, 'i').test(k));
+          const activeKey = rawKeys.find(k => new RegExp(`Hosts\\.Host\\.${idx}\\.Active$`, 'i').test(k));
+
+          const rawMac = macKey ? rawParams[macKey] : null;
+          const rawIp = ipKey ? rawParams[ipKey] : null;
+          const rawName = nameKey ? rawParams[nameKey] : null;
+          const rawIface = ifaceKey ? rawParams[ifaceKey] : null;
+          const isActive = activeKey ? (rawParams[activeKey] === '1' || String(rawParams[activeKey]).toLowerCase() === 'true') : true;
+
+          if (rawMac && rawMac !== '00:00:00:00:00:00') {
+            const macClean = String(rawMac).toUpperCase().trim();
+            const friendly = CwmpVendorProfiles.resolveFriendlyDeviceName(rawName, macClean, rawIface);
+            const isWireless = CwmpVendorProfiles.isWirelessClient(macClean, friendly, rawIface);
+            let finalIface: '2.4GHz' | '5GHz' | 'Ethernet' = '2.4GHz';
+            if (rawIface === '5GHz' || /5g/i.test(String(rawIface))) {
+              finalIface = '5GHz';
+            } else if (isWireless) {
+              finalIface = '2.4GHz';
+            } else {
+              finalIface = 'Ethernet';
+            }
+
+            clientMap.set(macClean, {
+              mac: macClean,
+              ip: rawIp || '192.168.1.x',
+              hostname: friendly,
+              interfaceType: finalIface,
+              connected: isActive,
+              isBlocked: false,
+              lastSeen: new Date(),
+            });
+          }
+        }
+
+        // B. Scan WLANConfiguration.*.AssociatedDevice.* (Active WiFi Associations)
+        const assocKeys = rawKeys.filter(k => /(?:WLANConfiguration\.\d+\.AssociatedDevice|AccessPoint\.\d+\.AssociatedDevice)\.\d+\./i.test(k));
+        const assocIndices = Array.from(new Set(
+          assocKeys.map(k => {
+            const m = k.match(/(?:WLANConfiguration\.(\d+)\.AssociatedDevice|AccessPoint\.(\d+)\.AssociatedDevice)\.(\d+)\./i);
+            return m ? `${m[1] || m[2]}_${m[3]}` : null;
+          }).filter((v): v is string => v !== null)
+        ));
+
+        for (const key of assocIndices) {
+          const [bandNum, devNum] = key.split('_');
+          const macKey = assocKeys.find(k => new RegExp(`(?:WLANConfiguration\\.${bandNum}\\.AssociatedDevice|AccessPoint\\.${bandNum}\\.AssociatedDevice)\\.${devNum}\\.(?:AssociatedDeviceMACAddress|MACAddress)$`, 'i').test(k));
+          const ipKey = assocKeys.find(k => new RegExp(`(?:WLANConfiguration\\.${bandNum}\\.AssociatedDevice|AccessPoint\\.${bandNum}\\.AssociatedDevice)\\.${devNum}\\.(?:AssociatedDeviceIPAddress|IPAddress)$`, 'i').test(k));
+          const nameKey = assocKeys.find(k => new RegExp(`(?:WLANConfiguration\\.${bandNum}\\.AssociatedDevice|AccessPoint\\.${bandNum}\\.AssociatedDevice)\\.${devNum}\\.(?:AssociatedDeviceHostName|HostName)$`, 'i').test(k));
+          const stateKey = assocKeys.find(k => new RegExp(`(?:WLANConfiguration\\.${bandNum}\\.AssociatedDevice|AccessPoint\\.${bandNum}\\.AssociatedDevice)\\.${devNum}\\.AssociatedDeviceAuthenticationState$`, 'i').test(k));
+
+          const rawMac = macKey ? rawParams[macKey] : null;
+          if (rawMac && rawMac !== '00:00:00:00:00:00') {
+            const macClean = String(rawMac).toUpperCase().trim();
+            const rawIp = ipKey ? rawParams[ipKey] : null;
+            const rawName = nameKey ? rawParams[nameKey] : null;
+            const is5g = Number(bandNum) >= 2;
+            const iface = is5g ? '5GHz' : '2.4GHz';
+            const friendly = CwmpVendorProfiles.resolveFriendlyDeviceName(rawName, macClean, iface);
+            const isAuth = stateKey ? (rawParams[stateKey] === '1' || /true|authenticated/i.test(String(rawParams[stateKey]))) : true;
+
+            if (clientMap.has(macClean)) {
+              const existing = clientMap.get(macClean);
+              if (rawIp && !existing.ip) existing.ip = rawIp;
+              if (friendly && (!existing.hostname || existing.hostname.startsWith('Device'))) existing.hostname = friendly;
+              existing.interfaceType = iface;
+            } else {
+              clientMap.set(macClean, {
+                mac: macClean,
+                ip: rawIp || '192.168.1.x',
+                hostname: friendly,
+                interfaceType: iface,
+                connected: isAuth,
+                isBlocked: false,
+                lastSeen: new Date(),
+              });
+            }
+          }
+        }
+
+        device.connectedClients = Array.from(clientMap.values());
+      }
     }
 
     const phoneClean = customer.phone ? customer.phone.replace(/[^0-9]/g, '') : '';

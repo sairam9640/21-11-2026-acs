@@ -2738,12 +2738,34 @@ ${validParams.map((p: any) => `        <ParameterValueStruct>
         addUnique('Device.DeviceInfo.SoftwareVersion');
         addUnique('Device.ManagementServer.ConnectionRequestURL');
         addUnique('Device.ManagementServer.PeriodicInformInterval');
+        addUnique('Device.Hosts.HostNumberOfEntries');
+        for (let i = 1; i <= 6; i++) {
+          addUnique(`Device.Hosts.Host.${i}.IPAddress`);
+          addUnique(`Device.Hosts.Host.${i}.PhysAddress`);
+          addUnique(`Device.Hosts.Host.${i}.HostName`);
+          addUnique(`Device.Hosts.Host.${i}.Active`);
+          addUnique(`Device.Hosts.Host.${i}.InterfaceType`);
+        }
       } else {
         addUnique('InternetGatewayDevice.DeviceInfo.UpTime');
         addUnique('InternetGatewayDevice.DeviceInfo.SoftwareVersion');
         addUnique('InternetGatewayDevice.ManagementServer.ConnectionRequestURL');
         addUnique('InternetGatewayDevice.ManagementServer.PeriodicInformInterval');
         addUnique('InternetGatewayDevice.LANDevice.1.Hosts.HostNumberOfEntries');
+        for (let i = 1; i <= 6; i++) {
+          addUnique(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${i}.IPAddress`);
+          addUnique(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${i}.MACAddress`);
+          addUnique(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${i}.HostName`);
+          addUnique(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${i}.Active`);
+          addUnique(`InternetGatewayDevice.LANDevice.1.Hosts.Host.${i}.InterfaceType`);
+        }
+        for (let w = 1; w <= 2; w++) {
+          for (let a = 1; a <= 4; a++) {
+            addUnique(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${w}.AssociatedDevice.${a}.AssociatedDeviceMACAddress`);
+            addUnique(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${w}.AssociatedDevice.${a}.AssociatedDeviceIPAddress`);
+            addUnique(`InternetGatewayDevice.LANDevice.1.WLANConfiguration.${w}.AssociatedDevice.${a}.AssociatedDeviceAuthenticationState`);
+          }
+        }
       }
 
       const verifiedOpticalPath = dev?.opticalTelemetrySourcePath;

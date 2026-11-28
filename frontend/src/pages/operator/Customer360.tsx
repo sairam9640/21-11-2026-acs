@@ -869,6 +869,61 @@ export const Customer360: React.FC = () => {
                       <p className="text-lg font-black text-slate-800">{device?.temperatureC != null ? `${device.temperatureC} °C` : 'N/A'}</p>
                     </div>
                   </div>
+
+                  {/* Optical Power History (12-Hour Format with Date) */}
+                  {(device?.rxPowerHistory || []).length > 0 && (
+                    <div className="pt-3 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider font-sans">
+                          Optical Power Shifts (Last 20 Changes)
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">12-Hour AM/PM Log</span>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-100">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-slate-50 text-slate-500 font-semibold sticky top-0">
+                            <tr>
+                              <th className="py-1.5 px-2.5">Date & Time</th>
+                              <th className="py-1.5 px-2.5">RX Power</th>
+                              <th className="py-1.5 px-2.5">TX Power</th>
+                              <th className="py-1.5 px-2.5">Bias</th>
+                              <th className="py-1.5 px-2.5 text-right">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-mono">
+                            {[...(device.rxPowerHistory || [])].reverse().map((h: any, hIdx: number) => {
+                              const d = new Date(h.timestamp);
+                              const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                              const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+                              const rxVal = h.valueDbm != null ? Number(h.valueDbm) : null;
+                              const stat = rxVal == null ? 'N/A' : rxVal >= -24.5 ? 'Normal' : rxVal >= -27 ? 'Warning' : 'Critical';
+                              const statColor = stat === 'Normal' ? 'text-emerald-700' : stat === 'Warning' ? 'text-amber-700' : 'text-rose-700';
+
+                              return (
+                                <tr key={hIdx} className="hover:bg-slate-50">
+                                  <td className="py-1.5 px-2.5 text-slate-700 font-medium">
+                                    {dateStr}, {timeStr}
+                                  </td>
+                                  <td className="py-1.5 px-2.5 font-bold text-slate-900">
+                                    {rxVal != null ? `${rxVal.toFixed(2)} dBm` : '-'}
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-slate-600">
+                                    {h.txPowerDbm != null ? `${Number(h.txPowerDbm).toFixed(2)} dBm` : '-'}
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-slate-600">
+                                    {h.biasCurrentMa != null ? `${h.biasCurrentMa} mA` : '-'}
+                                  </td>
+                                  <td className={`py-1.5 px-2.5 text-right font-bold ${statColor}`}>
+                                    {stat}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </Card>
 
                 {/* PPPoE WAN Interface */}
@@ -1043,7 +1098,7 @@ export const Customer360: React.FC = () => {
                                 </span>
                               </td>
                               <td className="py-3 px-4 text-right text-slate-400 text-[11px] font-sans">
-                                {client.lastSeen ? new Date(client.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live'}
+                                {client.lastSeen ? `${new Date(client.lastSeen).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })}, ${new Date(client.lastSeen).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}` : 'Live'}
                               </td>
                             </tr>
                           );
