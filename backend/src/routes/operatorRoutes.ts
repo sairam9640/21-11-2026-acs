@@ -347,10 +347,41 @@ operatorRouter.get('/dashboard/summary', async (req: AuthenticatedRequest, res: 
       Device.countDocuments({ tenantId, $or: [{ 'wan.mode': 'pppoe' }, { 'config.connectionType': 'PPPoE' }, { 'network.wanType': 'PPPoE' }] }),
       Device.countDocuments({ tenantId, $or: [{ 'wan.mode': { $in: ['ipoe', 'dhcp', 'static'] } }, { 'config.connectionType': { $in: ['IPoE', 'DHCP', 'Static'] } }, { 'network.wanType': { $in: ['IPoE', 'DHCP', 'Static'] } }] }),
       Device.countDocuments({ tenantId, assigned: true }),
-      Device.countDocuments({ tenantId, currentRxPowerDbm: { $lt: -27 } }),
-      Device.countDocuments({ tenantId, currentRxPowerDbm: { $gte: -24.5, $lte: -8 } }),
-      Device.countDocuments({ tenantId, currentRxPowerDbm: { $gte: -27, $lt: -24.5 } }),
-      Device.countDocuments({ tenantId, currentRxPowerDbm: { $lt: -27 } }),
+      Device.countDocuments({
+        tenantId,
+        $or: [
+          { currentRxPowerDbm: { $lt: -27 } },
+          { opticalRxPower: { $lt: -27 } },
+          { opticalPowerDbm: { $lt: -27 } },
+          { opticalStatus: { $in: ['critical', 'warning', 'loss_of_signal'] } },
+        ],
+      }),
+      Device.countDocuments({
+        tenantId,
+        $or: [
+          { currentRxPowerDbm: { $gte: -27, $lte: -8 } },
+          { opticalRxPower: { $gte: -27, $lte: -8 } },
+          { opticalPowerDbm: { $gte: -27, $lte: -8 } },
+          { opticalStatus: 'normal' },
+        ],
+      }),
+      Device.countDocuments({
+        tenantId,
+        $or: [
+          { currentRxPowerDbm: { $gte: -27, $lt: -24.5 } },
+          { opticalRxPower: { $gte: -27, $lt: -24.5 } },
+          { opticalPowerDbm: { $gte: -27, $lt: -24.5 } },
+        ],
+      }),
+      Device.countDocuments({
+        tenantId,
+        $or: [
+          { currentRxPowerDbm: { $lt: -27 } },
+          { opticalRxPower: { $lt: -27 } },
+          { opticalPowerDbm: { $lt: -27 } },
+          { opticalStatus: { $in: ['critical', 'warning', 'loss_of_signal'] } },
+        ],
+      }),
       Incident.countDocuments({ tenantId, status: { $ne: 'resolved' } }),
       Ticket.countDocuments({ tenantId, status: { $in: ['open', 'assigned', 'in_progress'] } }),
       User.countDocuments({ tenantId, role: 'technician', status: 'active' }),
@@ -410,7 +441,7 @@ operatorRouter.get('/dashboard/summary', async (req: AuthenticatedRequest, res: 
         unassignedDevices,
         onlineRatio: Number(onlineRatio.toFixed(1)),
         opticalWarnings,
-        goodOpticalPower: goodOpticalPower || 0,
+        goodOpticalPower: goodOpticalPower > 0 ? goodOpticalPower : Math.max(0, onlineDevices - badOpticalPower),
         warningOpticalPower: warningOpticalPower || 0,
         badOpticalPower: badOpticalPower || 0,
         activeIncidents,
@@ -748,17 +779,40 @@ operatorRouter.get('/devices', async (req: AuthenticatedRequest, res: Response) 
     if (status && status !== 'all') {
       if (status === 'unassigned') {
         query.$or = [{ customerId: null }, { customerId: { $exists: false } }];
-      } else if (status === 'low_signal' || status === 'bad_power') {
+      } else if (status === 'low_signal' || status === 'bad_power' || opticalStatus === 'critical') {
         query.$or = [
           { opticalRxPower: { $lt: -27 } },
           { opticalPowerDbm: { $lt: -27 } },
           { currentRxPowerDbm: { $lt: -27 } },
+          { opticalStatus: { $in: ['critical', 'warning', 'loss_of_signal'] } },
+        ];
+      } else if (status === 'good_signal' || status === 'good_power' || opticalStatus === 'good') {
+        query.$or = [
+          { opticalRxPower: { $gte: -27 } },
+          { opticalPowerDbm: { $gte: -27 } },
+          { currentRxPowerDbm: { $gte: -27 } },
+          { opticalStatus: 'normal' },
         ];
       } else {
         query.status = status;
       }
+    } else if (opticalStatus && opticalStatus !== 'all') {
+      if (opticalStatus === 'critical') {
+        query.$or = [
+          { opticalRxPower: { $lt: -27 } },
+          { opticalPowerDbm: { $lt: -27 } },
+          { currentRxPowerDbm: { $lt: -27 } },
+          { opticalStatus: { $in: ['critical', 'warning', 'loss_of_signal'] } },
+        ];
+      } else if (opticalStatus === 'good' || opticalStatus === 'normal') {
+        query.$or = [
+          { opticalRxPower: { $gte: -27 } },
+          { opticalPowerDbm: { $gte: -27 } },
+          { currentRxPowerDbm: { $gte: -27 } },
+          { opticalStatus: 'normal' },
+        ];
+      }
     }
-    if (opticalStatus && opticalStatus !== 'all') query.opticalStatus = opticalStatus;
 
     if (search) {
       const s = String(search).trim();

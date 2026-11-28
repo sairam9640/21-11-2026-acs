@@ -45,7 +45,11 @@ import { AnimatedCounter } from '../../components/ui/AnimatedCounter.js';
 
 export const ONTList: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const initialFilter = searchParams.get('opticalStatus') === 'critical' ? 'low_signal' : 'all';
+  const initialFilter = searchParams.get('opticalStatus') === 'critical'
+    ? 'low_signal'
+    : searchParams.get('opticalStatus') === 'good'
+    ? 'good_signal'
+    : 'all';
   const [devices, setDevices] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +61,8 @@ export const ONTList: React.FC = () => {
     const opt = searchParams.get('opticalStatus');
     if (opt === 'critical') {
       setStatusFilter('low_signal');
+    } else if (opt === 'good' || opt === 'normal') {
+      setStatusFilter('good_signal');
     }
   }, [searchParams]);
 
@@ -793,6 +799,7 @@ export const ONTList: React.FC = () => {
               { id: 'all', label: 'All Fleet' },
               { id: 'online', label: 'Online' },
               { id: 'offline', label: 'Offline' },
+              { id: 'good_signal', label: 'Good Signal (≥ -27 dBm)' },
               { id: 'low_signal', label: 'Low Signal (< -27 dBm)' },
               { id: 'unassigned', label: 'Unassigned' },
             ].map((st) => (

@@ -243,8 +243,8 @@ export const OperatorDashboard: React.FC = () => {
 
           {/* Card 3: Optical Health / Signal Levels (Replaces Total IPoE per request) */}
           <Link
-            to="/operator/devices?opticalStatus=critical"
-            className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md hover:ring-2 hover:ring-rose-400 transition cursor-pointer block group"
+            to="/operator/devices?opticalStatus=good"
+            className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#059669] via-[#047857] to-[#065F46] text-white p-5 shadow-md hover:ring-2 hover:ring-emerald-400 transition cursor-pointer block group"
           >
             <div className="relative z-10 space-y-1">
               <div className="flex items-baseline space-x-2">

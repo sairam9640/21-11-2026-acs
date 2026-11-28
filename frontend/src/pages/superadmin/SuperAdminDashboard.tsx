@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Building2,
   Users,
@@ -320,28 +320,34 @@ export const SuperAdminDashboard: React.FC = () => {
               </div>
 
               {/* Good Optical Power */}
-              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0284C7] via-[#0369A1] to-[#075985] text-white p-4 shadow-sm">
+              <Link
+                to="/operator/devices?opticalStatus=good"
+                className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0284C7] via-[#0369A1] to-[#075985] text-white p-4 shadow-sm hover:ring-2 hover:ring-sky-300 transition cursor-pointer block group"
+              >
                 <div className="relative z-10 space-y-0.5">
                   <h4 className="text-2xl font-extrabold tracking-tight font-sans">
                     {goodOpticalPower.toLocaleString()}
                   </h4>
                   <p className="text-[11px] uppercase tracking-wider font-bold text-sky-200">GOOD POWER (≥ -27 dBm)</p>
-                  <p className="text-[10px] text-sky-300 font-medium">Clean optical light</p>
+                  <p className="text-[10px] text-sky-300 font-medium">Clean optical light · Click to view &rarr;</p>
                 </div>
-                <Signal className="absolute right-2 top-2 w-16 h-16 text-white/10 pointer-events-none" />
-              </div>
+                <Signal className="absolute right-2 top-2 w-16 h-16 text-white/10 pointer-events-none group-hover:scale-105 transition-transform" />
+              </Link>
 
               {/* Bad Optical Power */}
-              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#D97706] via-[#B45309] to-[#92400E] text-white p-4 shadow-sm">
+              <Link
+                to="/operator/devices?opticalStatus=critical"
+                className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#D97706] via-[#B45309] to-[#92400E] text-white p-4 shadow-sm hover:ring-2 hover:ring-amber-300 transition cursor-pointer block group"
+              >
                 <div className="relative z-10 space-y-0.5">
                   <h4 className="text-2xl font-extrabold tracking-tight font-sans">
                     {badOpticalPower.toLocaleString()}
                   </h4>
                   <p className="text-[11px] uppercase tracking-wider font-bold text-amber-200">BAD POWER (&lt; -27 dBm)</p>
-                  <p className="text-[10px] text-amber-300 font-medium">Needs splice repair</p>
+                  <p className="text-[10px] text-amber-300 font-medium">Needs splice repair · Click to view &rarr;</p>
                 </div>
-                <AlertTriangle className="absolute right-2 top-2 w-16 h-16 text-white/10 pointer-events-none" />
-              </div>
+                <AlertTriangle className="absolute right-2 top-2 w-16 h-16 text-white/10 pointer-events-none group-hover:scale-105 transition-transform" />
+              </Link>
             </div>
 
             {/* Optical Signal Distribution Bar */}
